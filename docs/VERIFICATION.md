@@ -2,6 +2,8 @@
 
 Version: 0.3.0-alpha.5. Experimental friend-test build, not a finished multiplayer release.
 
+Release follow-up: the v0.3.0-alpha.7 GitHub tag workflow passed Windows build/tests and automatically published Setup, portable, blockmap and alpha-channel metadata. A hidden electron-updater test representing version alpha.5 detected alpha.7 and downloaded its 113,020,110-byte launcher installer with checksum verification. The installer was not executed. The full personal offline package remains alpha.5 and uses the same alpha update feed; its cached game data is independent of the launcher version. The alpha.6 workflow failed artifact upload before publication; alpha.7 corrects its output path.
+
 - 28 unit checks passed, including private invites, bounded combat/world authority, launch concurrency, pairwise social messaging and offline cache/repair preservation across replacement of a temporary install folder.
 - The actual packaged Windows launcher passed hidden UI checks: profile navigation, Host/Join via public signaling, readiness, both validated launch handlers, duplicate Start protection and automatic guest preparation after rejoining an active lobby. Game launches were replaced by test callbacks; no GTA process was started.
 - Two hidden renderer contexts exchanged real WebRTC social presence, text and delivery receipts using a local signaling relay.
