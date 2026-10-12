@@ -72,6 +72,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         for (let i = 0; i < 2; i++) {
           const data = await windows[i].webContents.executeJavaScript("({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,driver:testEvents.findLast(e=>e.name==='driver-state')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail)})");
           engines[i].frame(data.frame);for(const shot of data.shots)engines[i].remoteShot(shot);
+          const connected=data.frame.filter(player=>!player.self);engines[i].networkStatus({ping:connected.map(player=>player.ping).filter(Number.isFinite).reduce((max,ping)=>Math.max(max,ping),-1),transportPing:-1,peers:Math.min(7,connected.length)});
           if(data.ambient)engines[i].remoteWorld(data.ambient);
           if(data.seat)engines[i].seatGrant(data.seat); if(data.driver)engines[i].driverState(data.driver);
           if(i===0)for(const pane of data.glass||[]){const key=JSON.stringify(pane.slice(0,5));const previous=deliveredGlass.get(key)||0;if(pane[1]>previous){engines[i].glassRequest(pane);deliveredGlass.set(key,pane[1]);}}

@@ -175,7 +175,7 @@ async function start() {
   ipc('invite-parse', decodeInvite);
   ipc('invite-copy', async invite => { const link = inviteLink(invite, config.inviteBaseUrl); await clipboard.writeText(link); return link; });
   ipc('invite-code-copy', async value=>{const invite=decodeInvite(inviteLink(value));if(!invite.code)throw new Error('Create a new lobby to use a short code.');await clipboard.writeText(invite.code);return invite.code;});
-  ipc('copy-text', async text => { if(typeof text!=='string'||text.length>2048)throw new Error('Text is too long to copy.');clipboard.writeText(text);return true; });
+  ipc('copy-text', async text => { if(typeof text!=='string'||text.length>8192)throw new Error('Text is too long to copy.');clipboard.writeText(text);return true; });
   ipc('settings', async value => {
     if (!value || typeof value.name !== 'string' || value.name.length > 24 || ![0, 30, 60, 120, 144, 240].includes(value.fps) || typeof value.fullscreen !== 'boolean') throw new Error('Please choose valid settings.');
     const mouseSensitivity=Number(value.mouseSensitivity??settings.mouseSensitivity??1.5);
@@ -209,6 +209,7 @@ async function start() {
   ipc('remote-shot',shot=>{nativeEngine.remoteShot(shot);return true;});
   ipc('remote-world',frame=>nativeEngine.remoteWorld(frame));
   ipc('remote-driver-state',update=>nativeEngine.driverState(update));
+  ipc('network-status',status=>nativeEngine.networkStatus(status));
   ipc('seat-grant',claim=>nativeEngine.seatGrant(claim));
   ipc('glass-request',state=>nativeEngine.glassRequest(state));
   ipcMain.on('local-state', (event, state) => {

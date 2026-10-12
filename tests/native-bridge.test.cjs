@@ -1,6 +1,14 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { NativeEngine, cleanLabel,validState,packet } = require('../src/native-engine.cjs');
+test('network HUD preserves unknown ping and rejects malformed status',()=>{
+ const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
+ engine.networkStatus({ping:-1,transportPing:-1,peers:0});
+ engine.networkStatus({ping:151,transportPing:32,peers:1});
+ for(const status of [{ping:NaN,transportPing:0,peers:1},{ping:1,transportPing:Infinity,peers:1},{ping:1,transportPing:1,peers:8},{ping:1,transportPing:1,peers:1.5},null])engine.networkStatus(status);
+ assert.equal(packets.length,2);assert.equal(packets[0].readUInt32LE(4),49);assert.equal(packets[0].readFloatLE(12),-1);
+ assert.deepEqual([12,16,20].map(offset=>packets[1].readFloatLE(offset)),[151,32,1]);
+});
 test('late reliable snapshots cannot undo newer authoritative death/health updates',()=>{
  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
  const state=[0,0,10,0,0,0,0,1,0,0];engine.frame([{id:'me',self:true,seq:20,state}]);engine.frame([{id:'me',self:true,seq:19,state:[...state.slice(0,8),100,0]}]);

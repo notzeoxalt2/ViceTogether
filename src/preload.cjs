@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('desktop', {
   sendShot: value => invoke('remote-shot',value),
   sendWorld: value => invoke('remote-world',value),
   sendDriverState: value=>invoke('remote-driver-state',value),
+  sendNetworkStatus: value=>invoke('network-status',value),
   seatGrant: value=>invoke('seat-grant',value),
   glassRequest: value=>invoke('glass-request',value),
   checkUpdates: () => invoke('updates'),

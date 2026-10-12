@@ -164,6 +164,7 @@ class NativeEngine extends EventEmitter {
   }
   stop() { this.child?.kill(); this.closeSocket(); }
   diagnostics(){return {running:!!this.child&&this.child.exitCode===null,host:this.authoritativeWorld===true,remotePlayers:this.slots.size,worldSequence:this.worldReceived||0,packets:this.packetCounts||{},performance:this.lastPerformance,appliedGuestHits:this.worldHitCounts||{npc:0,vehicle:0}};}
+  networkStatus(status){if(!status||![status.ping,status.transportPing,status.peers].every(Number.isFinite)||status.ping< -1||status.ping>10000||status.transportPing< -1||status.transportPing>10000||!Number.isInteger(status.peers)||status.peers<0||status.peers>7)return;this.send(49,0,[status.ping,status.transportPing,status.peers]);}
 }
 function cleanLabel(name) { return String(name || 'Player').replace(/[^a-zA-Z0-9 _.-]/g, '').trim().slice(0, 24) || 'Player'; }
 module.exports = { NativeEngine, validState, packet, cleanLabel };

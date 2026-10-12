@@ -276,7 +276,7 @@ export class PrivateLobby extends EventTarget {
     for(const pc of Object.values(this.room?.getPeers()||{})){
       const stats=await pc.getStats();const transport=[...stats.values()].find(s=>s.type==='transport'&&s.selectedCandidatePairId);
       const pair=stats.get(transport?.selectedCandidatePairId);const local=stats.get(pair?.localCandidateId),remote=stats.get(pair?.remoteCandidateId);
-      reports.push({state:pc.connectionState,ice:pc.iceConnectionState,route:pair?{localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,rttMs:Math.round((pair.currentRoundTripTime||0)*1000),availableOutgoingKbps:pair.availableOutgoingBitrate===undefined?null:Math.round(pair.availableOutgoingBitrate/1000)}:null});
+      reports.push({state:pc.connectionState,ice:pc.iceConnectionState,route:pair?{localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,rttMs:Number.isFinite(pair.currentRoundTripTime)?Math.round(pair.currentRoundTripTime*1000):null,availableOutgoingKbps:pair.availableOutgoingBitrate===undefined?null:Math.round(pair.availableOutgoingBitrate/1000)}:null});
     }
     return {peers:reports.slice(0,7),snapshotChannels:this.fast?.report()||[],pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
   }

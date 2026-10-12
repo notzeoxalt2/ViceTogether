@@ -40,6 +40,14 @@
 void WeaponCheat1();void WeaponCheat2();void WeaponCheat3();
 extern "C" void VT_ReportWorldHit(int kind,float health);
 static bool modMenuOpen=false;static int modMenuRow=0,modMenuAction=-1;
+static float hudPing=-1,hudTransportPing=-1;static int hudPeers=0;static uint32 hudNetworkTime=0;
+void ViceTogetherNetworkStatus(const float* status){if(!std::isfinite(status[0])||!std::isfinite(status[1])||!std::isfinite(status[2])||status[0]<-1||status[0]>10000||status[1]<-1||status[1]>10000||status[2]<0||status[2]>7)return;hudPing=status[0];hudTransportPing=status[1];hudPeers=int(status[2]);hudNetworkTime=CTimer::GetTimeInMilliseconds();}
+static void drawNetworkStatus(){
+    const CFontDetails saved=CFont::Details;char label[64];const bool fresh=CTimer::GetTimeInMilliseconds()-hudNetworkTime<10000;
+    if(!fresh)snprintf(label,sizeof(label),"Ping: waiting...");else if(!hudPeers)snprintf(label,sizeof(label),"Solo lobby");else if(hudPing<0)snprintf(label,sizeof(label),"Ping: measuring...");else snprintf(label,sizeof(label),"Ping: %d ms",int(hudPing));
+    const float x=SCREEN_SCALE_X(14),y=SCREEN_SCALE_Y(14);CSprite2d::DrawRect(CRect(x,y,x+SCREEN_SCALE_X(135),y+SCREEN_SCALE_Y(24)),CRGBA(14,18,26,210));
+    CFont::SetFontStyle(FONT_STANDARD);CFont::SetScale(SCREEN_SCALE_X(0.34f),SCREEN_SCALE_Y(0.66f));CFont::SetCentreOff();CFont::SetRightJustifyOff();CFont::SetJustifyOff();CFont::SetBackgroundOff();CFont::SetPropOn();CFont::SetColor(hudPing>=160?CRGBA(244,166,92,255):CRGBA(175,230,213,255));wchar text[64];AsciiToUnicode(label,text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+SCREEN_SCALE_Y(5),text);CFont::Details=saved;
+}
 bool ViceTogetherMenuOpen(){return modMenuOpen;}
 bool ViceTogetherMenuKey(int key,bool control){
     if(key=='O'&&control){modMenuOpen=!modMenuOpen;return true;}
@@ -421,6 +429,7 @@ void ViceTogetherDrawNames() {
     }
     CFont::Details=saved;
     drawModMenu();
+    drawNetworkStatus();
 }
 
 void ViceTogetherTick() {
