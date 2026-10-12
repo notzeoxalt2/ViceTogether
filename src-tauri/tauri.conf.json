@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "ViceTogether Rust Preview",
+  "version": "0.3.0-alpha.4",
+  "identifier": "org.vicetogether.rust-preview",
+  "build": { "frontendDist": "../ui" },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [{ "label": "main", "title": "ViceTogether — Rust migration preview", "decorations": false, "width": 1130, "height": 790, "minWidth": 920, "minHeight": 690 }],
+    "security": { "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https: wss: ws://127.0.0.1:*; object-src 'none'; base-uri 'self'" }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["../art/icon.ico"],
+    "resources": { "../engine/native/reVC.exe": "native/reVC.exe", "../engine/native/ENGINE-LICENSE.md": "native/ENGINE-LICENSE.md" },
+    "windows": { "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true } }
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "name": "vice-together",
+  "version": "0.3.0-alpha.5",
+  "description": "Experimental native Vice City on-foot WebRTC multiplayer launcher",
+  "author": "ViceTogether contributors",
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "bundle": "node scripts/build.mjs",
+    "test": "node --test tests/*.test.cjs",
+    "test:desktop": "electron . --self-test",
+    "dist": "npm run bundle && electron-builder --win nsis portable --x64 --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9",
+    "trystero": "0.26.0",
+    "@trystero-p2p/ws-relay": "^0.26.0"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2"
+  },
+  "build": {
+    "appId": "org.vicetogether.launcher",
+    "productName": "ViceTogether Alpha",
+    "asar": true,
+    "directories": {
+      "output": "../../work/release"
+    },
+    "files": [
+      "src/**/*",
+      "ui/**/*",
+      "release-config.json",
+      "LICENSE",
+      "THIRD-PARTY-NOTICES.md",
+      "package.json",
+      "engine/sync.js",
+      "engine/combat.js",
+      "README.md",
+      "engine/shots.js",
+      "engine/world.cjs",
+      "engine/seats.cjs",
+      "engine/weapons.cjs",
+      "engine/glass.cjs"
+    ],
+    "protocols": [
+      {
+        "name": "ViceTogether private invitation",
+        "schemes": [
+          "vicetogether"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "artifactName": "ViceTogether-${version}-${arch}-Setup.${ext}",
+      "icon": "art/icon.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowElevation": false,
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "installerIcon": "art/icon.ico",
+      "uninstallerIcon": "art/icon.ico"
+    },
+    "portable": {
+      "artifactName": "ViceTogether-${version}-${arch}-portable.exe"
+    },
+    "extraResources": [
+      {
+        "from": "engine/native",
+        "to": "native",
+        "filter": [
+          "reVC.exe",
+          "ENGINE-LICENSE.md"
+        ]
+      }
+    ],
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/notzeoxalt2/ViceTogether/releases/latest/download"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/notzeoxalt2/ViceTogether.git"
+  }
+}

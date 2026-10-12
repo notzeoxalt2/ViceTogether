@@ -1,0 +1,1 @@
+{"main":{"identifier":"main","description":"Local launcher window; no remote pages or arbitrary shell access.","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging"]}}

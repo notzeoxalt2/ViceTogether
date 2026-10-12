@@ -1,0 +1,204 @@
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const { NativeEngine } = require('./native-engine.cjs');
+const delay = ms => new Promise(r => setTimeout(r, ms));
+async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
+  let gameRoot = process.env.VT_TEST_GAME_ROOT;
+  if (!gameRoot) throw new Error('Set VT_TEST_GAME_ROOT to your own Vice City asset folder for the native gameplay test.');
+  let importTest = null;
+  if(process.env.VT_TEST_IMPORT_CACHE) {
+    const { AssetStore } = require('./assets.cjs');
+    const store = new AssetStore(process.env.VT_TEST_IMPORT_CACHE);
+    importTest = await store.import(gameRoot);
+    assert.ok(importTest.gameReady, 'Real game import did not produce a ready asset cache');
+    gameRoot = path.join(store.root, 'game');
+    await fs.access(path.join(gameRoot, 'mss/Mp3dec.asi'));
+  }
+  const work = path.resolve(out, '../../work');
+  const testId=`${process.pid}-${Date.now().toString(36)}`;
+  const engines = [new NativeEngine(executable), new NativeEngine(executable)];
+  const windows = [a, b];
+  const durationSeconds = Math.max(10, Math.min(180, Number(process.env.VT_TEST_DURATION) || 30));
+  const interactive=process.env.VT_MANUAL_FOLLOW==='1';
+  const autoFollow=interactive && process.env.VT_MANUAL_BOTH!=='1';
+  const combatTest=process.env.VT_TEST_COMBAT==='1',hits=[0,0];
+  const diagnostics=[],skeleton=[[],[]],shots=[[],[]],playedShots=[[],[]];
+  const sourceSkeleton=[[],[]];
+  const worldFrames=[0,0],worldObserved=[null,null];
+  const localSeats=[[],[]];let lastGuestSeat=-1;
+  const deliveredGlass=new Map();
+  const placements=[0,1].map(i=>require('./display.cjs').gameWindow(i));
+  const local = [[], []], remote = [[], []], performance = [[], []], errors = [];
+  let timer, forwarding = false, stopping = false;
+  try {
+    for (let i = 0; i < 2; i++) {
+      const root = path.join(work, `native-live-${testId}-${i}`);
+      await fs.mkdir(root, { recursive: true });
+      for (const entry of await fs.readdir(gameRoot, { withFileTypes: true })) {
+        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+        const target = path.join(root, entry.name);
+        try { await fs.lstat(target); } catch { await fs.symlink(path.join(gameRoot, entry.name), target, 'junction'); }
+      }
+      await fs.copyFile(path.join(gameRoot, 'Mss32.dll'), path.join(root, 'Mss32.dll'));
+      engines[i].on('problem', text => errors.push(text));
+      engines[i].on('packet-diagnostic',packet=>diagnostics.push({player:i,...packet}));
+      engines[i].on('ended', ({code}) => { if(!stopping) errors.push(`Engine ${i} exited before test completion (code ${code})`); });
+      engines[i].on('state', state => {
+        local[i].push({ time: Date.now(), state });
+        windows[i].webContents.executeJavaScript(`testLobby.sendState(${JSON.stringify(state)})`).catch(e => errors.push(e.message));
+      });
+      engines[i].on('world-damage',event=>windows[i].webContents.executeJavaScript(`testLobby.sendWorldDamage(${JSON.stringify(event)})`).catch(e=>errors.push(e.message)));
+      engines[i].on('glass-request',state=>windows[i].webContents.executeJavaScript(`testLobby.sendGlass(${JSON.stringify(state)})`).catch(e=>errors.push(e.message)));
+      engines[i].on('remote-observed', state => remote[i].push({ time: Date.now(), ...state }));
+      engines[i].on('skeleton-observed', state => skeleton[i].push({ time: Date.now(), ...state }));
+      engines[i].on('local-skeleton-observed',state=>sourceSkeleton[i].push({time:Date.now(),...state}));
+      engines[i].on('performance', stats => performance[i].push(stats));
+      engines[i].on('hit', hit=>{hits[i]++;windows[i].webContents.executeJavaScript(`testLobby.sendHit(${JSON.stringify(hit)})`).catch(e=>errors.push(e.message));});
+      engines[i].on('equipment',weapon=>windows[i].webContents.executeJavaScript(`testLobby.sendEquipment(${JSON.stringify(weapon)})`).catch(e=>errors.push(e.message)));
+      engines[i].on('shot',shot=>{shots[i].push(shot);windows[i].webContents.executeJavaScript(`testLobby.sendShot(${JSON.stringify(shot)})`).catch(e=>errors.push(e.message));});
+      engines[i].on('shot-played',shot=>playedShots[i].push(shot));
+      engines[i].on('world',frame=>{worldFrames[i]++;windows[i].webContents.executeJavaScript(`testLobby.sendWorld(${JSON.stringify(frame)})`).catch(e=>errors.push(e.message));});
+      engines[i].on('world-observed',status=>worldObserved[i]=status);
+      engines[i].on('seat-state',seat=>{localSeats[i].push(seat);if(i===0)windows[i].webContents.executeJavaScript(`testLobby.sendSeat(${JSON.stringify({driver:true,car:seat})})`).catch(e=>errors.push(e.message));else if(seat.id<0 && lastGuestSeat>=0)windows[i].webContents.executeJavaScript('testLobby.sendSeat({release:true})').catch(e=>errors.push(e.message));if(i===1)lastGuestSeat=seat.id;});
+      engines[i].on('seat-request',request=>windows[i].webContents.executeJavaScript(`testLobby.sendSeat(${JSON.stringify(request)})`).catch(e=>errors.push(e.message)));
+      const launch=()=>engines[i].start(root, { multiplayer: true, authoritativeWorld:i===0, inputDisabled:interactive&&i===1&&process.env.VT_MANUAL_HOST_ONLY==='1', testWalk: !interactive, testCombat:!interactive&&combatTest, followPlayer:autoFollow&&i===1, muted:interactive&&i===1, name: i ? 'Friend' : 'Host', fullscreen: process.env.VT_TEST_FULLSCREEN === '1',windowBounds:placements[i], fps: Number(process.env.VT_TEST_FPS ?? 144), spawnOffset: i * (interactive?4:process.env.VT_TEST_GUN==='1'?6:1.1) });
+      if(registerLauncher)registerLauncher(windows[i],launch);else await launch();
+    }
+    timer = setInterval(async () => {
+      if (forwarding) return; forwarding = true;
+      try {
+        for (let i = 0; i < 2; i++) {
+          const data = await windows[i].webContents.executeJavaScript("({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail)})");
+          engines[i].frame(data.frame);for(const shot of data.shots)engines[i].remoteShot(shot);
+          if(data.ambient)engines[i].remoteWorld(data.ambient);
+          if(data.seat)engines[i].seatGrant(data.seat);
+          if(i===0)for(const pane of data.glass||[]){const key=JSON.stringify(pane.slice(0,5));const previous=deliveredGlass.get(key)||0;if(pane[1]>previous){engines[i].glassRequest(pane);deliveredGlass.set(key,pane[1]);}}
+        }
+      } catch(e) { errors.push(e.message); } finally { forwarding = false; }
+    }, 10);
+    if(registerLauncher) {
+      const enabled=await a.webContents.executeJavaScript("!document.getElementById('multiplayer').disabled");
+      assert.ok(enabled,'Actual launcher did not enable Start after both imports were ready');
+      await a.webContents.executeJavaScript("document.getElementById('multiplayer').click()");
+    }
+    // Actual engine frames, input, physics, WebRTC, and remote CPed observations.
+    if(interactive) {
+      const deadline=Date.now()+30000;
+      while(local.some(s=>s.length<30) && Date.now()<deadline && !errors.length)await delay(100);
+      assert.ok(local.every(s=>s.length>=30),'Both manual-session engines did not initialize');
+      await fs.writeFile(path.join(out,'manual-session.json'),JSON.stringify({ready:true,manualPlayer:'Host (red), left window',secondPlayer:'Friend (green), right window',autoFollow,pids:engines.map(e=>e.child.pid),placements,startedAt:new Date().toISOString(),limitation:'Bounded host world replicas; guest driving, NPC shot effects, guest attacks on NPCs and complete police interactions remain unfinished.'},null,2));
+      // User controls the leader for as long as desired; closing either game ends the pair.
+      while(engines.every(e=>e.child && e.child.exitCode===null) && !errors.length) {
+        await delay(500);
+        for(const sets of [local,remote,skeleton,performance])for(const samples of sets)if(samples.length>3000)samples.splice(0,samples.length-3000);
+        await fs.writeFile(path.join(out,'manual-live.json'),JSON.stringify({worldFrames,worldObserved,remoteWeapons:skeleton.map(s=>s.at(-1)?.state.slice(13,17)),nativeShots:shots.map(s=>s.length),remoteEffectsPlayed:playedShots.map(s=>s.length),remoteBloodEvents:playedShots.map(s=>s.filter(p=>p.hit && p.hitKind===1).length),players:local.map(s=>s.at(-1)?.state),performance:performance.map(s=>s.at(-1))}));
+      }
+      return {success:true,interactiveManualFollow:true,automatedPadInput:false};
+    }
+    await delay(durationSeconds * 1000);
+    if(process.env.VT_TEST_CAR_BLAST==='1'){
+      assert.equal(errors.length,0,errors.join('; '));
+      const driver=localSeats[0].find(s=>s.id>=0 && s.seat===-1);
+      assert.ok(driver && localSeats[1].filter(s=>s.id===driver.id && s.seat>=0).length>100,'Both players must occupy the same real car before its explosion');
+      assert.ok(local[1].some(s=>s.state[8]===0),'Exploding the occupied host car did not kill the shared guest');
+      assert.ok(worldObserved[1]?.seq>10,'Guest did not receive the wreck world updates');
+      return {success:true,scenario:'Host blows up a native car occupied by driver and guest passenger',durationSeconds,sharedVehicleId:driver.id,guestMinimumHealth:Math.min(...local[1].map(s=>s.state[8])),freshWindowsVMTested:false};
+    }
+    if(process.env.VT_TEST_WORLD_EFFECTS==='1') {
+      assert.ok(worldObserved.every(s=>s && s.brokenGlass>0),'The native glass pane was not invisible and non-colliding in both engines');
+      assert.ok(worldObserved[0].explosionSequence>0 && worldObserved[1].explosionSequence===worldObserved[0].explosionSequence,'Guest did not replay the host explosion');
+      assert.ok(local[1].some(s=>s.state[8]<100),'Host-attributed explosion did not change shared guest health');
+      const result={success:true,scenario:'Native glass break and host-attributed nearby grenade',durationSeconds,automatedPadInput:false,worldObserved,guestMinimumHealth:Math.min(...local[1].map(s=>s.state[8])),freshWindowsVMTested:false};
+      await fs.writeFile(path.join(out,'native-gameplay.json'),JSON.stringify(result,null,2));return result;
+    }
+    assert.equal(errors.length, 0, errors.join('; '));
+    const players = local.map((samples, i) => {
+      assert.ok(samples.length > 150, `Engine ${i} did not produce enough live player states`);
+      const settled = samples.filter(s => s.time > samples[0].time + 4000);
+      const xs = settled.map(s => s.state[0]), ys = settled.map(s => s.state[1]);
+      const displacement = Math.hypot(Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys));
+      if(!combatTest)assert.ok(displacement > 1, `Engine ${i} did not move under real pad input`);
+      assert.ok(remote[i].length > 100, `Engine ${i} did not create and update the remote game ped`);
+      const renderErrors=remote[i].map(s=>Math.hypot(...s.state.slice(0,3).map((v,k)=>v-s.state[4+k])));
+      assert.ok(Math.max(...renderErrors)<0.05,`Engine ${i} visible model does not follow its network position`);
+      assert.ok(remote[i].slice(20).every(s=>s.state[9]===0),`Engine ${i} opened the pause menu during the background test`);
+      const upright=skeleton[i].filter(s=>s.time>samples[0].time+5000 && s.state[3]>0);
+      assert.ok(upright.length>50,`Engine ${i} did not report the actual remote skeleton`);
+      assert.ok(upright.every(s=>Math.abs(s.state[4]-1)<0.02 && s.state[5]<=1.01),`Engine ${i} remote animation weights can collapse the base pose`);
+      const heights=upright.map(s=>Math.max(s.state[0],s.state[1]));
+      // Jumping/ducking legitimately bends the source skeleton. Compare actual
+      // source bone distances within the interpolation window, not standing height.
+      const shapeErrors=upright.map(s=>{const recent=sourceSkeleton[1-i].filter(p=>p.time<=s.time && s.time-p.time<350 && p.state[3]>0);return recent.length?Math.min(...recent.map(p=>Math.hypot(...p.state.slice(0,3).map((v,k)=>v-s.state[k])))):null;}).filter(e=>e!==null).sort((a,b)=>a-b);
+      assert.ok(shapeErrors.length>50 && shapeErrors[Math.floor(shapeErrors.length*.95)]<0.25,`Engine ${i} remote skeleton does not match actual source bones: p95 ${shapeErrors[Math.floor(shapeErrors.length*.95)]}`);
+      const colored=upright.filter(s=>s.state[6]>0 && s.state[7]>0);
+      assert.ok(colored.length>10 && colored.some(s=>s.state[8]>100), `Engine ${i} remote shirt recoloring was not applied during native rendering`);
+      const gunAimSamples=upright.filter(s=>s.state[9]===1);
+      const jumpSamples=upright.filter(s=>s.state[12]===1);
+      if(process.env.VT_TEST_JUMP==='1')assert.ok(jumpSamples.length>20,`Engine ${i} did not apply jump launch/glide/landing to the remote native skeleton`);
+      if(process.env.VT_TEST_GUN_WALK==='1')assert.ok(gunAimSamples.length>30,`Engine ${i} did not receive the actual source gun-aim pose`);
+      // In a shared car the host owns the vehicle transform. Its passenger proxy
+      // uses the current authoritative seat, while the guest's local passenger
+      // rides its buffered car replica. Compare the host-side passenger to the
+      // authoritative driver trajectory (including the fixed seat separation),
+      // rather than treating the guest's delayed replica as authority.
+      const authoritativeCarPassenger=process.env.VT_TEST_CAR==='1' && i===0;
+      const source = local[authoritativeCarPassenger?0:1-i];
+      const positionErrors = remote[i].filter(s => s.time > samples[0].time + 5000).map(s => {
+        const recent = source.filter(p => p.time <= s.time && s.time-p.time < 350);
+        return recent.length ? Math.min(...recent.map(p => Math.hypot(...p.state.slice(0,3).map((v,k) => v-s.state[k])))) : null;
+      }).filter(v => v !== null).sort((a,b)=>a-b);
+      assert.ok(positionErrors.length > 50, 'Missing comparable remote ped positions');
+      const p95 = positionErrors[Math.floor(positionErrors.length * 0.95)];
+      assert.ok(p95 < 1, `Engine ${i} ${authoritativeCarPassenger?'passenger seat distance from authoritative driver':'replication error'} exceeded one metre: ${p95}`);
+      const gaps = settled.slice(1).map((s,j) => s.time-settled[j].time).sort((a,b)=>a-b);
+      const gaitSamples=remote[i].filter(s=>s.state[14]>0.05 && s.state[12]>0);
+      if(process.env.VT_TEST_CAR!=='1')assert.ok(gaitSamples.length>30,`Engine ${i} did not animate the actual remote ped`);
+      const gaitPhaseChanges=gaitSamples.slice(1).filter((s,j)=>Math.abs(s.state[12]-gaitSamples[j].state[12])>0.005).length;
+      if(process.env.VT_TEST_CAR!=='1')assert.ok(gaitPhaseChanges>20,`Engine ${i} remote locomotion is frozen`);
+      const fpsSamples=performance[i].slice(4).map(p=>p.fps).sort((a,b)=>a-b);
+      const actualWindow=performance[i].at(-1)?.window;
+      if(actualWindow && process.env.VT_TEST_FULLSCREEN!=='1') {
+        assert.ok(Math.abs(actualWindow.x-placements[i].x)<3 && Math.abs(actualWindow.y-placements[i].y)<3,'Game did not open in its assigned secondary-monitor corner');
+      }
+      return { livePackets: samples.length, remotePedObservations: remote[i].length, displacementMetres: displacement,
+        requestedFps: Number(process.env.VT_TEST_FPS ?? 144),displayPlacement:placements[i],actualWindow, measuredMedianFps: fpsSamples[Math.floor(fpsSamples.length/2)] ?? null,
+        measuredFrameMsP95: Math.max(0,...performance[i].slice(4).map(p=>p.frameMsP95)),
+        remoteGaitSamples: gaitSamples.length, remoteGaitPhaseChanges: gaitPhaseChanges,
+        maximumRenderPositionErrorMetres:Math.max(...renderErrors),pauseMenuObserved:remote[i].some(s=>s.state[9]===1),
+        skeletonSamples:upright.length,minimumHeadToFootMetres:Math.min(...heights),maximumHeadToFootMetres:Math.max(...heights),
+        coloredRemoteDraws:Math.max(0,...upright.map(s=>s.state[7])),recoloredTexturePixels:Math.max(0,...upright.map(s=>s.state[8])),
+        replicatedGunAimSamples:gunAimSamples.length,
+        replicatedJumpSamples:jumpSamples.length,
+        closestRecentSourceSkeletonErrorP95Metres:shapeErrors[Math.floor(shapeErrors.length*.95)],
+        ...(authoritativeCarPassenger?{passengerToAuthoritativeDriverDistanceP95Metres:p95}:{closestRecentPositionErrorP95Metres:p95}), statePacketGapP95Ms: gaps[Math.floor(gaps.length * .95)] };
+    });
+    if(combatTest) {
+      assert.ok(hits[0]>1,'Actual pad-input punches did not hit the remote native ped');
+      assert.ok(local[1].some(s=>s.state[8]<100),'The guest native player never received shared health damage');
+      if(process.env.VT_TEST_MOVING_COMBAT==='1')assert.ok(players[1].displacementMetres>0.2,'Defender did not actually move');
+    }
+    if(process.env.VT_TEST_SHOTS==='1')for(let i=0;i<2;i++) {
+      assert.ok(shots[i].length>5,`Engine ${i} did not fire real native shots`);
+      assert.ok(playedShots[1-i].length>5,`Engine ${1-i} did not execute remote shot effects`);
+      assert.ok(playedShots[1-i].every(p=>shots[i].some(s=>Math.hypot(...s.end.map((v,k)=>v-p.end[k]))<0.001)), 'Remote trace endpoint differs from the actual source shot');
+    }
+    const healthTransitions=local[1].slice(1).map((s,i)=>[local[1][i].state[8],s.state[8]]);
+    assert.ok(worldFrames[0]>10 && worldObserved[1]?.seq>10 && worldObserved[1]?.loadedPeds>0,'Guest did not load host-owned native ambient entities');
+    if(process.env.VT_TEST_CAR==='1'){
+      assert.ok(players.every(p=>p.displacementMetres>25),'Driver/passenger did not travel at least 25 metres in the shared car');
+      assert.ok(localSeats[0].filter(s=>s.id>=0 && s.seat===-1).length>100,'Host did not drive a real native vehicle');
+      assert.ok(localSeats[1].filter(s=>s.id>=0 && s.seat>=0).length>100,'Guest did not occupy a real native passenger seat');
+      assert.equal(localSeats[0].at(-1).id,localSeats[1].at(-1).id,'Players rode different shared vehicle identities');
+      const driverId=localSeats[0].at(-1).id;
+      assert.ok(localSeats.every(seats=>seats.slice(-200).every(s=>s.id===driverId)),'A player lost the shared car during the drive');
+    }
+    return { success: true, durationSeconds, players, launchedFromActualUIButton:!!registerLauncher,combatTest, movingDefenderFixture:combatTest&&process.env.VT_TEST_MOVING_COMBAT==='1',nativeHits:hits,nativeShots:shots.map(s=>s.length),remoteShotEffects:playedShots.map(s=>s.length), guestMinimumHealth:Math.min(...local[1].map(s=>s.state[8])),guestDeaths:healthTransitions.filter(([a,b])=>a>0&&b===0).length,guestRespawns:healthTransitions.filter(([a,b])=>a===0&&b===100).length, importedAssetCacheTested: !!importTest, importedFileCount: importTest?.gameFiles || null, automatedPadInput: true,
+      transport: 'Two native reVC engines → loopback bridge → two sandboxed Chromium contexts → real Trystero WebRTC → remote CPeds',
+      limitation: 'Same-PC prototype. Closest recent position metric allows up to 350 ms lag and does not prove visual smoothness. Melee fixture resets attacker position to stay in reach; defender sidesteps only when movingDefenderFixture is true. Gun combat, free-moving combat under internet latency, NPC sync and fresh Windows remain unverified.' };
+  } finally {
+    clearInterval(timer); stopping = true; engines.forEach(e=>e.stop());
+    await fs.writeFile(path.join(out, 'native-game-samples.json'), JSON.stringify({ local, remote, skeleton,sourceSkeleton,localSeats,worldFrames,worldObserved, performance, errors, diagnostics,hits,shots,playedShots }));
+  }
+}
+module.exports = { runNativeGameTest };

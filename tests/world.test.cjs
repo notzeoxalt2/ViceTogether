@@ -1,0 +1,37 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const {validWorldFrame}=require('../engine/world.cjs');
+const {NativeEngine}=require('../src/native-engine.cjs');
+function vehicle(id=42){const state=Array(34).fill(0);state[0]=130;state[5]=state[9]=state[13]=1;state[17]=1000;return {id,type:22,state};}
+test('NPC injury state reaches the replica while invalid bone indices are rejected',()=>{
+  const state=Array(34).fill(0);state[0]=7;state[1]=4;state[8]=state[9]=-1;state[30]=180;state[31]=3|32|128;
+  const frame={seq:3,entities:[{type:21,id:123,state}]};assert.ok(validWorldFrame(frame));
+  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:p=>packets.push(p)};engine.endpoint=1234;assert.ok(engine.remoteWorld(frame));
+  const npc=packets.find(p=>p.readUInt32LE(4)===21);assert.equal(npc.readFloatLE(12+30*4),180);assert.equal(npc.readFloatLE(12+31*4),163);
+  state[31]=31|32|128;assert.equal(validWorldFrame(frame),false);
+});
+test('world frames reject duplicate identities, malformed vehicle bases and excess population',()=>{
+  const entity=vehicle();assert.ok(validWorldFrame({seq:1,entities:[entity]}));
+  assert.equal(validWorldFrame({seq:1,entities:[entity,entity]}),false);
+  const invalid=vehicle();invalid.state[5]=0;assert.equal(validWorldFrame({seq:1,entities:[invalid]}),false);
+  assert.equal(validWorldFrame({seq:1,entities:Array.from({length:33},(_,i)=>vehicle(i))}),false);
+  assert.equal(validWorldFrame({seq:Infinity,entities:[]}),false);
+});
+test('native world bridge preserves large pool handles, transaction bounds and host authority',()=>{
+  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:p=>packets.push(p)};engine.endpoint=1234;
+  const frame={seq:1,entities:[vehicle(12567)]};assert.ok(engine.remoteWorld(frame));
+  assert.deepEqual(packets.map(p=>p.readUInt32LE(4)),[19,22,20]);
+  assert.equal(packets[1].readUInt32LE(8),12567);
+  assert.equal(engine.remoteWorld(frame),false);
+  engine.authoritativeWorld=true;assert.equal(engine.remoteWorld({...frame,seq:2}),false);
+});
+test('weather intensity and wheel/door visuals survive the native world transaction',()=>{
+  const entity=vehicle();entity.visual=Array(34).fill(0);entity.visual[3]=1.25;entity.visual[19]=0.5;
+  const environment=[12,30,20,2,2,0.2,0.5,1,1,1,1,0,0,0,0,1,-1,0,0];
+  const frame={seq:2,environment,entities:[entity]};assert.ok(validWorldFrame(frame));
+  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:p=>packets.push(p)};engine.endpoint=1234;engine.remoteWorld(frame);
+  assert.deepEqual(packets.map(p=>p.readUInt32LE(4)),[19,22,35,20]);
+  assert.equal(packets[0].readFloatLE(12+8*4),0.5);
+  assert.equal(packets[2].readFloatLE(12+3*4),1.25);assert.equal(packets[2].readFloatLE(12+19*4),0.5);
+  entity.visual[25]=Infinity;assert.equal(validWorldFrame(frame),false);
+});

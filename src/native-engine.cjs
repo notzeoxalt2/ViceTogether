@@ -1,0 +1,159 @@
+const { EventEmitter } = require('node:events');
+const dgram = require('node:dgram');
+const { spawn } = require('node:child_process');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const MAGIC = 0x31545656;
+const {validWorldFrame}=require('../engine/world.cjs');
+const {validWeapon,instantWeapon,shotRange}=require('../engine/weapons.cjs');
+const {validGlass}=require('../engine/glass.cjs');
+function validState(s) {
+  return Array.isArray(s) && [10,20,34].includes(s.length) && s.every(Number.isFinite)
+    && (s.length === 10 || (s.length===34?[10,15,20,25]:[10,15]).every(i => s[i] >= 0 && s[i] <= 1000 && s[i+1] >= 0 && s[i+1] <= 1000 && s[i+2] >= 0 && s[i+2] <= 1000 && s[i+3] >= 0 && s[i+3] <= 10 && s[i+4] >= 0 && s[i+4] <= 1.01))
+    && (s.length!==34 || ([0,1].includes(s[30]) && Math.abs(s[31])<100 && Math.abs(s[32])<4 && [0,1].includes(s[33])))
+    && Math.abs(s[0]) < 10000 && Math.abs(s[1]) < 10000 && Math.abs(s[2]) < 3000
+    && s[7] >= 0 && s[7] <= 5 && s[8] >= 0 && s[8] <= 1000 && (s[9] === 0 || s[9] === 1);
+}
+function packet(type, slot, state = Array(10).fill(0)) {
+  const b = Buffer.alloc(148); b.writeUInt32LE(MAGIC); b.writeUInt32LE(type, 4); b.writeUInt32LE(slot, 8);
+  state.forEach((v, i) => b.writeFloatLE(v, 12 + i * 4)); return b;
+}
+class NativeEngine extends EventEmitter {
+  constructor(executable) { super(); this.executable = executable; this.slots = new Map(); this.received = new Map(); }
+  async start(gameRoot, { multiplayer = false, authoritativeWorld = false, inputDisabled = false, testWalk = false, testCombat = false, followPlayer = false, muted = false, name = 'Player', fps = 144, fullscreen = true, mouseSensitivity = 1.5, windowBounds, spawnOffset = Math.random() * 6, userDir = path.join(gameRoot, 'userfiles') } = {}) {
+    if (this.child && this.child.exitCode === null) {
+      if(this.multiplayer !== multiplayer) throw new Error('Close the current game before switching between singleplayer and multiplayer.');
+      return;
+    }
+    await fs.access(this.executable);
+    this.worldPending=null;this.worldReceived=0;this.shotSequences=new Map();this.authoritativeWorld=authoritativeWorld;
+    await fs.access(path.join(gameRoot, 'Mss32.dll')).catch(() => { throw new Error('Vice City’s Mss32.dll is missing. Import your original game folder again.'); });
+    await fs.mkdir(userDir, { recursive: true });
+    const localExe = path.join(gameRoot, 'ViceTogether-engine.exe');
+    await fs.copyFile(this.executable, localExe);
+    const env = { ...process.env, VT_USER_DIR: userDir, VT_PLAYER_NAME: cleanLabel(name), VT_FPS: String([0,30,60,120,144,240].includes(fps) ? fps : 144) };
+    env.VT_FULLSCREEN = fullscreen ? '1' : '0';
+    env.VT_MOUSE_SENSITIVITY=String(Math.max(0.25,Math.min(4,Number(mouseSensitivity)||1.5)));
+    for(const key of ['X','Y','WIDTH','HEIGHT'])delete env['VT_WINDOW_'+key];
+    if(windowBounds)for(const key of ['x','y','width','height'])if(Number.isInteger(windowBounds[key]))env['VT_WINDOW_'+key.toUpperCase()]=String(windowBounds[key]);
+    delete env.VT_PORT; delete env.VT_AUTOSTART; delete env.VT_TEST_WALK;delete env.VT_TEST_COMBAT;
+    delete env.VT_WORLD_HOST;delete env.VT_TEST_GUN_WALK;delete env.VT_TEST_SHOTS;delete env.VT_TEST_JUMP;delete env.VT_TEST_CAR;delete env.VT_TEST_CAR_BLAST;delete env.VT_TEST_WORLD_EFFECTS;
+    delete env.VT_INPUT_DISABLED;
+    delete env.VT_MUTE;delete env.VT_FOLLOW_PLAYER;delete env.VT_TEST_GUN;delete env.VT_TEST_MOVING_COMBAT;
+    if (multiplayer) {
+      this.socket = dgram.createSocket('udp4'); this.endpoint = null; this.slots.clear(); this.received.clear();
+      this.socket.on('error', e => this.emit('problem', `The local game connection failed: ${e.message}`));
+      this.socket.on('message', (b, source) => {
+        if(testCombat && !this.packetDiagnostic){this.packetDiagnostic=true;this.emit('packet-diagnostic',{size:b.length,type:b.length>=8?b.readUInt32LE(4):null});}
+        if (source.address !== '127.0.0.1' || b.length !== 148 || b.readUInt32LE(0) !== MAGIC) return;
+        if (this.endpoint && source.port !== this.endpoint) return;
+        const type = b.readUInt32LE(4), slot = b.readUInt32LE(8);
+        const state = Array.from({ length: 34 }, (_, i) => b.readFloatLE(12 + 4 * i));
+        if((type>=19 && type<=22) || type===35 || type===37 || type===42) {
+          if(!this.authoritativeWorld || !this.endpoint)return;
+          if(type===19)this.worldPending={seq:state[0],expected:state[1],expectedGlass:state[21],expectedExplosions:state[22],environment:state.slice(2,21),entities:[],glass:[],explosions:[]};
+          else if(type===20){const frame=this.worldPending;this.worldPending=null;if(frame && frame.seq===state[0] && frame.entities.length===frame.expected && frame.glass.length===frame.expectedGlass && frame.explosions.length===frame.expectedExplosions && validWorldFrame(frame))this.emit('world',frame);}
+          else if(type===42){if(this.worldPending && this.worldPending.explosions.length<32)this.worldPending.explosions.push(state);}
+          else if(type===37){if(this.worldPending && this.worldPending.glass.length<128)this.worldPending.glass.push(state);}
+          else if(type===35){const vehicle=this.worldPending?.entities.find(e=>e.type===22 && e.id===slot);if(vehicle)vehicle.visual=state;}
+          else if(this.worldPending && this.worldPending.entities.length<80)this.worldPending.entities.push({type,id:slot,state:state.map(v=>Math.round(v*1000)/1000)});
+          return;
+        }
+        if (type === 1 && validState(state)) { this.endpoint = source.port; this.emit('state', state); }
+        else if(type===23 && state.slice(0,15).every(Number.isFinite))this.emit('world-observed',{seq:state[0],peds:state[1],vehicles:state[2],loadedPeds:state[3],loadedVehicles:state[4],rain:state[5],wetRoads:state[6],oldWeather:state[7],newWeather:state[8],hour:state[9],minute:state[10],glassRecords:state[11],brokenGlass:state[12],crackedGlass:state[13],explosionSequence:state[14]});
+        else if(type===28 && Number.isSafeInteger(state[0]) && Number.isInteger(state[1]))this.emit('seat-state',{id:state[0],seat:state[1]});
+        else if(type===30)this.emit('seat-request',{id:slot});
+        else if(type===40 && !this.authoritativeWorld && validGlass(state))this.emit('glass-request',state);
+        else if(type===36 && this.authoritativeWorld && slot<=7 && Number.isFinite(state[0]) && state[0]>0 && state[0]<=100){const target=slot===7?null:[...this.slots].find(([,s])=>s===slot)?.[0];if(slot===7 || target)this.emit('world-damage',{target,amount:state[0]});}
+        else if (testWalk && type === 4 && slot < 7 && state.every(Number.isFinite)) this.emit('remote-observed', { slot, state });
+        else if (type === 11 && slot < 7 && state.every(Number.isFinite)) this.emit('skeleton-observed', { slot, state });
+        else if(testWalk && type===18 && state.every(Number.isFinite))this.emit('local-skeleton-observed',{state});
+        else if (type === 6 && state.every(Number.isFinite)) this.emit('performance', { fps: state[0], frameMsP95: state[1],window:{x:state[2],y:state[3],width:state[4],height:state[5]} });
+        else if(type===12 && validWeapon(state[0]))this.emit('equipment',{weapon:state[0],visible:state[1]===1});
+        else if(type===14 && instantWeapon(state[0]) && state.slice(1,12).every(Number.isFinite))this.emit('shot',{weapon:state[0],source:state.slice(1,4),end:state.slice(4,7),hit:state[7]===1,normal:state.slice(8,11),hitKind:state[11]});
+        else if(type===16 && slot<7)this.emit('shot-played',{slot,weapon:state[0],source:state.slice(1,4),end:state.slice(4,7),hit:state[7]===1,hitKind:state[11]});
+        else if(type===9 && slot<7 && Number.isInteger(state[0]) && [0,17].includes(state[0])) {
+          const target=[...this.slots].find(([,s])=>s===slot)?.[0];
+          if(target && state.slice(1,7).every(Number.isFinite))this.emit('hit',{target,weapon:state[0],origin:state.slice(1,4),impact:state.slice(4,7)});
+        }
+      });
+      await new Promise((resolve, reject) => { this.socket.once('error', reject); this.socket.bind(0, '127.0.0.1', resolve); });
+      env.VT_PORT = String(this.socket.address().port); env.VT_AUTOSTART = '1';
+      env.VT_WORLD_HOST=authoritativeWorld?'1':'0';
+      env.VT_SPAWN_OFFSET = String(Math.min(6, Math.max(0, Number(spawnOffset) || 0)));
+      if (testWalk) env.VT_TEST_WALK = '1';
+      if(testWalk)for(const flag of ['VT_TEST_JUMP','VT_TEST_GUN_WALK','VT_TEST_SHOTS','VT_TEST_CAR','VT_TEST_CAR_BLAST','VT_TEST_WORLD_EFFECTS'])if(process.env[flag]==='1')env[flag]='1';
+      if(testCombat)env.VT_TEST_COMBAT='1';
+      if(testCombat && process.env.VT_TEST_GUN==='1')env.VT_TEST_GUN='1';
+      if(testCombat && process.env.VT_TEST_MOVING_COMBAT==='1')env.VT_TEST_MOVING_COMBAT='1';
+      if(followPlayer)env.VT_FOLLOW_PLAYER='1';
+      if(muted)env.VT_MUTE='1';
+      if(inputDisabled)env.VT_INPUT_DISABLED='1';
+    }
+    this.multiplayer = multiplayer;
+    this.child = spawn(localExe, [], { cwd: gameRoot, env, windowsHide: testWalk && process.env.VT_TEST_SHOW !== '1', stdio: 'ignore' });
+    this.child.once('error', e => { this.emit('problem', `The game could not start: ${e.message}`); this.closeSocket(); });
+    this.child.once('exit', (code, signal) => { this.closeSocket(); this.emit('ended', { code, signal }); });
+  }
+  send(type, slot, state) {
+    if (this.socket && this.endpoint) this.socket.send(packet(type, slot, state), this.endpoint, '127.0.0.1', () => {});
+  }
+  remoteWorld(frame) {
+    if(this.authoritativeWorld || !validWorldFrame(frame) || frame.seq<=this.worldReceived)return false;
+    this.worldReceived=frame.seq;
+    const header=Array(34).fill(0);header[0]=frame.seq;header[1]=frame.entities.length;(frame.environment||[0,0,0,0,0,0]).forEach((v,i)=>header[i+2]=v);header[21]=frame.glass?.length||0;header[22]=frame.explosions?.length||0;this.send(19,0,header);
+    for(const entity of frame.entities){this.send(entity.type,entity.id,entity.state);if(entity.visual)this.send(35,entity.id,entity.visual);}
+    for(const [i,pane] of (frame.glass||[]).entries())this.send(37,i,pane);
+    for(const [i,event] of (frame.explosions||[]).entries())this.send(42,i,event);
+    this.send(20,0,[frame.seq,frame.entities.length]);return true;
+  }
+  frame(frame) {
+    if (!this.socket || !this.endpoint) return;
+    if (!Array.isArray(frame) || frame.length > 8) return;
+    const self=frame.find(p=>p?.self);
+    if(self) {
+      this.send(7,0,[Number.isInteger(self.color)?self.color%8:0,...Array(9).fill(0)]);
+      if(validState(self.state))this.send(10,0,[self.state[8],...Array(9).fill(0)]);
+    }
+    const remotes = frame.filter(p => p && !p.self && typeof p.id === 'string' && p.id.length < 128 && validState(p.state) && (p.state[9]===0 || Number.isSafeInteger(p.vehicle?.id) && p.vehicle.id>=0 && Number.isInteger(p.vehicle.seat) && p.vehicle.seat>=-1 && p.vehicle.seat<8));
+    const ids = new Set(remotes.map(p => p.id));
+    for (const [id, slot] of this.slots) if (!ids.has(id)) { this.send(3, slot); this.slots.delete(id); this.received.delete(id); }
+    for (const p of remotes) {
+      if (!this.slots.has(p.id)) {
+        const used = new Set(this.slots.values());
+        const slot = Array.from({ length: 7 }, (_, i) => i).find(i => !used.has(i));
+        if (slot === undefined) continue; this.slots.set(p.id, slot);
+      }
+      const previous = this.received.get(p.id);
+      if (Number.isSafeInteger(p.seq) && previous && p.seq <= previous.seq) continue;
+      if (!Number.isSafeInteger(p.seq) && previous && p.state.every((v, i) => v === previous.state[i])) continue;
+      const slot = this.slots.get(p.id), label = cleanLabel(p.name), color=Number.isInteger(p.color)?Math.abs(p.color)%8:1;
+      if (previous?.label !== label || previous?.color !== color) {
+        const b = packet(5, slot); b.fill(0, 12); b.write(label, 12, 24, 'ascii');
+        b[36]=color;
+        this.socket.send(b, this.endpoint, '127.0.0.1', () => {});
+      }
+      this.send(2, slot, p.state);
+      if(p.state[9]===1)this.send(29,slot,[p.vehicle.id,p.vehicle.seat]);else if(previous?.state[9]===1)this.send(29,slot,[-1,-1]);
+      const weapon=validWeapon(p.weapon)?p.weapon:0;
+      const weaponVisible=typeof p.weaponVisible==='boolean'?p.weaponVisible:weapon!==0 && p.state[9]===0;
+      if(previous?.weapon!==weapon || previous?.weaponVisible!==weaponVisible)this.send(13,slot,[weapon,weaponVisible?1:0]);
+      this.received.set(p.id, { seq: p.seq, state: p.state.slice(), label, color,weapon,weaponVisible });
+    }
+  }
+  glassRequest(state){if(this.authoritativeWorld && validGlass(state))this.send(41,0,state);}
+  closeSocket() { if (this.socket) { try { this.socket.close(); } catch {} this.socket = null; } this.endpoint = null; this.slots.clear(); }
+  seatGrant(claim){if(!this.authoritativeWorld && Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=0 && claim.seat<8)this.send(32,0,[claim.id,claim.seat]);}
+  remoteShot(shot) {
+    if(shot?.self || typeof shot?.id!=='string' || !instantWeapon(shot.weapon) || !Number.isSafeInteger(shot.seq))return;
+    const slot=this.slots.get(shot.id);if(slot===undefined)return;
+    const points=[shot.source,shot.end,shot.normal];
+    if(!points.every(p=>Array.isArray(p)&&p.length===3&&p.every(Number.isFinite)) || Math.hypot(...shot.end.map((v,i)=>v-shot.source[i]))>shotRange(shot.weapon))return;
+    this.shotSequences??=new Map();if(shot.seq<=(this.shotSequences.get(shot.id)||0))return;
+    this.shotSequences.set(shot.id,shot.seq);
+    this.send(15,slot,[shot.weapon,...shot.source,...shot.end,shot.hit?1:0,...shot.normal,[0,1,2].includes(shot.hitKind)?shot.hitKind:0]);
+  }
+  stop() { this.child?.kill(); this.closeSocket(); }
+}
+function cleanLabel(name) { return String(name || 'Player').replace(/[^a-zA-Z0-9 _.-]/g, '').trim().slice(0, 24) || 'Player'; }
+module.exports = { NativeEngine, validState, packet, cleanLabel };

@@ -1,0 +1,23 @@
+# Rebuilding the experimental native engine
+
+Use a Windows x86 MSVC toolchain with Windows SDK libraries, CMake and Git. These tools are only for building from source, not for users installing the release.
+
+1. Clone https://github.com/mrxenginner/reVC and check out a26fff4af555a8a425ac9f17d1dd718d00d1f942 on miami. Initialize vendor/librw at 0ad67ee226ea51beb3f465cb8857195e4db16029.
+2. Run `git apply /path/to/native-engine.patch` inside the clone.
+3. Copy ViceTogether.cpp, ViceTogether.h, ViceTogetherNetwork.cpp, ViceTogetherWorld.cpp and ViceTogetherWorld.h from this folder into src/core. Copy vice-together.ico into src/skel/win.
+4. Configure with CMake using Visual Studio 2022, Win32, LIBRW_PLATFORM=D3D9, REVC_AUDIO=MSS, MilesSDK_DIR pointing to vendor/milessdk, CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded, REVC_WITH_OPUS=OFF, LIBRW_TOOLS=OFF, LIBRW_INSTALL=OFF and REVC_INSTALL=OFF.
+5. Build Release. Copy the resulting reVC.exe into engine/native/reVC.exe in the launcher source. Retain ENGINE-LICENSE.md. Build the launcher with npm run dist.
+
+The patch enables D3D9 correctly, conditions mpg123 on the OpenAL backend, selects the static C runtime, isolates native saves, starts a multiplayer free-roam world, keeps background instances updating, and calls the original bridge code before and after world simulation. No copyrighted assets or Miles runtime are provided here. The imported game supplies its own runtime.
+
+VT_PORT is the launcher-owned loopback UDP port. VT_USER_DIR isolates saves. VT_AUTOSTART skips the frontend for private sessions. A 148-byte little-endian packet carries magic 0x31545656, type, slot and 34 floats. Player state includes four animation associations and gun aim. Type 1 is local state, 2 updates a remote ped and 3 removes it. Types 4/11 provide observations in VT_TEST_WALK or VT_OBSERVE. Real network traffic uses signed private WebRTC lobbies; this UDP transport is loopback only.
+
+VT_TEST_WALK injects actual pad movement for verification; VT_SPAWN_OFFSET separates players. VT_INPUT_DISABLED keeps the manual guest from taking controls. Types 5/7 set names/clothing, 6 reports FPS/window bounds, 9 reports supported native contacts and 10 applies shared health. Historical contact validation is bounded to 350 ms and is not complete lag compensation. Private sessions release mouse confinement by default.
+
+Alpha 4 exchanges every inventory weapon selection (0–36) and actual weapon-atomic visibility with types 12/13, including NUTTERTOOLS loadouts. Types 14–16 relay and observe instant-hit shot effects, delayed to match avatar interpolation. Shotgun pellets and first-person rifle impacts are included; sniper bullet updates, projectiles and flame streams remain unfinished. Full damage authority remains limited to unarmed/pistol contacts. NPC fields 30/31 now carry bleeding counters and body-part injury flags into the stock renderer. World transactions use 19/20 boundaries, 21 NPCs, 22 vehicles and 35 wheel/door/damage visuals. Complete frames include host clock/weather intensity and up to 48 nearby NPCs plus 32 vehicles within 150 metres of the host. Guest replicas skip independent AI/physics. Types 28–32 coordinate host-driver/guest-passenger seating; press G near a shared car to request a guest seat. Guest driving authority is unfinished.
+
+Type 36 carries damage from the host native engine to its local launcher only. The host preserves local stock damage results and forwards NPC/police/vehicle damage to remote players; peers cannot submit this event through WebRTC. Remote proxy damage uses approximate player scaling and does not yet implement all immunity/armour rules. Wreck transitions replay stock vehicle explosions once. Guest attacks on NPCs, NPC shot effects, guest-aware police AI, projectiles and complete world interactions remain unfinished. Matching world snapshots does not establish 1:1 gameplay.
+
+The source licence's usage-record condition remains unresolved: no external contribution was authorized or submitted. See the included upstream licence and third-party notices before publishing.
+
+Glass uses persistent model/position records (type 37), guest requests (40), and host grants (41). Late or re-streamed guests apply the retained pane's cracked/broken state through the stock glass implementation. Type 42 carries sequenced recent non-vehicle explosions; vehicle wrecks retain their existing stock explosion path. Host-attributed explosion damage now reaches shared player health. The two-engine native effects fixture verifies invisible, non-colliding glass in both object pools and guest health loss from a host-attributed nearby grenade. This does not verify all glass assets, identical particle randomness, every projectile, or internet play.

@@ -1,0 +1,7 @@
+{
+  "inviteBaseUrl": "https://notzeoxalt2.github.io/ViceTogether/",
+  "updateFeedUrl": "https://github.com/notzeoxalt2/ViceTogether/releases/latest/download",
+  "discordApplicationId": null,
+  "iceServers": [],
+  "releaseStatus": "Experimental friend-test build. Same-PC multiplayer tested; fresh Windows and cross-network connectivity remain unverified."
+}

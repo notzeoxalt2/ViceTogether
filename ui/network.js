@@ -1,0 +1,285 @@
+import { joinRoom, selfId } from 'trystero';
+import { Social } from './social.mjs';
+export class Friends extends Social { constructor(options) { super({ ...options, joinRoom: options.joinRoom || joinRoom }); } }
+import { validState } from '../engine/sync.js';
+import { SessionCombat } from '../engine/combat.js';
+import { ShotAuthority,validShot } from '../engine/shots.js';
+import { validWorldFrame } from '../engine/world.cjs';
+import { SeatAuthority } from '../engine/seats.cjs';
+import { validWeapon } from '../engine/weapons.cjs';
+import { GlassAuthority,validGlass } from '../engine/glass.cjs';
+const encoder = new TextEncoder();
+const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+const unb64 = text => Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
+const fingerprint = async key => b64(await crypto.subtle.digest('SHA-256', await crypto.subtle.exportKey('raw', key))).slice(0, 22);
+const cleanName = name => String(name || 'Player').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 24) || 'Player';
+
+export class PrivateLobby extends EventTarget {
+  constructor() { super(); this.reset(); }
+  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map(); this.combat=new SessionCombat();this.hitSequence=0; this.generation = (this.generation || 0) + 1; }
+  emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
+  setReady(ready) {
+    this.ready = ready === true;
+    if(!this.room) return;
+    if(this.isHost) { const player=this.players.get(selfId);if(player)player.ready=this.ready;this.broadcastRoster().catch(()=>{}); }
+    else if(this.hostId) this.readiness.send({ready:this.ready},{target:this.hostId}).catch(()=>{});
+  }
+  async host(invite, name, options = {}) {
+    await this.leave();
+    this.keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    this.publicKey = b64(await crypto.subtle.exportKey('raw', this.keys.publicKey));
+    invite = { ...invite, host: await fingerprint(this.keys.publicKey) };
+    this.start(invite, name, true, options);
+    return invite;
+  }
+  async join(invite, name, options = {}) { await this.leave(); this.start(invite, name, false, options); }
+  start(invite, name, isHost, options) {
+    this.invite = invite; this.name = cleanName(name); this.isHost = isHost; this.sessionStarted = false;
+    this.trustedHost=invite.host||null;
+    const generation = this.generation;
+    const config = { appId: 'org.vicetogether.alpha.v5', password: invite.key, maxReceiveBytes: 65536 };
+    if (options.iceServers?.length) config.turnConfig = options.iceServers;
+    if (options.relayUrls?.length) config.relayConfig = { urls: options.relayUrls };
+    this.room = (options.joinRoom || joinRoom)(config, invite.room, {
+      onJoinError: () => this.emit('notice', 'Could not reach a player. Retry the invite. Some networks need a relay; this build has no TURN service configured.'),
+      onPeerHandshake: async (id, send, receive, initiator) => {
+        if (this.isHost && this.players.size + this.pending.size >= 8) throw new Error('Lobby full');
+        this.pending.add(id);
+        try {
+          if (initiator) { await send({ version: 1 }); const { data } = await receive(); if (data?.version !== 1) throw new Error('Version mismatch'); }
+          else { const { data } = await receive(); if (data?.version !== 1) throw new Error('Version mismatch'); await send({ version: 1 }); }
+        } catch (error) { this.pending.delete(id); throw error; }
+      }
+    });
+    this.hello = this.room.makeAction('hello');
+    this.roster = this.room.makeAction('roster');
+    this.bye = this.room.makeAction('bye');
+    this.movement = this.room.makeAction('movement');
+    this.world = this.room.makeAction('world');
+    this.ambient=this.room.makeAction('ambient');this.ambientSequence=0;
+    this.seats=new SeatAuthority();this.seatInput=this.room.makeAction('seat-input');this.seatOutput=this.room.makeAction('seat-output');
+    this.seatInput.onReceive=({byteLength})=>byteLength<256;
+    this.seatOutput.onReceive=({byteLength})=>byteLength<256;
+    this.seatInput.onMessage=(request,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptSeat(peerId,request);};
+    this.seatOutput.onMessage=(claim,{peerId})=>{if(!this.isHost && peerId===this.hostId && Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=0 && claim.seat<8)this.emit('seat-grant',claim);};
+    this.ambient.onReceive=({byteLength})=>byteLength<=131072;
+    this.ambient.onMessage=(frame,{peerId})=>{
+      if(this.isHost || peerId!==this.hostId || !validWorldFrame(frame) || frame.seq<=this.ambientSequence)return;
+      this.ambientSequence=frame.seq;this.emit('ambient',frame);
+    };
+    this.launch = this.room.makeAction('launch');
+    this.readiness = this.room.makeAction('ready');
+    this.hits=this.room.makeAction('hit');
+    this.equipmentAction=this.room.makeAction('equipment');
+    this.glassInput=this.room.makeAction('glass-input');this.glassAuthority=new GlassAuthority();this.glassSequence=0;
+    this.glassInput.onReceive=({byteLength})=>byteLength<2048;
+    this.glassInput.onMessage=(event,{peerId})=>{if(!this.isHost || !this.players.has(peerId))return;const approved=this.glassAuthority.accept(peerId,event,this.states.get(peerId),performance.now());if(approved)this.emit('glass-request',approved);};
+    this.weaponVisibility=new Map();
+    this.shotAuthority=new ShotAuthority();this.shotSequence=0;this.receivedShots=new Map();
+    this.shotInput=this.room.makeAction('shot-input');this.shotOutput=this.room.makeAction('shot-output');
+    this.shotInput.onReceive=({byteLength})=>byteLength<512;
+    this.shotOutput.onReceive=({byteLength})=>byteLength<512;
+    this.shotInput.onMessage=(event,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptShot(peerId,event);};
+    this.shotOutput.onMessage=(event,{peerId})=>{
+      if(this.isHost || peerId!==this.hostId || !this.players.has(event?.id) || !validShot(event) || !Number.isSafeInteger(event.seq))return;
+      if(event.seq<=(this.receivedShots.get(event.id)||0))return;
+      this.receivedShots.set(event.id,event.seq);
+      this.emit('shot',{...event,self:event.id===selfId});
+    };
+    this.equipmentAction.onReceive=({byteLength})=>byteLength<64;
+    this.equipmentAction.onMessage=(equipment,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptEquipment(peerId,equipment);};
+    this.hits.onReceive=({byteLength})=>byteLength<512;
+    this.hits.onMessage=(event,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptHit(peerId,event);};
+    this.readiness.onReceive = ({byteLength}) => byteLength < 128;
+    this.readiness.onMessage = (data,{peerId}) => {
+      if(!this.isHost || !this.players.has(peerId) || typeof data?.ready !== 'boolean')return;
+      this.players.get(peerId).ready=data.ready;this.broadcastRoster().catch(()=>{});
+    };
+    this.movement.onReceive = ({ byteLength }) => byteLength < 1024;
+    this.world.onReceive = ({ byteLength }) => byteLength < 16384;
+    this.movement.onMessage = (state, { peerId }) => {
+      if (!this.isHost || !this.players.has(peerId) || !validState(state)) return;
+      this.acceptState(peerId, state);
+    };
+    this.world.onMessage = (frame, { peerId }) => {
+      if (peerId !== this.hostId || this.isHost || !Array.isArray(frame) || frame.length > 8) return;
+      if (!frame.every(p => p && this.players.has(p.id) && validState(p.state) && (p.weapon===undefined || validWeapon(p.weapon)))) return;
+      this.emit('frame', frame.map(p => ({ ...p, name: this.players.get(p.id).name, color: ([...this.players.keys()].indexOf(p.id)+1)%8, self: p.id === selfId })));
+    };
+    this.launch.onMessage = (packet, { peerId }) => {
+      if (peerId !== this.hostId || this.isHost || packet?.v !== 1 || !this.ready || this.sessionStarted) return;
+      this.sessionStarted = true; this.emit('launch', {});
+    };
+    this.gameTimer = setInterval(() => {
+      if (!this.isHost || !this.room) return;
+      const now = performance.now();
+      const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
+      this.world.send(frame).catch(() => {});
+      this.emit('frame', frame.map(p => ({ ...p, self: p.id === selfId })));
+    }, 50);
+    this.hello.onReceive = ({ byteLength }) => byteLength < 256;
+    this.roster.onReceive = ({ byteLength }) => byteLength < 8192;
+    this.hello.onMessage = async (data, { peerId }) => {
+      if (!this.isHost || generation !== this.generation || data?.v !== 1 || typeof data.name !== 'string') return;
+      if (this.players.size >= 8 && !this.players.has(peerId)) { this.pending.delete(peerId); return; }
+      this.players.set(peerId, { id: peerId, name: cleanName(data.name), host: false, ready: data.ready === true });
+      this.pending.delete(peerId);
+      await this.broadcastRoster();
+    };
+    this.roster.onMessage = async (packet, { peerId }) => {
+      if (this.isHost || generation !== this.generation) return;
+      try {
+        if (!packet || typeof packet.key !== 'string' || typeof packet.signature !== 'string' || typeof packet.body !== 'string' || packet.body.length > 4096) return;
+        const key = await crypto.subtle.importKey('raw', unb64(packet.key), { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify']);
+        const hostFingerprint=await fingerprint(key);
+        if ((this.trustedHost || invite.host) && hostFingerprint !== (this.trustedHost || invite.host)) return;
+        if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, unb64(packet.signature), encoder.encode(packet.body))) return;
+        const body = JSON.parse(packet.body);
+        if (body.room !== invite.room || body.seq <= this.lastSequence || !Array.isArray(body.players) || body.players.length > 8 || body.host !== peerId || !body.players.some(p => p.id === selfId)) return;
+        if (!body.players.every(p => typeof p.id === 'string' && p.id.length < 128 && typeof p.name === 'string' && p.name.length <= 24)) return;
+        if (generation !== this.generation) return;
+        this.lastSequence = body.seq;
+        this.trustedHost=hostFingerprint;
+        this.hostId = peerId;
+        this.players = new Map(body.players.map(p => [p.id, p]));
+        clearTimeout(this.timeout);
+        this.changed();
+        if(body.started===true && this.ready && !this.sessionStarted){this.sessionStarted=true;this.emit('launch',{});}
+      } catch { /* Ignore malformed or unauthenticated remote packets. */ }
+    };
+    this.bye.onMessage = (_, { peerId }) => {
+      if (peerId === this.hostId) this.emit('notice', 'The host closed the lobby. Ask them for a new invitation.');
+    };
+    this.room.onPeerJoin = id => {
+      if (generation !== this.generation) return;
+      this.pending.delete(id);
+      this.hello.send({ v: 1, name: this.name, ready: this.ready === true }, { target: id }).catch(() => {});
+      if (this.isHost) this.broadcastRoster().catch(() => {});
+    };
+    this.room.onPeerLeave = id => {
+      if (generation !== this.generation) return;
+      this.pending.delete(id); this.players.delete(id); this.combat.remove(id);this.seats.release(id); delete this.pings[id];
+      if (this.isHost) this.broadcastRoster().catch(() => {});
+      else if (id === this.hostId) {
+        this.hostId = null;
+        this.emit('notice', 'Connection to the host was lost. Reconnecting automatically; use Retry if it does not return.');
+        this.changed();
+      }
+    };
+    if (isHost) {
+      this.hostId = selfId;
+      this.players.set(selfId, { id: selfId, name: this.name, host: true, ready: this.ready === true });
+    } else {
+      this.timeout = setTimeout(() => this.emit('notice', 'Your friend has not connected yet. Check that their lobby is open, then retry. Restricted networks may require a TURN relay.'), 25000);
+    }
+    this.timer = setInterval(async () => {
+      const room = this.room;
+      if (!room || generation !== this.generation) return;
+      for (const id of this.players.keys()) {
+        if (id === selfId) continue;
+        try {
+          const ping = await Promise.race([room.ping(id), new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 2500))]);
+          if (generation === this.generation) this.pings[id] = Math.round(ping);
+        } catch { if (generation === this.generation) delete this.pings[id]; }
+      }
+      if (generation === this.generation) this.changed();
+    }, 3000);
+    this.changed();
+  }
+  async broadcastRoster() {
+    if (!this.isHost || !this.room) return;
+    const generation = this.generation;
+    const body = JSON.stringify({ room: this.invite.room, host: selfId, seq: ++this.sequence, started:this.sessionStarted===true, players: [...this.players.values()] });
+    const signature = b64(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, this.keys.privateKey, encoder.encode(body)));
+    if (generation !== this.generation || !this.room) return;
+    await this.roster.send({ key: this.publicKey, signature, body });
+    this.changed();
+  }
+  changed() {
+    this.emit('change', { selfId, hostId: this.hostId, isHost: this.isHost, connected: !!this.hostId, players: [...this.players.values()].map(p => ({ ...p, self: p.id === selfId, ping: p.id === selfId ? 0 : this.pings[p.id] ?? null })) });
+  }
+  acceptState(id, state) {
+    const now = performance.now(), previous = this.states.get(id);
+    if(!this.seats.validOccupant(id,state))return;
+    if (previous && now - previous.time < 2000) {
+      const elapsed = Math.max(0.05, (now - previous.time) / 1000);
+      if (Math.hypot(state[0] - previous.state[0], state[1] - previous.state[1]) > (state[9]===1?85:18) * elapsed + 3) return;
+    }
+    const approved=this.combat.update(id,state,now);
+    this.states.set(id, { state:approved.state, time: now, seq: (previous?.seq || 0) + 1 });
+  }
+  acceptHit(id,event) {
+    const hit=this.combat.hit(id,event,performance.now());if(!hit)return;
+    const target=this.states.get(hit.target);
+    if(target){target.state=[...target.state];target.state[8]=hit.health;target.seq++;}
+    this.emit('combat',hit);
+  }
+  sendHit(hit) {
+    if(!this.room || typeof hit?.target!=='string')return;
+    const event={target:hit.target,weapon:hit.weapon,origin:hit.origin,impact:hit.impact,seq:++this.hitSequence};
+    if(this.isHost)this.acceptHit(selfId,event);
+    else if(this.hostId)this.hits.send(event,{target:this.hostId}).catch(()=>{});
+  }
+  sendWorldDamage(event) {
+    // Only this host's native engine supplies world damage; no peer receive action exists.
+    if(!this.isHost || !this.room)return;
+    const hit=this.combat.worldDamage(event?.target||selfId,event?.amount,performance.now());if(!hit)return;
+    const target=this.states.get(hit.target);if(target){target.state=[...target.state];target.state[8]=hit.health;target.seq++;}
+    this.emit('combat',hit);
+  }
+  acceptEquipment(id,equipment){const weapon=typeof equipment==='number'?equipment:equipment?.weapon;if(!validWeapon(weapon))return;this.combat.equip(id,weapon);this.weaponVisibility.set(id,typeof equipment?.visible==='boolean'?equipment.visible:weapon!==0);}
+  sendEquipment(equipment) {
+    const weapon=typeof equipment==='number'?equipment:equipment?.weapon;
+    if(!this.room || !validWeapon(weapon))return;
+    if(this.isHost)this.acceptEquipment(selfId,equipment);
+    else if(this.hostId)this.equipmentAction.send(equipment,{target:this.hostId}).catch(()=>{});
+  }
+  acceptShot(id,event) {
+    const shot=this.shotAuthority.accept(id,event,this.states.get(id),this.combat.equipment.get(id),performance.now());
+    if(!shot)return;
+    this.shotOutput.send(shot).catch(()=>{});this.emit('shot',{...shot,self:id===selfId});
+  }
+  sendShot(shot) {
+    if(!this.room || !validShot(shot))return;
+    const event={...shot,seq:++this.shotSequence};
+    if(this.isHost)this.acceptShot(selfId,event);
+    else if(this.hostId)this.shotInput.send(event,{target:this.hostId}).catch(()=>{});
+  }
+  sendState(state) {
+    if (!this.room || !validState(state)) return;
+    if (this.isHost) this.acceptState(selfId, state);
+    else if (this.hostId) this.movement.send(state, { target: this.hostId }).catch(() => {});
+  }
+  sendWorld(frame) {
+    if(!this.room || !this.isHost || !validWorldFrame(frame))return;
+    this.seats.world(frame);
+    this.ambient.send(frame).catch(()=>{});
+  }
+  sendGlass(state){if(this.room && !this.isHost && this.hostId && validGlass(state))this.glassInput.send({state,seq:++this.glassSequence},{target:this.hostId}).catch(()=>{});}
+  acceptSeat(id,request) {
+    if(request?.release===true){this.seats.release(id);return;}
+    if(id===selfId && request?.driver===true){this.seats.driver(id,request.car,this.states.get(id),true);return;}
+    if(!Number.isSafeInteger(request?.id) || request.id<0)return;
+    const claim=this.seats.request(id,request.id,this.states.get(id),performance.now());
+    if(!claim)return;
+    if(id===selfId)this.emit('seat-grant',claim);else this.seatOutput.send(claim,{target:id}).catch(()=>{});
+  }
+  sendSeat(request){if(!this.room)return;if(this.isHost)this.acceptSeat(selfId,request);else if(this.hostId)this.seatInput.send(request,{target:this.hostId}).catch(()=>{});}
+  async startGame() {
+    if (!this.isHost || !this.room) throw new Error('Only the host can start the session.');
+    if(this.sessionStarted)return;
+    if(this.players.size<2)throw new Error('Wait for your friend to join before starting multiplayer.');
+    if([...this.players.values()].some(p=>!p.ready)) throw new Error('Everyone needs to import their game files before starting.');
+    this.sessionStarted=true;
+    try { await this.broadcastRoster(); await this.launch.send({ v: 1 }); this.emit('launch', {}); }
+    catch(error){this.sessionStarted=false;throw error;}
+  }
+  async leave() {
+    clearInterval(this.timer); clearInterval(this.gameTimer); clearTimeout(this.timeout);
+    const room = this.room;
+    this.room = null;
+    if (room) { if (this.isHost) await this.bye.send({}).catch(() => {}); await room.leave(); }
+    this.reset(); this.keys = null;
+  }
+}
+export { selfId };

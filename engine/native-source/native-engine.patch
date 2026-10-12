@@ -1,0 +1,709 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 6fa3221..5a9c32a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1,4 +1,5 @@
+ cmake_minimum_required(VERSION 3.14)
++cmake_policy(SET CMP0091 NEW)
+ 
+ set(EXECUTABLE reVC)
+ set(PROJECT REVC)
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index 363aa2d..d38ea78 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -53,7 +53,7 @@ target_compile_definitions(${EXECUTABLE}
+         CMAKE_NO_AUTOLINK
+ )
+ 
+-if(LIBRW_PLATFORM_D3D9)
++if(LIBRW_PLATFORM STREQUAL "D3D9")
+     target_compile_definitions(${EXECUTABLE}
+         PUBLIC
+             USE_D3D9
+@@ -118,12 +118,12 @@ elseif(${PROJECT}_AUDIO STREQUAL "MSS")
+     target_link_libraries(${EXECUTABLE} PRIVATE MilesSDK::MilesSDK)
+ endif()
+ 
+-if(NOT TARGET MPG123::libmpg123)
+-    find_package(mpg123 REQUIRED)
++if(${PROJECT}_AUDIO STREQUAL "OAL")
++    if(NOT TARGET MPG123::libmpg123)
++        find_package(mpg123 REQUIRED)
++    endif()
++    target_link_libraries(${EXECUTABLE} PRIVATE MPG123::libmpg123)
+ endif()
+-target_link_libraries(${EXECUTABLE} PRIVATE
+-    MPG123::libmpg123
+-)
+ if(${PROJECT}_WITH_OPUS)
+     find_package(opusfile REQUIRED)
+     target_link_libraries(${EXECUTABLE} PRIVATE
+diff --git a/src/control/Script.cpp b/src/control/Script.cpp
+index b4459be..5d8c572 100644
+--- a/src/control/Script.cpp
++++ b/src/control/Script.cpp
+@@ -967,6 +967,33 @@ void CTheScripts::Process()
+ 
+ CRunningScript* CTheScripts::StartTestScript()
+ {
++#ifdef _WIN32
++	// Private multiplayer worlds do not run the singleplayer mission script.
++	if(getenv("VT_PORT")) {
++		CStreaming::RequestSpecialModel(MI_PLAYER, "player", STREAMFLAGS_DONT_REMOVE | STREAMFLAGS_DEPENDENCY);
++		CStreaming::LoadAllRequestedModels(false);
++		CPlayerPed::SetupPlayerPed(0);
++		CPlayerPed* player = CWorld::Players[0].m_pPed;
++		player->CharCreatedBy = MISSION_CHAR;
++		CVector pos(-592.0f, 670.0f, 11.0f);
++		const char* offsetSetting = getenv("VT_SPAWN_OFFSET");
++		if(offsetSetting) { float offset = (float)atof(offsetSetting); if(offset >= 0 && offset <= 6) pos.x += offset; }
++		CStreaming::LoadScene(pos);
++		CColStore::LoadCollision(CVector2D(pos.x,pos.y));
++		pos.z = 11.0f;
++		player->Teleport(pos);
++		CPad::GetPad(0)->DisablePlayerControls = PLAYERCONTROL_ENABLED;
++		TheCamera.RestoreWithJumpCut();
++		TheCamera.SetCameraDirectlyBehindForFollowPed_CamOnAString();
++		TheCamera.Fade(0.0f, FADE_IN);
++		FrontEndMenuManager.m_bMenuActive=false;
++		FrontEndMenuManager.m_bActivateSaveMenu=false;
++		FrontEndMenuManager.m_bStartUpFrontEndRequested=false;
++		FrontEndMenuManager.m_bShutDownFrontEndRequested=false;
++		CTimer::EndUserPause();
++		return nil;
++	}
++#endif
+ 	return StartNewScript(0);
+ }
+ 
+diff --git a/src/core/Game.cpp b/src/core/Game.cpp
+index 4248f14..256c675 100644
+--- a/src/core/Game.cpp
++++ b/src/core/Game.cpp
+@@ -2,6 +2,7 @@
+ #include "platform.h"
+ 
+ #include "Game.h"
++#include "ViceTogether.h"
+ #include "main.h"
+ #include "RwHelper.h"
+ #include "Accident.h"
+@@ -845,6 +846,13 @@ void CGame::InitialiseWhenRestarting(void)
+ void CGame::Process(void) 
+ {
+ 	CPad::UpdatePads();
++	if(getenv("VT_TEST_COMBAT")) {
++		FrontEndMenuManager.m_bMenuActive=false;
++		FrontEndMenuManager.m_bStartUpFrontEndRequested=false;
++		FrontEndMenuManager.m_bShutDownFrontEndRequested=false;
++		FrontEndMenuManager.m_bActivateSaveMenu=false;
++		CPad::GetPad(0)->DisablePlayerControls=PLAYERCONTROL_ENABLED;
++	}
+ #ifdef USE_CUSTOM_ALLOCATOR
+ 	ProcessTidyUpMemory();
+ #endif
+@@ -855,8 +863,14 @@ void CGame::Process(void)
+ 
+ 	if (!CCutsceneMgr::IsCutsceneProcessing() && !CTimer::GetIsCodePaused())
+ 		FrontEndMenuManager.Process();
++	// A private multiplayer world keeps simulating while a player opens a menu.
++	if(getenv("VT_PORT")) CTimer::EndUserPause();
+ 
+ 	CTheZones::Update();
++	if(getenv("VT_TEST_COMBAT")) {
++		static unsigned tracedFrames=0;
++		if((tracedFrames++%144)==0){FILE* f=fopen("native-game-state.log","a");if(f){fprintf(f,"paused=%d user=%d code=%d menu=%d\n",int(CTimer::GetIsPaused()),int(CTimer::GetIsUserPaused()),int(CTimer::GetIsCodePaused()),int(FrontEndMenuManager.m_bMenuActive));fclose(f);}}
++	}
+ #ifdef SECUROM
+ 	if (CTimer::GetTimeInMilliseconds() >= (35 * 60 * 1000) && gameProcessPirateCheck == 0){
+ 		// if game not pirated
+@@ -931,7 +945,9 @@ void CGame::Process(void)
+ 		CReplay::Update();
+ 
+ 		PUSH_MEMID(MEMID_WORLD);
++		ViceTogetherBeforeWorld();
+ 		CWorld::Process();
++		ViceTogetherTick();
+ 		POP_MEMID();
+ 
+ 		gAccidentManager.Update();
+@@ -1336,7 +1352,7 @@ CGame::InitAfterFocusLoss()
+ 	FrontEndMenuManager.m_nPrefsAudio3DProviderIndex = FrontEndMenuManager.m_lastWorking3DAudioProvider;
+ 	DMAudio.SetCurrent3DProvider(FrontEndMenuManager.m_lastWorking3DAudioProvider);
+ 
+-	if (!FrontEndMenuManager.m_bGameNotLoaded && !FrontEndMenuManager.m_bMenuActive)
++	if (!getenv("VT_PORT") && !FrontEndMenuManager.m_bGameNotLoaded && !FrontEndMenuManager.m_bMenuActive)
+ 		FrontEndMenuManager.m_bStartUpFrontEndRequested = true;
+ }
+ 
+diff --git a/src/core/Pad.cpp b/src/core/Pad.cpp
+index 9530f9e..74226f0 100644
+--- a/src/core/Pad.cpp
++++ b/src/core/Pad.cpp
+@@ -922,6 +922,10 @@ void CPad::UpdateMouse()
+ 
+ 			PCTempMouseControllerState.x = (float)(signX * state.lX);
+ 			PCTempMouseControllerState.y = (float)(signy * state.lY);
++ if(!FrontEndMenuManager.m_bMenuActive && getenv("VT_MOUSE_SENSITIVITY")) {
++ float gain=float(atof(getenv("VT_MOUSE_SENSITIVITY")));if(gain<0.25f)gain=0.25f;if(gain>4.0f)gain=4.0f;
++ PCTempMouseControllerState.x*=gain;PCTempMouseControllerState.y*=gain;
++ }
+ 			PCTempMouseControllerState.LMB = state.rgbButtons[0] & 128;
+ 			PCTempMouseControllerState.RMB = state.rgbButtons[1] & 128;
+ 			PCTempMouseControllerState.MMB = state.rgbButtons[2] & 128;
+diff --git a/src/core/main.cpp b/src/core/main.cpp
+index a412a98..fd3232f 100644
+--- a/src/core/main.cpp
++++ b/src/core/main.cpp
+@@ -39,6 +39,7 @@
+ #include "Font.h"
+ #include "Pad.h"
+ #include "Hud.h"
++#include "ViceTogether.h"
+ #include "User.h"
+ #include "Messages.h"
+ #include "Darkel.h"
+@@ -1486,6 +1487,7 @@ Render2dStuff(void)
+ 	else
+ #endif
+ 		CHud::Draw();
++	ViceTogetherDrawNames();
+ 
+ 	CSpecialFX::Render2DFXs();
+ 	CUserDisplay::OnscnTimer.ProcessForDisplay();
+diff --git a/src/core/re3.cpp b/src/core/re3.cpp
+index d16088f..b9b13df 100644
+--- a/src/core/re3.cpp
++++ b/src/core/re3.cpp
+@@ -1227,6 +1227,11 @@ static char re3_buff[re3_buffsize];
+ #ifndef MASTER
+ void re3_assert(const char *expr, const char *filename, unsigned int lineno, const char *func)
+ {
++	if(getenv("VT_TEST_WALK")) {
++		FILE* log=fopen("native-assertion.log","a");
++		if(log){fprintf(log,"%s:%u %s: %s\n",filename,lineno,func,expr);fclose(log);}
++		exit(3);
++	}
+ #ifdef _WIN32
+ 	int nCode;
+ 
+diff --git a/src/peds/Ped.cpp b/src/peds/Ped.cpp
+index aa63c32..deabfab 100644
+--- a/src/peds/Ped.cpp
++++ b/src/peds/Ped.cpp
+@@ -6,6 +6,8 @@
+ #include "RpAnimBlend.h"
+ #include "Bones.h"
+ #include "Ped.h"
++#include "ViceTogether.h"
++#include "ViceTogetherWorld.h"
+ #include "AnimBlendAssociation.h"
+ #include "Fire.h"
+ #include "DMAudio.h"
+@@ -1745,6 +1747,7 @@ CPed::ProcessBuoyancy(void)
+ void
+ CPed::ProcessControl(void)
+ {
++	if(ViceTogetherIsRemote(this) || ViceTogetherWorldPed(this)) return;
+ 	CColPoint foundCol;
+ 	CEntity *foundEnt = nil;
+ 
+@@ -5019,7 +5022,7 @@ CPed::Render(void)
+ 		}
+ 	}
+ 
+-	CEntity::Render();
++	if (!ViceTogetherRenderBody(this)) CEntity::Render();
+ 
+ 	if(m_pWeaponModel){
+ 		RpHAnimHierarchy *hier = GetAnimHierarchyFromSkinClump(GetClump());
+@@ -5029,6 +5032,7 @@ CPed::Render(void)
+ 		*RwFrameGetMatrix(frame) = *mat;
+ 		RwFrameUpdateObjects(frame);
+ 		RpAtomicRender(m_pWeaponModel);
++        ViceTogetherWeaponRendered(this);
+ 		if (IsPlayer()) {
+ 			CPlayerPed *player = (CPlayerPed*)this;
+ 			if (player->m_pMinigunTopAtomic) {
+@@ -5105,6 +5109,8 @@ CPed::SetIdle(void)
+ void
+ CPed::Idle(void)
+ {
++	// Remote locomotion is owned by the network bridge, not civilian idle AI.
++	if (ViceTogetherIsRemote(this)) return;
+ 	CVehicle *veh = m_pMyVehicle;
+ 	if (veh && veh->m_nGettingOutFlags && m_vehDoor) {
+ 
+diff --git a/src/peds/PedFight.cpp b/src/peds/PedFight.cpp
+index 8a3b971..ab9a59a 100644
+--- a/src/peds/PedFight.cpp
++++ b/src/peds/PedFight.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogether.h"
+ 
+ #include "main.h"
+ #include "RpAnimBlend.h"
+@@ -2650,6 +2651,9 @@ CPed::ClearInvestigateEvent(void)
+ bool
+ CPed::InflictDamage(CEntity *damagedBy, eWeaponType method, float damage, ePedPieceTypes pedPiece, uint8 direction)
+ {
++	if(ViceTogetherReportDamage(this,damagedBy,int(method),damage)) return false;
++    // Observe the stock damage result, including immunity, armour and damage scaling.
++    struct SharedHealthObserver { CPed* ped; float before; ~SharedHealthObserver(){ViceTogetherReportHealthLoss(ped,before);} } sharedHealth={this,m_fHealth};
+ 	CPlayerPed *player = FindPlayerPed();
+ 	float dieDelta = 4.0f;
+ 	float dieSpeed = 0.0f;
+diff --git a/src/renderer/Glass.cpp b/src/renderer/Glass.cpp
+index 215dbfe..0f2999a 100644
+--- a/src/renderer/Glass.cpp
++++ b/src/renderer/Glass.cpp
+@@ -1,6 +1,7 @@
+ #include "common.h"
+ 
+ #include "Glass.h"
++#include "ViceTogetherWorld.h"
+ #include "Timer.h"
+ #include "Object.h"
+ #include "Vehicle.h"
+@@ -677,6 +678,7 @@ CGlass::WindowRespondsToCollision(CEntity *entity, float amount, CVector speed,
+ 	object->bGlassBroken = true;
+ 	object->bIsVisible = false;
+ 	object->bUsesCollision = false;
++	ViceTogetherWorldGlass(object,amount,speed,point,explosion,true);
+ }
+ 
+ void
+@@ -690,6 +692,7 @@ CGlass::WindowRespondsToSoftCollision(CEntity *entity, float amount)
+ 	{
+ 		PlayOneShotScriptObject(SCRIPT_SOUND_GLASS_CRACK, object->GetPosition());
+ 		object->bGlassCracked = true;
++		ViceTogetherWorldGlass(object,amount,CVector(0,0,0),object->GetPosition(),false,false);
+ 	}
+ }
+ 
+@@ -708,6 +711,7 @@ CGlass::WasGlassHitByBullet(CEntity *entity, CVector point)
+ 			{
+ 				PlayOneShotScriptObject(SCRIPT_SOUND_GLASS_CRACK, object->GetPosition());
+ 				object->bGlassCracked = true;
++				ViceTogetherWorldGlass(object,0,CVector(0,0,0),point,false,false);
+ 			}
+ 			else
+ 			{
+@@ -1013,11 +1017,13 @@ CGlass::BreakGlassPhysically(CVector pos, float radius)
+ 							object->bGlassBroken = true;
+ 							object->bIsVisible = false;
+ 							object->bUsesCollision = false;
++							ViceTogetherWorldGlass(object,0,CVector(0,0,0),pos,false,true);
+ 						}
+ 						else
+ 						{
+ 							PlayOneShotScriptObject(SCRIPT_SOUND_GLASS_CRACK, object->GetPosition());
+ 							object->bGlassCracked = true;
++							ViceTogetherWorldGlass(object,0,CVector(0,0,0),pos,false,false);
+ 						}
+ 					}
+ 				}
+diff --git a/src/renderer/Weather.cpp b/src/renderer/Weather.cpp
+index 9f925a8..0d7bd99 100644
+--- a/src/renderer/Weather.cpp
++++ b/src/renderer/Weather.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ 
+ #include "Weather.h"
+ 
+@@ -142,6 +143,7 @@ void CWeather::Init(void)
+ 
+ void CWeather::Update(void)
+ {
++    if(ViceTogetherWorldApplyEnvironment())return;
+ 	if(!CReplay::IsPlayingBack()){
+ 		float fNewInterpolation = (CClock::GetMinutes() + CClock::GetSeconds()/60.0f)/60.0f;
+ 		if (fNewInterpolation < InterpolationValue) {
+diff --git a/src/skel/win/win.cpp b/src/skel/win/win.cpp
+index 3e7a26c..b469543 100644
+--- a/src/skel/win/win.cpp
++++ b/src/skel/win/win.cpp
+@@ -41,6 +41,7 @@
+ #define WITHD3D
+ #define WITHDINPUT
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ #if (defined(_MSC_VER))
+ #include <tchar.h>
+ #endif /* (defined(_MSC_VER)) */
+@@ -173,6 +174,11 @@ void _psCreateFolder(LPCSTR path)
+  */
+ const char *_psGetUserFilesFolder()
+ {
++	const char* privateDir = getenv("VT_USER_DIR");
++	if(privateDir && strlen(privateDir) < 240) {
++		_psCreateFolder(privateDir);
++		return privateDir;
++	}
+ #ifdef USE_MY_DOCUMENTS
+ 	HKEY hKey = NULL;
+ 
+@@ -234,6 +240,10 @@ psCameraBeginUpdate(RwCamera *camera)
+ void
+ psCameraShowRaster(RwCamera *camera)
+ {
++	if(getenv("VT_FPS")) {
++		RwCameraShowRaster(camera, PSGLOBAL(window), rwRASTERFLIPDONTWAIT);
++		return;
++	}
+ #ifdef LEGACY_MENU_OPTIONS
+ 	if (FrontEndMenuManager.m_PrefsVsync || FrontEndMenuManager.m_bMenuActive)
+ #else
+@@ -296,6 +306,9 @@ psTimer(void)
+ void
+ psMouseSetPos(RwV2d *pos)
+ {
++	// DirectInput already provides relative motion. Private/background instances
++	// must never warp the shared desktop cursor during startup or menu updates.
++	if(getenv("VT_PORT"))return;
+ 	POINT point;
+ 
+ 	point.x = (RwInt32) pos->x;
+@@ -370,7 +383,8 @@ InitInstance(HANDLE instance)
+ 
+ 	return CreateWindow(AppClassName, RsGlobal.appName,
+ 						WS_OVERLAPPEDWINDOW,
+-						CW_USEDEFAULT, CW_USEDEFAULT,
++						getenv("VT_WINDOW_X")?atoi(getenv("VT_WINDOW_X")):CW_USEDEFAULT,
++						getenv("VT_WINDOW_Y")?atoi(getenv("VT_WINDOW_Y")):CW_USEDEFAULT,
+ 						rect.right - rect.left, rect.bottom - rect.top,
+ 						(HWND)nil, (HMENU)nil, (HINSTANCE)instance, nil);
+ }
+@@ -619,6 +633,7 @@ void _psPrintCpuInfo()
+ RwBool
+ psInitialize(void)
+ {
++	if(getenv("VT_FPS")) timeBeginPeriod(1);
+ 	PsGlobal.lastMousePos.x = PsGlobal.lastMousePos.y = 0.0f;
+ 
+ 	RsGlobal.ps = &PsGlobal;
+@@ -718,6 +733,18 @@ psInitialize(void)
+ 
+ #ifndef PS2_MENU
+ 	FrontEndMenuManager.LoadSettings();
++	if(getenv("VT_FULLSCREEN")) {
++		const bool full=atoi(getenv("VT_FULLSCREEN"))!=0;
++		FrontEndMenuManager.m_nPrefsWindowed=full?0:1;
++		FrontEndMenuManager.m_nPrefsWidth=full?GetSystemMetrics(SM_CXSCREEN):960;
++		FrontEndMenuManager.m_nPrefsHeight=full?GetSystemMetrics(SM_CYSCREEN):540;
++		FrontEndMenuManager.m_nPrefsDepth=32;
++	}
++	if(getenv("VT_PORT")) {
++#ifdef NO_MOVIES
++		gbNoMovies = true;
++#endif
++	}
+ #endif
+ 
+ 	dwDXVersion = GetDXVersion();
+@@ -786,6 +813,7 @@ psInitialize(void)
+ void
+ psTerminate(void)
+ {
++	if(getenv("VT_FPS")) timeEndPeriod(1);
+ 	return;
+ }
+ 
+@@ -969,11 +997,9 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+ 	{
+ 		case WM_SETCURSOR:
+ 		{
+-			ShowCursor(FALSE);
+-			
+-			SetCursor(nil);
+-			
+-			break; // is this correct ?
++			if(GetForegroundWindow()==window && !FrontEndMenuManager.m_bMenuActive && !getenv("VT_TEST_WALK"))SetCursor(nil);
++			else SetCursor(LoadCursor(nil,IDC_ARROW));
++			return TRUE;
+ 		}
+ 		
+ 		case WM_SIZE:
+@@ -1105,6 +1131,8 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+ 		case WM_KEYDOWN:
+ 		{
+ 			RsKeyCodes ks;
++            if(getenv("VT_INPUT_DISABLED"))return 0L;
++            if(wParam=='G' && getenv("VT_PORT") && !(lParam&(1L<<30)))ViceTogetherRequestPassenger();
+ 			
+ 			if ( _InputTranslateKey(&ks, lParam, wParam) )
+ 				RsKeyboardEventHandler(rsKEYDOWN, &ks);
+@@ -1171,6 +1199,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+ 
+ 		case WM_ACTIVATEAPP:
+ 		{
++			if(!wParam)ClipCursor(nil);
+ 			switch ( gGameState )
+ 			{
+ 				case GS_LOGO_MPEG:
+@@ -1358,6 +1387,10 @@ RwBool IsForegroundApp()
+ 	return !!ForegroundApp;
+ }
+ 
++extern "C" void VT_ReadWindow(float* out) {
++ RECT rect={};GetWindowRect(PSGLOBAL(window),&rect);
++ out[0]=float(rect.left);out[1]=float(rect.top);out[2]=float(rect.right-rect.left);out[3]=float(rect.bottom-rect.top);
++}
+ UINT GetBestRefreshRate(UINT width, UINT height, UINT depth)
+ {
+ #ifdef USE_D3D9
+@@ -1558,6 +1591,10 @@ psSelectDevice()
+ #ifdef IMPROVED_VIDEOMODE
+ 	if (FrontEndMenuManager.m_nPrefsWindowed)
+ 		GcurSelVM = bestWndMode;
++	if(FrontEndMenuManager.m_nPrefsWindowed && getenv("VT_WINDOW_WIDTH") && getenv("VT_WINDOW_HEIGHT")) {
++		vm.width=atoi(getenv("VT_WINDOW_WIDTH"));if(vm.width<640)vm.width=640;if(vm.width>3840)vm.width=3840;
++		vm.height=atoi(getenv("VT_WINDOW_HEIGHT"));if(vm.height<480)vm.height=480;if(vm.height>2160)vm.height=2160;
++	}
+ 
+ 	// Now GcurSelVM is 0 but vm has sizes(and fullscreen flag) of the video mode we want, that's why we changed the rwVIDEOMODEEXCLUSIVE conditions below
+ 	FrontEndMenuManager.m_nPrefsWidth = vm.width;
+@@ -1624,7 +1661,9 @@ psSelectDevice()
+ 		int spaceY = GetSystemMetrics(SM_CYSCREEN) - (rect.bottom-rect.top);
+ 
+ 		SetWindowLong(PSGLOBAL(window), GWL_STYLE, WS_VISIBLE | WS_OVERLAPPEDWINDOW);
+-		SetWindowPos(PSGLOBAL(window), HWND_NOTOPMOST, spaceX/2, spaceY/2,
++		SetWindowPos(PSGLOBAL(window), HWND_NOTOPMOST,
++			getenv("VT_WINDOW_X")?atoi(getenv("VT_WINDOW_X")):spaceX/2,
++			getenv("VT_WINDOW_Y")?atoi(getenv("VT_WINDOW_Y")):spaceY/2,
+ 			(rect.right - rect.left),
+ 			(rect.bottom - rect.top), 0);
+ 
+@@ -2155,7 +2194,7 @@ WinMain(HINSTANCE instance,
+ 	/*
+ 	 * Show the window, and refresh it...
+ 	 */
+-	ShowWindow(PSGLOBAL(window), cmdShow);
++	ShowWindow(PSGLOBAL(window), getenv("VT_INPUT_DISABLED") ? SW_SHOWNOACTIVATE : getenv("VT_TEST_WALK") && (!getenv("VT_TEST_SHOW") || atoi(getenv("VT_TEST_SHOW"))==0) ? SW_HIDE : getenv("VT_PORT") ? SW_SHOWNORMAL : cmdShow);
+ 	UpdateWindow(PSGLOBAL(window));
+ 	
+ 	{
+@@ -2269,7 +2308,7 @@ WinMain(HINSTANCE instance,
+ 				TheModelViewer();
+ 			}
+ #endif
+-			else if( ForegroundApp )
++			else if( ForegroundApp || getenv("VT_PORT") != nil )
+ 			{
+ 				switch ( gGameState )
+ 				{
+@@ -2399,6 +2438,7 @@ WinMain(HINSTANCE instance,
+ #ifndef PS2_MENU
+ 					case GS_INIT_FRONTEND:
+ 					{
++						if(getenv("VT_AUTOSTART")) { gGameState = GS_INIT_PLAYING_GAME; break; }
+ 						LoadingScreen(nil, nil, "loadsc0");
+ 						// LoadingScreen(nil, nil, "loadsc0"); // duplicate
+ 						
+@@ -2489,8 +2529,13 @@ WinMain(HINSTANCE instance,
+ 						float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
+ 						if ( RwInitialised )
+ 						{
+-							if (!FrontEndMenuManager.m_PrefsFrameLimiter || (1000.0f / (float)RsGlobal.maxFPS) < ms)
+-								RsEventHandler(rsIDLE, (void *)TRUE);
++							if (getenv("VT_FPS") || !FrontEndMenuManager.m_PrefsFrameLimiter || (1000.0f / (float)RsGlobal.maxFPS) < ms)
++							{
++								const char* requested=getenv("VT_FPS");
++								const int cap=requested ? atoi(requested) : RsGlobal.maxFPS;
++								if(!requested || cap==0 || ms>=1000.0f/cap) RsEventHandler(rsIDLE, (void *)TRUE);
++								else if(1000.0f/cap-ms>2.0f) Sleep(1);
++							}
+ 						}
+ 						break;
+ 					}
+@@ -2929,6 +2974,16 @@ HRESULT _InputAddJoys()
+ HRESULT _InputGetMouseState(DIMOUSESTATE2 *state)
+ {
+ 	HRESULT		  hr;
++	ZeroMemory(state,sizeof(DIMOUSESTATE2));
++	if(getenv("VT_PORT") && (GetForegroundWindow()!=PSGLOBAL(window) || getenv("VT_TEST_WALK") || getenv("VT_FOLLOW_PLAYER") || getenv("VT_INPUT_DISABLED")))return S_FALSE;
++	if(getenv("VT_CAPTURE_MOUSE") && !getenv("VT_TEST_WALK")) {
++		if(IsForegroundApp() && !FrontEndMenuManager.m_bMenuActive) {
++			RECT area;GetClientRect(PSGLOBAL(window),&area);
++			POINT origin={area.left,area.top},end={area.right,area.bottom};
++			ClientToScreen(PSGLOBAL(window),&origin);ClientToScreen(PSGLOBAL(window),&end);
++			area.left=origin.x;area.top=origin.y;area.right=end.x;area.bottom=end.y;ClipCursor(&area);
++		}else ClipCursor(nil);
++	}
+ 	
+ 	if ( PSGLOBAL(mouse) == nil )
+ 		return S_FALSE;
+diff --git a/src/skel/win/win.rc b/src/skel/win/win.rc
+index 9b5aa30..a7a06e0 100644
+--- a/src/skel/win/win.rc
++++ b/src/skel/win/win.rc
+@@ -42,6 +42,6 @@ END
+ 
+ // Icon with lowest ID value placed first to ensure application icon
+ // remains consistent on all systems.
+-IDI_MAIN_ICON           ICON    DISCARDABLE     "gtavc.ico"
++IDI_MAIN_ICON           ICON    DISCARDABLE     "vice-together.ico"
+ 
+ /////////////////////////////////////////////////////////////////////////////
+\ No newline at end of file
+diff --git a/src/vehicles/Automobile.cpp b/src/vehicles/Automobile.cpp
+index 281b71e..5019f3b 100644
+--- a/src/vehicles/Automobile.cpp
++++ b/src/vehicles/Automobile.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ #include "main.h"
+ 
+ #include "General.h"
+@@ -263,6 +264,7 @@ CVector vecDAMAGE_ENGINE_POS_BIG(-0.5f, -0.3f, 0.0f);
+ void
+ CAutomobile::ProcessControl(void)
+ {
++    if(ViceTogetherWorldVehicle(this))return;
+ 	int i;
+ 	float wheelRot;
+ 	CColModel *colModel;
+diff --git a/src/vehicles/Bike.cpp b/src/vehicles/Bike.cpp
+index a65b64d..384e1d5 100644
+--- a/src/vehicles/Bike.cpp
++++ b/src/vehicles/Bike.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ #include "General.h"
+ #include "Pad.h"
+ #include "DMAudio.h"
+@@ -209,6 +210,7 @@ float fFlySpeedMult = -0.6f;
+ void
+ CBike::ProcessControl(void)
+ {
++    if(ViceTogetherWorldVehicle(this))return;
+ 	int i;
+ 	float wheelRot;
+ 	float acceleration = 0.0f;
+diff --git a/src/vehicles/Boat.cpp b/src/vehicles/Boat.cpp
+index 5da8e1c..81d9218 100644
+--- a/src/vehicles/Boat.cpp
++++ b/src/vehicles/Boat.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ 
+ #include "main.h"
+ #include "General.h"
+@@ -127,6 +128,7 @@ CBoat::GetComponentWorldPosition(int32 component, CVector &pos)
+ void
+ CBoat::ProcessControl(void)
+ {
++    if(ViceTogetherWorldVehicle(this))return;
+ 	bool onLand = m_fDamageImpulse > 0.0f && m_vecDamageNormal.z > 0.1f;
+ 
+ 	PruneWakeTrail();
+diff --git a/src/vehicles/Vehicle.cpp b/src/vehicles/Vehicle.cpp
+index d105419..8d9215e 100644
+--- a/src/vehicles/Vehicle.cpp
++++ b/src/vehicles/Vehicle.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogether.h"
+ #include "main.h"
+ 
+ #include "General.h"
+@@ -2320,7 +2321,10 @@ void
+ CVehicle::KillPedsInVehicle(void)
+ {
+ 	int i;
++    CPed* local=FindPlayerPed();const float before=local?local->m_fHealth:0;
+ 	if(pDriver){
++		if(ViceTogetherIsRemote(pDriver)){ViceTogetherReportDamage(pDriver,this,int(WEAPONTYPE_EXPLOSION),1000.0f);}
++		else {
+ 		CDarkel::RegisterKillByPlayer(pDriver, WEAPONTYPE_EXPLOSION);
+ 		if(pDriver->GetPedState() == PED_DRIVING){
+ 			pDriver->SetDead();
+@@ -2328,9 +2332,11 @@ CVehicle::KillPedsInVehicle(void)
+ 				pDriver->FlagToDestroyWhenNextProcessed();
+ 		}else
+ 			pDriver->SetDie();
++		}
+ 	}
+ 	for(i = 0; i < m_nNumMaxPassengers; i++){
+ 		if(pPassengers[i]){
++			if(ViceTogetherIsRemote(pPassengers[i])){ViceTogetherReportDamage(pPassengers[i],this,int(WEAPONTYPE_EXPLOSION),1000.0f);continue;}
+ 			CDarkel::RegisterKillByPlayer(pPassengers[i], WEAPONTYPE_EXPLOSION);
+ 			if(pPassengers[i]->GetPedState() == PED_DRIVING){
+ 				pPassengers[i]->SetDead();
+@@ -2340,6 +2346,7 @@ CVehicle::KillPedsInVehicle(void)
+ 				pPassengers[i]->SetDie();
+ 		}
+ 	}
++    if(local && (local==pDriver || IsPassenger(local))){local->m_fHealth=0;ViceTogetherReportHealthLoss(local,before);}
+ }
+ 
+ void
+diff --git a/src/weapons/Explosion.cpp b/src/weapons/Explosion.cpp
+index b8123c9..e87bd50 100644
+--- a/src/weapons/Explosion.cpp
++++ b/src/weapons/Explosion.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ 
+ #include "Automobile.h"
+ #include "Bike.h"
+@@ -355,6 +356,7 @@ CExplosion::AddExplosion(CEntity *explodingEntity, CEntity *culprit, eExplosionT
+ 		TheCamera.CamShake(0.6f, pos.x, pos.y, pos.z);
+ 		CPad::GetPad(0)->StartShake_Distance(300, 128, pos.x, pos.y, pos.z);
+ 	}
++	ViceTogetherWorldExplosion(explodingEntity,int(type),pos,lifetime,makeSound);
+ 	return true;
+ }
+ 
+diff --git a/src/weapons/Weapon.cpp b/src/weapons/Weapon.cpp
+index cada168..2a0c141 100644
+--- a/src/weapons/Weapon.cpp
++++ b/src/weapons/Weapon.cpp
+@@ -36,6 +36,7 @@
+ #include "Sprite.h"
+ #include "Pickups.h"
+ #include "SaveBuf.h"
++#include "ViceTogether.h"
+ 
+ float fReloadAnimSampleFraction[5] = {  0.5f,  0.7f,  0.75f,  0.75f,  0.7f };
+ float fSeaSparrowAimingAngle = 10.0f;
+@@ -1215,6 +1216,7 @@ CWeapon::FireInstantHit(CEntity *shooter, CVector *fireSource)
+ 		default: break;
+ 	}
+ 
++	ViceTogetherReportShot(shooter,m_eWeaponType,*fireSource,victim?point.point:target,victim!=nil,victim?point.normal:CVector(0,0,0),victim?(victim->IsPed()?1:2):0);
+ 	DoBulletImpact(shooter, victim, fireSource, &target, &point, ahead);
+ 
+ 	return true;
+@@ -1796,6 +1798,7 @@ CWeapon::FireShotgun(CEntity *shooter, CVector *fireSource)
+ 
+ 		if ( victim )
+ 		{
++			ViceTogetherReportShot(shooter,m_eWeaponType,*fireSource,point.point,true,point.normal,victim->IsPed()?1:2);
+ 			CGlass::WasGlassHitByBullet(victim, point.point);
+ 			CWeapon::BlowUpExplosiveThings(victim);
+ 			if (i == checkObstacleOnShootNo)
+@@ -2061,6 +2064,7 @@ CWeapon::FireShotgun(CEntity *shooter, CVector *fireSource)
+ 		{
+ 			CVector traceTarget = *fireSource;
+ 			traceTarget += (target - (*fireSource)) * Min(info->m_fRange, 30.0f) / info->m_fRange;
++			ViceTogetherReportShot(shooter,m_eWeaponType,*fireSource,traceTarget,false,CVector(0,0,0),0);
+ 			CBulletTraces::AddTrace(fireSource, &traceTarget, m_eWeaponType, shooter);
+ 		}
+ 	}
+@@ -2434,6 +2438,7 @@ CWeapon::FireM16_1stPerson(CEntity *shooter)
+ 	front.Normalise();
+ 
+ 	DoBulletImpact(shooter, victim, &source, &target, &point, front);
++	ViceTogetherReportShot(shooter,m_eWeaponType,source,victim?point.point:target,victim!=nil,victim?point.normal:CVector(0,0,0),victim?(victim->IsPed()?1:2):0);
+ 
+ 	CVector bulletPos;
+ 

@@ -1,0 +1,10 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+const root = path.resolve(process.argv[2] || '../../work/wasm-revc');
+for (const file of ['ViceTogether.cpp', 'ViceTogether.h']) await fs.copyFile(path.resolve('engine/engine-source', file), path.join(root, 'src/core', file));
+const gameFile = path.join(root, 'src/core/Game.cpp');
+let game = await fs.readFile(gameFile, 'utf8');
+if (!game.includes('#include "ViceTogether.h"')) game = game.replace('#include "Game.h"', '#include "Game.h"\n#include "ViceTogether.h"');
+if (!game.includes('\n\t\tViceTogetherTick();')) game = game.replace('\t\tCWorld::Process();', '\t\tCWorld::Process();\n\t\tViceTogetherTick();');
+await fs.writeFile(gameFile, game);
+console.log('Applied experimental on-foot bridge to', root);

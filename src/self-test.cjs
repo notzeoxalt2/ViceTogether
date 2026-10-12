@@ -1,0 +1,193 @@
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const assert = require('node:assert/strict');
+const { createInvite } = require('./invite.cjs');
+const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+async function waitFor(check, message, timeout = 20000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) { if (await check()) return; await delay(150); }
+  throw new Error(message);
+}
+async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindow,registerTestLauncher, nativeExecutable }) {
+  const out = process.env.VT_TEST_OUTPUT ? path.resolve(process.env.VT_TEST_OUTPUT) : path.resolve(__dirname, '../../verification');
+  const result = { testedAt: new Date().toISOString(), windows: process.platform, electron: process.versions.electron, launcherHardwareAccelerationDisabled: true, nativeGameUsesD3D9: true, tests: [], gameplayTested: false, freshWindowsVMTested: false, publicInternetConnectivityTested: false };
+  let relay, a, b,uiGuest;
+  await fs.mkdir(out, { recursive: true });
+  try {
+    await waitFor(() => win.webContents.executeJavaScript('!!window.testLobby'), 'Launcher did not initialize');
+    assert.ok(await win.webContents.executeJavaScript("!document.getElementById('page-library').hidden && document.querySelectorAll('[data-game-id=\"vice-city\"]').length===1"),'Game library did not show the supported Vice City integration');
+    await win.webContents.executeJavaScript("document.getElementById('library-search').value='unsupported game';document.getElementById('library-search').dispatchEvent(new Event('input'))");
+    assert.ok(await win.webContents.executeJavaScript("!document.getElementById('library-empty').hidden && document.getElementById('game-library').children.length===0"),'Unsupported games appeared in library search');
+    await win.webContents.executeJavaScript("document.getElementById('library-search').value='Vice City';document.getElementById('library-search').dispatchEvent(new Event('input'));document.querySelector('[data-game-id=\"vice-city\"] [data-library-details]').click()");
+    assert.ok(await win.webContents.executeJavaScript("!document.getElementById('page-play').hidden"),'Library card did not open Vice City setup and play');
+    await win.webContents.executeJavaScript("document.querySelector('nav [data-page=\"library\"]').click();document.getElementById('library-search').value='';document.getElementById('library-search').dispatchEvent(new Event('input'))");
+    result.tests.push('Supported game library, search empty state, and Vice City setup navigation work in the sandboxed launcher');
+    if((await assets.status()).gameReady && registerTestLauncher){
+      let launches=0;registerTestLauncher(win,async()=>{launches++;});
+      await win.webContents.executeJavaScript("document.querySelector('[data-game-id=\"vice-city\"] .primary').click()");
+      await waitFor(()=>launches===1,'Library Play did not reach the validated desktop launch handler');
+      result.tests.push('Library Play invokes the existing desktop launch handler (test launch stub; no game started)');
+    }
+    if(process.env.VT_TEST_SHOW==='1') {
+      const area=require('./display.cjs').secondary().workArea;
+      win.setBounds({x:area.x+8,y:area.y+8,width:940,height:740});win.showInactive();
+    }
+    await delay(500);
+    try {await fs.writeFile(path.join(out,'launcher.png'),(await win.webContents.capturePage()).toPNG());}
+    catch(error){result.captureWarnings=[error.message];}
+    await win.webContents.executeJavaScript("document.querySelector('nav [data-page=settings]').click();document.querySelector('main').scrollTop=350");
+    const chrome=await win.webContents.executeJavaScript("({bar:document.querySelector('.window-bar').getBoundingClientRect().top,sidebar:document.querySelector('aside').getBoundingClientRect().top,header:document.querySelector('header').getBoundingClientRect().top,rootOverflow:getComputedStyle(document.body).overflowY,scroll:getComputedStyle(document.querySelector('main')).overflowY})");
+    assert.equal(chrome.bar,0);assert.equal(chrome.sidebar,40);assert.equal(chrome.header,40);assert.equal(chrome.rootOverflow,'hidden');assert.equal(chrome.scroll,'auto');
+    await fs.writeFile(path.join(out,'settings-scrolled.png'),(await win.webContents.capturePage()).toPNG());
+    await win.webContents.executeJavaScript("document.querySelector('nav [data-page=library]').click();document.querySelector('main').scrollTop=0");
+    if(process.env.VT_TEST_BACKGROUND!=='1'){
+    await win.webContents.executeJavaScript("document.getElementById('window-maximize').click()");
+    await waitFor(()=>win.isMaximized(),'Custom maximize button did not maximize the launcher');
+    await win.webContents.executeJavaScript("document.getElementById('window-maximize').click()");
+    await waitFor(()=>!win.isMaximized(),'Custom restore button did not restore the launcher');
+    result.tests.push('Custom window controls work and title/sidebar/header stay connected while Settings scrolls');
+    }
+    result.tests.push('Actual sandboxed launcher initializes its UI and IPC');
+    if(process.env.VT_TEST_BACKGROUND==='1' && (await assets.status()).gameReady){
+      let hostLaunches=0,guestLaunches=0;
+      registerTestLauncher(win,async()=>{hostLaunches++;});
+      uiGuest=new BrowserWindow({show:false,width:940,height:740,webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+      registerTestWindow(uiGuest);registerTestLauncher(uiGuest,async()=>{guestLaunches++;});lockdown(uiGuest,'vice://launcher');
+      await uiGuest.loadURL('vice://launcher/index.html');await waitFor(()=>uiGuest.webContents.executeJavaScript('!!window.testLobby'),'Hidden guest launcher did not initialize');
+      await win.webContents.executeJavaScript("document.getElementById('profile').click()");
+      assert.ok(await win.webContents.executeJavaScript("!document.getElementById('page-settings').hidden && document.activeElement.id==='name'"));
+      await win.webContents.executeJavaScript("document.getElementById('library-host').click()");
+      await waitFor(()=>win.webContents.executeJavaScript('!!testLobby.invite?.code'),'Hidden Host UI did not create invite');
+      const code=await win.webContents.executeJavaScript('testLobby.invite.code');
+      await uiGuest.webContents.executeJavaScript(`document.getElementById('invite-input').value=${JSON.stringify(code)};document.getElementById('join').click()`);
+      await waitFor(async()=>await win.webContents.executeJavaScript('testLobby.players.size===2 && [...testLobby.players.values()].every(p=>p.ready)')&&await uiGuest.webContents.executeJavaScript('testLobby.players.size===2'),'Hidden UI lobby did not connect over public signaling',60000);
+      await waitFor(()=>win.webContents.executeJavaScript("!document.getElementById('multiplayer').disabled"),'Host start button did not become ready');
+      await win.webContents.executeJavaScript("document.getElementById('multiplayer').click()");
+      try{await waitFor(()=>hostLaunches===1 && guestLaunches===1,'Start did not reach both validated launch handlers');}
+      catch(error){result.launchDiagnostics={hostLaunches,guestLaunches,host:await win.webContents.executeJavaScript("({notice:document.getElementById('notice').textContent,started:testLobby.sessionStarted,ready:testLobby.ready})"),guest:await uiGuest.webContents.executeJavaScript("({notice:document.getElementById('notice').textContent,started:testLobby.sessionStarted,ready:testLobby.ready})")};throw error;}
+      await win.webContents.executeJavaScript('testLobby.startGame()');await delay(300);assert.equal(hostLaunches,1);assert.equal(guestLaunches,1);
+      await uiGuest.webContents.executeJavaScript('testLobby.leave()');
+      await uiGuest.webContents.executeJavaScript(`testLobby.join(${JSON.stringify(require('./invite.cjs').decodeInvite(code))},'Reconnect')`);
+      await waitFor(()=>guestLaunches===2,'Rejoining an active lobby did not automatically prepare the guest');
+      await win.webContents.executeJavaScript('testLobby.leave()');await uiGuest.webContents.executeJavaScript('testLobby.leave()');uiGuest.close();uiGuest=null;
+      result.tests.push('Hidden actual launcher profile navigation, public-signaling Host/Join, launch handlers, duplicate Start protection and active-lobby rejoin pass (game launch stubbed; no game or input control)');
+    }
+    if(process.env.VT_TEST_BUNDLED==='1') {
+      await waitFor(async()=> (await assets.status()).gameReady,'Bundled first-run game setup did not finish',180000);
+      const status=await assets.status();
+      assert.equal(path.resolve(status.gameSource),path.join(app.getPath('userData'),'original-game-source'));
+      result.bundledFirstRun={gameReady:status.gameReady,gameFiles:status.gameFiles,gameSource:status.gameSource,profile:app.getPath('userData')};
+      result.tests.push('First-run UI automatically imports the installer-bundled game assets');
+      process.env.VT_TEST_GAME_ROOT=path.join(assets.root,'game');
+      delete process.env.VT_TEST_IMPORT_CACHE;
+    }
+    if(process.env.VT_SKIP_UI_TEST!=='1') {
+      const {clipboard}=require('electron'),previousClipboard=await clipboard.readText();
+      try {
+        uiGuest=new BrowserWindow({show:false,width:940,height:740,webPreferences:{preload:path.join(__dirname,'preload.cjs'),sandbox:true,contextIsolation:true,nodeIntegration:false,backgroundThrottling:false}});
+        registerTestWindow(uiGuest);lockdown(uiGuest,'vice://launcher');
+        await uiGuest.loadURL('vice://launcher/index.html');
+        await waitFor(()=>uiGuest.webContents.executeJavaScript('!!window.testLobby'),'Guest launcher did not initialize');
+        if(process.env.VT_TEST_SHOW==='1') {
+          const {secondary}=require('./display.cjs'),area=secondary().workArea;
+          win.setBounds({x:area.x+8,y:area.y+8,width:940,height:740});
+          uiGuest.setBounds({x:area.x+area.width-948,y:area.y+8,width:940,height:740});
+          win.showInactive();uiGuest.showInactive();
+        }
+        await win.webContents.executeJavaScript("document.getElementById('library-host').click()");
+        await waitFor(()=>win.webContents.executeJavaScript("!!testLobby.invite?.code"),'Host button did not create a short-code room');
+        await win.webContents.executeJavaScript("document.getElementById('copy-code').click()");
+        await waitFor(async()=>/^[A-HJ-NP-Z2-9]{5}-[A-HJ-NP-Z2-9]{5}$/.test(await clipboard.readText()),'Copy room code did not copy a short code');
+        const code=await clipboard.readText();
+        await uiGuest.webContents.executeJavaScript(`document.querySelector('[data-page=join]').click();document.getElementById('invite-input').value=${JSON.stringify(code)};document.getElementById('join').click()`);
+        await waitFor(async()=>await win.webContents.executeJavaScript("document.getElementById('players').children.length===2")&&await uiGuest.webContents.executeJavaScript("document.getElementById('players').children.length===2"),'Actual Host and Join UI did not connect',45000);
+        await win.webContents.executeJavaScript("document.getElementById('copy').click()");
+        await waitFor(async()=>(await clipboard.readText()).startsWith('vicetogether://join/'),'Copy invite link did not copy a compact link');
+        assert.ok((await clipboard.readText()).length<40,'Invite link is still oversized');
+        result.shortInviteCharacters=(await clipboard.readText()).length;
+        result.tests.push('Actual launcher Host, Copy room code, Join and Copy invite buttons connect two visible rosters over public signaling and WebRTC');
+        try {
+          await fs.writeFile(path.join(out,'lobby-host.png'),(await win.webContents.capturePage()).toPNG());
+          await fs.writeFile(path.join(out,'lobby-guest.png'),(await uiGuest.webContents.capturePage()).toPNG());
+        }catch(error){(result.captureWarnings??=[]).push(error.message);}
+        if(process.env.VT_TEST_SHOW==='1')await delay(6000);
+        if(process.env.VT_TEST_UI_GAME==='1' && process.argv.includes('--native-test')) {
+          assert.ok((await assets.status()).gameReady,'UI gameplay test requires a real imported game library');
+          process.env.VT_TEST_GAME_ROOT=path.join(assets.root,'game');
+          delete process.env.VT_TEST_IMPORT_CACHE;
+          result.nativeGame=await require('./native-game-test.cjs').runNativeGameTest({a:win,b:uiGuest,executable:nativeExecutable,out,registerLauncher:registerTestLauncher});
+          result.gameplayTested=result.nativeGame.success;
+          result.tests.push('Actual Start multiplayer button launches two isolated native games through launcher IPC; actual lobby carries their movement and hits');
+        }
+      }finally {
+        await win.webContents.executeJavaScript('testLobby.leave()').catch(()=>{});
+        if(uiGuest && !uiGuest.isDestroyed()) {await uiGuest.webContents.executeJavaScript('testLobby.leave()').catch(()=>{});uiGuest.destroy();}
+        win.hide();await clipboard.writeText(previousClipboard);
+      }
+    }
+    const { createWsRelayServer } = await import('@trystero-p2p/ws-relay/server');
+    relay = createWsRelayServer({ host: '127.0.0.1', port: 0 });
+    await relay.ready;
+    const relayUrl = `ws://127.0.0.1:${relay.address().port}`;
+    const create = async () => {
+      const w = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false } });
+      w.webContents.on('console-message', (_, level, message) => { if (level >= 2) console.error(message); });
+      await w.loadURL('vice://launcher/self-test.html');
+      await waitFor(() => w.webContents.executeJavaScript('!!window.testLobby'), 'Test module did not load');
+      return w;
+    };
+    a = await create(); b = await create();
+    for(const [window,name] of [[a,'Alice'],[b,'Bob']])await window.webContents.executeJavaScript(`window.socialStore=new Map();window.socialTest=new testFriends({joinRoom:testJoinRoom,storage:{getItem:k=>socialStore.get(k),setItem:(k,v)=>socialStore.set(k,v)}});socialTest.start(${JSON.stringify(name)},{relayUrls:[${JSON.stringify(relayUrl)}]});`);
+    const friendInvite=await a.webContents.executeJavaScript('socialTest.createFriend()');
+    await b.webContents.executeJavaScript(`socialTest.add(${JSON.stringify(friendInvite)})`);
+    await waitFor(async()=>await a.webContents.executeJavaScript('socialTest.snapshot()[0].status=== "Online"')&&await b.webContents.executeJavaScript('socialTest.snapshot()[0].status=== "Online"'),'Real WebRTC friend presence did not connect');
+    await a.webContents.executeJavaScript('socialTest.send(socialTest.friends[0].room,"Hello from the hidden friend test")');
+    await waitFor(()=>b.webContents.executeJavaScript('socialTest.friends[0].messages.some(m=>m.text=== "Hello from the hidden friend test")'),'Real WebRTC chat was not delivered');
+    await waitFor(()=>a.webContents.executeJavaScript('socialTest.friends[0].messages[0].direction=== "delivered"'),'Chat delivery receipt did not arrive');
+    await a.webContents.executeJavaScript('socialTest.stop()');await b.webContents.executeJavaScript('socialTest.stop()');
+    result.tests.push('Two hidden renderers pair friends, show live presence and exchange text plus delivery receipt over real WebRTC (local signaling; not an internet test)');
+    const publicSignaling = process.argv.includes('--public-signaling-test');
+    const joinOptions = publicSignaling ? '{}' : `{joinRoom: testJoinRoom, relayUrls: [${JSON.stringify(relayUrl)}]}`;
+    result.signaling = publicSignaling ? 'Public default Trystero Nostr relays; same-PC peers' : 'Local WebSocket relay; same-PC peers';
+    const invite = await a.webContents.executeJavaScript(`testLobby.host(${JSON.stringify(createInvite())}, 'Host', ${joinOptions})`);
+    await b.webContents.executeJavaScript(`testLobby.join(${JSON.stringify(invite)}, 'Friend', ${joinOptions})`);
+    await waitFor(async () => (await a.webContents.executeJavaScript('testLobby.players.size')) === 2 && (await b.webContents.executeJavaScript('testLobby.players.size')) === 2, 'Two independent renderers did not connect');
+    result.tests.push('Two independent Chromium contexts join a private Trystero lobby over real WebRTC');
+    assert.equal(await b.webContents.executeJavaScript('!!testLobby.hostId'), true);
+    result.tests.push('Guest verifies the host signature and receives the two-player roster');
+    await assert.rejects(a.webContents.executeJavaScript('testLobby.startGame()'), /import their game files/);
+    await a.webContents.executeJavaScript('testLobby.setReady(true)');
+    await b.webContents.executeJavaScript('testLobby.setReady(true)');
+    await waitFor(()=>b.webContents.executeJavaScript('[...testLobby.players.values()].every(p=>p.ready)'), 'Readiness did not reach the signed roster');
+    result.tests.push('Launch waits for both players to finish setup; readiness updates reach the guest');
+    const stats = await a.webContents.executeJavaScript(`(async () => { const pc = Object.values(testLobby.room.getPeers())[0]; const stats = await pc.getStats(); return [...stats.values()].filter(s => s.type === 'data-channel').map(s => ({state:s.state,messagesSent:s.messagesSent,messagesReceived:s.messagesReceived})); })()`);
+    assert.ok(stats.some(s => s.state === 'open' && s.messagesReceived > 0));
+    result.rtcDataChannels = stats;
+    await a.webContents.executeJavaScript('testLobby.sendState([0,0,5,0,0,0,0,2,100,0])');
+    await b.webContents.executeJavaScript('testLobby.sendState([5,0,5,0,0,0,0,2,100,0])');
+    await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='frame' && e.detail.length===2)"), 'Host-approved movement snapshots were not received');
+    result.tests.push('Host forwards validated synthetic movement packets to guest (not a gameplay test)');
+    await a.webContents.executeJavaScript('testLobby.startGame()');
+    await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='launch')"), 'Launch broadcast did not reach the guest');
+    result.tests.push('Host launch message reaches guest');
+    if (process.argv.includes('--native-test') && !result.gameplayTested) {
+      await a.webContents.executeJavaScript('testLobby.states.clear()');
+      await b.webContents.executeJavaScript('testLobby.states.clear()');
+      result.nativeGame = await require('./native-game-test.cjs').runNativeGameTest({ a, b, executable: nativeExecutable, out });
+      result.gameplayTested = result.nativeGame.success;
+      result.tests.push('Two actual native games replicate moving players over WebRTC; remote engine ped positions measured');
+    }
+    await b.webContents.executeJavaScript('testLobby.leave()');
+    await waitFor(() => a.webContents.executeJavaScript('testLobby.players.size === 1'), 'Disconnect did not update roster');
+    result.tests.push('Disconnect removes guest from host roster');
+    result.success = true;
+    console.log(JSON.stringify(result, null, 2));
+  } catch (error) { result.success = false; result.error = error.stack; console.error(error); }
+  finally {
+    a?.destroy(); b?.destroy();if(uiGuest && !uiGuest.isDestroyed())uiGuest.destroy();
+    if (relay) { for (const client of relay.wss.clients) client.terminate(); await relay.close(); }
+    await fs.writeFile(path.join(out, 'desktop-tests.json'), JSON.stringify(result, null, 2));
+    app.exit(result.success ? 0 : 1);
+  }
+}
+module.exports = { run };

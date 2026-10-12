@@ -1,0 +1,22 @@
+#pragma once
+class CPed;
+class CVehicle;
+class CEntity;
+class CVector;
+typedef void (*VTWorldSender)(unsigned type,unsigned id,const float* state);
+void ViceTogetherWorldCapture(VTWorldSender send);
+void ViceTogetherWorldPacket(unsigned type,unsigned id,const float* state);
+void ViceTogetherWorldTick();
+void ViceTogetherWorldStatus(float* state);
+bool ViceTogetherWorldPed(const CPed* ped);
+bool ViceTogetherWorldVehicle(const CVehicle* vehicle);
+CVehicle* ViceTogetherWorldFindVehicle(unsigned id);
+int ViceTogetherWorldVehicleId(CVehicle* vehicle);
+void ViceTogetherRequestPassenger();
+void ViceTogetherGrantPassenger(unsigned id,int seat);
+void ViceTogetherWorldTestDrive();
+bool ViceTogetherWorldApplyEnvironment();
+void ViceTogetherWorldGlass(CEntity* entity,float amount,const CVector& speed,const CVector& point,bool explosion,bool broken);
+void ViceTogetherWorldGlassRequest(const float* state);
+void ViceTogetherWorldExplosion(CEntity* victim,int type,const CVector& position,unsigned lifetime,bool sound);
+void ViceTogetherWorldTestEffects();
