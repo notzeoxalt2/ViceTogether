@@ -8,8 +8,8 @@ export function parseFriendInvite(text) {
   return { room: match[1], key: match[2], owner: match[3] };
 }
 export class Social extends EventTarget {
-  constructor({ joinRoom, storage, now = Date.now, timers = globalThis }) {
-    super(); this.joinRoom = joinRoom; this.storage = storage; this.now = now; this.timers = timers;
+  constructor({ joinRoom, storage, now = Date.now, timers = globalThis, diagnosticsFactory }) {
+    super(); this.joinRoom = joinRoom; this.storage = storage; this.now = now; this.timers = timers; this.diagnosticsFactory = diagnosticsFactory;
     this.sessions = new Map(); this.name = 'Player'; this.activity = 'In launcher'; this.invite = null;
     let saved; try { const raw = storage.getItem('vt-social-v1'); if (raw?.length < 250000) saved = JSON.parse(raw); } catch {}
     this.id = TOKEN.test(saved?.id) ? saved.id : random(); this.friends = [];
@@ -23,6 +23,7 @@ export class Social extends EventTarget {
   persist() { this.storage.setItem('vt-social-v1', JSON.stringify({ id: this.id, friends: this.friends })); }
   changed() { this.persist(); this.emit('change', this.snapshot()); }
   snapshot() { return this.friends.map(f => { const s = this.sessions.get(f.room); return { ...f, status: s?.status || 'Disconnected', activity: s?.peer ? s.activity : '', invite: s?.invite || null }; }); }
+  diagnostics(room) { const s=this.sessions.get(room); return { status:s?.status || 'Disconnected', relayConfigured:!!this.options?.iceServers?.some(server=>(Array.isArray(server.urls)?server.urls:[server.urls]).some(url=>/^turns?:/i.test(url))), connection:s?.diagnostics?.snapshot() || null }; }
   start(name, options = {}) { this.name = nameOf(name); this.options = options; for (const f of this.friends) this.connect(f); }
   createFriend() {
     if (this.friends.length >= 12) throw new Error('This lightweight preview supports twelve friends. Remove a friend before adding another.');
@@ -45,6 +46,7 @@ export class Social extends EventTarget {
     if (this.options?.iceServers?.length) config.turnConfig = this.options.iceServers;
     if (this.options?.relayUrls?.length) config.relayConfig = { urls: this.options.relayUrls };
     try {
+      if (this.diagnosticsFactory) { s.diagnostics=this.diagnosticsFactory(); config.rtcPolyfill=s.diagnostics.Peer; }
       s.room = this.joinRoom(config, f.room, { onJoinError: () => { s.status = 'Connection unavailable'; this.emit('change', this.snapshot()); } });
       s.wire = s.room.makeAction('social');
       s.wire.onReceive = ({ byteLength }) => byteLength <= 4096;
@@ -56,7 +58,7 @@ export class Social extends EventTarget {
         for (const peerId of Object.keys(s.room.getPeers())) this.presence(s, peerId);
       }, 15000);
     } catch { s.status = 'Connection unavailable'; }
-    s.timeout = this.timers.setTimeout(() => { if (!s.peer) { s.status = 'Not connected'; this.emit('change', this.snapshot()); } }, 25000);
+    s.timeout = this.timers.setTimeout(() => { if (!s.peer) { if(s.status==='Connecting')s.status = 'Not connected'; this.emit('change', this.snapshot()); } }, 25000);
   }
   presence(s, peerId) {
     s.wire?.send({ v: 1, type: 'presence', id: this.id, name: this.name, activity: this.activity, invite: this.invite }, { target: peerId }).catch(() => {});

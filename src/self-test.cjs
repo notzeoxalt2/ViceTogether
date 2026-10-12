@@ -102,8 +102,10 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
         await uiGuest.webContents.executeJavaScript(`document.querySelector('[data-page=join]').click();document.getElementById('invite-input').value=${JSON.stringify(code)};document.getElementById('join').click()`);
         await waitFor(async()=>await win.webContents.executeJavaScript("document.getElementById('players').children.length===2")&&await uiGuest.webContents.executeJavaScript("document.getElementById('players').children.length===2"),'Actual Host and Join UI did not connect',45000);
         await win.webContents.executeJavaScript("document.getElementById('copy').click()");
-        await waitFor(async()=>(await clipboard.readText()).startsWith('vicetogether://join/'),'Copy invite link did not copy a compact link');
-        assert.ok((await clipboard.readText()).length<40,'Invite link is still oversized');
+        const expectedInvite=await win.webContents.executeJavaScript('window.desktop.copyInvite ? true : false');
+        assert.ok(expectedInvite,'Copy invitation API is missing');
+        await waitFor(async()=>{const value=await clipboard.readText();return value==='vicetogether://join/'+code || value===require('../release-config.json').inviteBaseUrl.split('#')[0]+'#'+code;},'Copy invite link did not copy the install page or compact deep link');
+        assert.ok((await clipboard.readText()).length<120,'Invite link is still oversized');
         result.shortInviteCharacters=(await clipboard.readText()).length;
         result.tests.push('Actual launcher Host, Copy room code, Join and Copy invite buttons connect two visible rosters over public signaling and WebRTC');
         try {
@@ -137,7 +139,8 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
       return w;
     };
     a = await create(); b = await create();
-    for(const [window,name] of [[a,'Alice'],[b,'Bob']])await window.webContents.executeJavaScript(`window.socialStore=new Map();window.socialTest=new testFriends({joinRoom:testJoinRoom,storage:{getItem:k=>socialStore.get(k),setItem:(k,v)=>socialStore.set(k,v)}});socialTest.start(${JSON.stringify(name)},{relayUrls:[${JSON.stringify(relayUrl)}]});`);
+    const publicSignaling = process.argv.includes('--public-signaling-test');
+    for(const [window,name] of [[a,'Alice'],[b,'Bob']])await window.webContents.executeJavaScript(`window.socialStore=new Map();window.socialTest=new testFriends({${publicSignaling?'':'joinRoom:testJoinRoom,'}storage:{getItem:k=>socialStore.get(k),setItem:(k,v)=>socialStore.set(k,v)}});socialTest.start(${JSON.stringify(name)},${publicSignaling?'{}':`{relayUrls:[${JSON.stringify(relayUrl)}]}`});`);
     const friendInvite=await a.webContents.executeJavaScript('socialTest.createFriend()');
     await b.webContents.executeJavaScript(`socialTest.add(${JSON.stringify(friendInvite)})`);
     await waitFor(async()=>await a.webContents.executeJavaScript('socialTest.snapshot()[0].status=== "Online"')&&await b.webContents.executeJavaScript('socialTest.snapshot()[0].status=== "Online"'),'Real WebRTC friend presence did not connect');
@@ -145,8 +148,7 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     await waitFor(()=>b.webContents.executeJavaScript('socialTest.friends[0].messages.some(m=>m.text=== "Hello from the hidden friend test")'),'Real WebRTC chat was not delivered');
     await waitFor(()=>a.webContents.executeJavaScript('socialTest.friends[0].messages[0].direction=== "delivered"'),'Chat delivery receipt did not arrive');
     await a.webContents.executeJavaScript('socialTest.stop()');await b.webContents.executeJavaScript('socialTest.stop()');
-    result.tests.push('Two hidden renderers pair friends, show live presence and exchange text plus delivery receipt over real WebRTC (local signaling; not an internet test)');
-    const publicSignaling = process.argv.includes('--public-signaling-test');
+    result.tests.push(`Two hidden renderers pair friends, show live presence and exchange text plus delivery receipt over real WebRTC (${publicSignaling?'public':'local'} signaling; same PC, not a two-network test)`);
     const joinOptions = publicSignaling ? '{}' : `{joinRoom: testJoinRoom, relayUrls: [${JSON.stringify(relayUrl)}]}`;
     result.signaling = publicSignaling ? 'Public default Trystero Nostr relays; same-PC peers' : 'Local WebSocket relay; same-PC peers';
     const invite = await a.webContents.executeJavaScript(`testLobby.host(${JSON.stringify(createInvite())}, 'Host', ${joinOptions})`);

@@ -10,6 +10,8 @@ function showDetected(found) {
 }
 window.desktop.on('detected', found => { latestDetected = found; if(state) { state.detected=found;showDetected(found); } });
 const lobby = new PrivateLobby();
+const copyConnection=document.createElement('button');copyConnection.type='button';copyConnection.textContent='Copy connection details';$('copy-code').parentElement.append(copyConnection);
+copyConnection.onclick=async()=>{try{await call(window.desktop.copyText(JSON.stringify({version:state.version,...await lobby.connectionReport()})));notice('Connection details copied. Share these to diagnose lag; no invite or IP addresses included.');}catch(e){notice(e.message)}};
 function notice(text) { $('notice').textContent = text; $('notice').hidden = !text; }
 function renderLibrary() {
   if(!state)return;

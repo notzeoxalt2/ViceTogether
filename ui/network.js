@@ -1,6 +1,8 @@
-import { joinRoom, selfId } from 'trystero';
+import { joinRoom, selfId, getRelaySockets } from 'trystero';
 import { Social } from './social.mjs';
-export class Friends extends Social { constructor(options) { super({ ...options, joinRoom: options.joinRoom || joinRoom }); } }
+import { connectionDiagnostics } from './connection-diagnostics.mjs';
+import { SnapshotSender } from './snapshot-sender.mjs';
+export class Friends extends Social { constructor(options) { super({ ...options, joinRoom: options.joinRoom || joinRoom, diagnosticsFactory: options.diagnosticsFactory || (() => connectionDiagnostics({relaySockets:getRelaySockets})) }); } }
 import { validState } from '../engine/sync.js';
 import { SessionCombat } from '../engine/combat.js';
 import { ShotAuthority,validShot } from '../engine/shots.js';
@@ -34,6 +36,7 @@ export class PrivateLobby extends EventTarget {
   }
   async join(invite, name, options = {}) { await this.leave(); this.start(invite, name, false, options); }
   start(invite, name, isHost, options) {
+    this.snapshotSenders=new Map();
     this.invite = invite; this.name = cleanName(name); this.isHost = isHost; this.sessionStarted = false;
     this.trustedHost=invite.host||null;
     const generation = this.generation;
@@ -114,7 +117,7 @@ export class PrivateLobby extends EventTarget {
       if (!this.isHost || !this.room) return;
       const now = performance.now();
       const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
-      this.world.send(frame).catch(() => {});
+      this.sendSnapshot('players',this.world,frame);
       this.emit('frame', frame.map(p => ({ ...p, self: p.id === selfId })));
     }, 50);
     this.hello.onReceive = ({ byteLength }) => byteLength < 256;
@@ -158,6 +161,7 @@ export class PrivateLobby extends EventTarget {
     };
     this.room.onPeerLeave = id => {
       if (generation !== this.generation) return;
+      for(const kind of ['movement','players','ambient']){const key=kind+':'+id;this.snapshotSenders.get(key)?.close();this.snapshotSenders.delete(key);}
       this.pending.delete(id); this.players.delete(id); this.combat.remove(id);this.seats.release(id); delete this.pings[id];
       if (this.isHost) this.broadcastRoster().catch(() => {});
       else if (id === this.hostId) {
@@ -248,12 +252,28 @@ export class PrivateLobby extends EventTarget {
   sendState(state) {
     if (!this.room || !validState(state)) return;
     if (this.isHost) this.acceptState(selfId, state);
-    else if (this.hostId) this.movement.send(state, { target: this.hostId }).catch(() => {});
+    else if (this.hostId) this.sendSnapshot('movement',this.movement,state,[this.hostId]);
+  }
+  sendSnapshot(kind, action, value, targets=[...this.players.keys()].filter(id=>id!==selfId)) {
+    const room=this.room;if(!room)return;
+    for(const id of targets){const key=kind+':'+id;let sender=this.snapshotSenders.get(key);
+      if(!sender){sender=new SnapshotSender({peer:()=>room.getPeers()[id],send:packet=>action.send(packet,{target:id})});this.snapshotSenders.set(key,sender);}
+      sender.offer(value);
+    }
+  }
+  async connectionReport() {
+    const reports=[];
+    for(const pc of Object.values(this.room?.getPeers()||{})){
+      const stats=await pc.getStats();const transport=[...stats.values()].find(s=>s.type==='transport'&&s.selectedCandidatePairId);
+      const pair=stats.get(transport?.selectedCandidatePairId);const local=stats.get(pair?.localCandidateId),remote=stats.get(pair?.remoteCandidateId);
+      reports.push({state:pc.connectionState,ice:pc.iceConnectionState,route:pair?{localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,rttMs:Math.round((pair.currentRoundTripTime||0)*1000),availableOutgoingKbps:pair.availableOutgoingBitrate===undefined?null:Math.round(pair.availableOutgoingBitrate/1000)}:null});
+    }
+    return {peers:reports.slice(0,7),pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
   }
   sendWorld(frame) {
     if(!this.room || !this.isHost || !validWorldFrame(frame))return;
     this.seats.world(frame);
-    this.ambient.send(frame).catch(()=>{});
+    this.sendSnapshot('ambient',this.ambient,frame);
   }
   sendGlass(state){if(this.room && !this.isHost && this.hostId && validGlass(state))this.glassInput.send({state,seq:++this.glassSequence},{target:this.hostId}).catch(()=>{});}
   acceptSeat(id,request) {
@@ -275,6 +295,7 @@ export class PrivateLobby extends EventTarget {
     catch(error){this.sessionStarted=false;throw error;}
   }
   async leave() {
+    for(const sender of this.snapshotSenders?.values()||[])sender.close();this.snapshotSenders?.clear();
     clearInterval(this.timer); clearInterval(this.gameTimer); clearTimeout(this.timeout);
     const room = this.room;
     this.room = null;

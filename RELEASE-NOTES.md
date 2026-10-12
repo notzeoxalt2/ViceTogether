@@ -1,5 +1,9 @@
 # Experimental friend-test build
 
+Alpha.8 keeps only the newest pending player and ambient-world snapshot per peer when transport is busy, reducing obsolete updates queued during congestion. Gameplay events (shots, damage, seat requests and launch) retain their existing delivery path. It adds private connection reports in Friends and the lobby, including selected-route RTT and candidate types without IP addresses or invite secrets. Failed friend pairing now explains discovery versus direct-connectivity limitations. This does not guarantee lower internet latency or resolve every NAT restriction.
+
+Validated with 30 unit tests and hidden same-PC launcher, friend presence/chat, lobby and movement delivery tests using public signaling. Actual gameplay on two internet connections remains unverified.
+
 Install the Setup edition for automatic launcher updates. Import your own original PC Vice City folder once. Host a private lobby, share its code, and start when both players are ready. Keep both launchers open while playing.
 
 Updates preserve the launcher profile, local game cache and saves. The portable edition requires manual replacement. No original GTA game assets are included in GitHub downloads.

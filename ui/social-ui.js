@@ -1,8 +1,12 @@
 import { Friends } from './network.bundle.js';
+import { connectionHint } from './connection-diagnostics.mjs';
 const $ = id => document.getElementById(id);
 export function setupFriends({ state, call, notice, join }) {
   let selected = null;
   const social = new Friends({ storage: localStorage });
+  const help=document.createElement('p'); help.className='muted';help.setAttribute('role','status');$('chat-status').parentElement.append(help);
+  const diagnosticButton=document.createElement('button');diagnosticButton.type='button';diagnosticButton.textContent='Copy connection details';$('friend-retry').parentElement.append(diagnosticButton);
+  diagnosticButton.onclick=async()=>{try{await call(window.desktop.copyText(JSON.stringify({version:state.version,...social.diagnostics(selected)})));notice('Connection details copied. Contains connection states, without your invite, messages or network addresses.');}catch(e){notice(e.message)}};
   function render() {
     const friends = social.snapshot(), online = friends.filter(f => f.status === 'Online').length;
     $('friends-count').textContent = `${online} online`;
@@ -18,6 +22,7 @@ export function setupFriends({ state, call, notice, join }) {
     const f = friends.find(f => f.room === selected);
     $('chat-empty').hidden = !!f; $('chat-panel').hidden = !f; if (!f) return;
     $('chat-name').textContent = f.name; $('chat-status').textContent = f.status === 'Online' ? f.activity : f.status;
+    const diagnostic=social.diagnostics(selected);help.textContent=connectionHint(f.status,diagnostic.connection,diagnostic.relayConfigured);help.hidden=!help.textContent;
     $('chat-send').disabled = f.status !== 'Online'; $('friend-join').disabled = !f.invite;
     const log = $('chat-log'), atEnd = log.scrollHeight - log.scrollTop - log.clientHeight < 45; const scroll = log.scrollTop;
     log.replaceChildren();
