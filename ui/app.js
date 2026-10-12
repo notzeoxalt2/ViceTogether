@@ -158,6 +158,7 @@ try {
   $('mouse-sensitivity').value=String(state.settings.mouseSensitivity??1.5);
   $('name').value = state.settings.name; $('fps').value = String(state.settings.fps); $('fullscreen').checked = state.settings.fullscreen;
   $('profile').firstChild.textContent = state.settings.name; $('version').textContent = state.version;
+  if(state.config.updateFeedUrl)$('update-note').textContent='Launcher updates download automatically and install when you close the app. Your game files and saves stay in place.';
   document.querySelector('.sidebar-bottom .avatar').textContent=state.settings.name[0].toUpperCase();
   assetStatus(state.assets);
   if (state.engineBuilt) { $('multiplayer').textContent = 'Start experimental on-foot session'; $('build-status').textContent = 'Native engine with real on-foot replication, tested with two games on this PC. Internet connectivity, visual smoothness, vehicles and combat remain unfinished.'; }
