@@ -25,7 +25,7 @@ jobs:
             ../../work/release/*Setup.exe
             ../../work/release/*portable.exe
             ../../work/release/*.blockmap
-            ../../work/release/latest.yml
+            ../../work/release/alpha.yml
       - name: Publish tagged update
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -40,7 +40,7 @@ jobs:
             gh release create $tag --repo '${{ github.repository }}' --title "ViceTogether $version — experimental" --notes-file RELEASE-NOTES.md --latest
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-          $files = Get-ChildItem ../../work/release -File | Where-Object { $_.Name -match '(Setup\.exe|portable\.exe|\.blockmap|latest\.yml)$' }
+          $files = Get-ChildItem ../../work/release -File | Where-Object { $_.Name -match '(Setup\.exe|portable\.exe|\.blockmap|alpha\.yml)$' }
           if (!$files.Count) { throw 'Release files are missing.' }
           gh release upload $tag @($files.FullName) --repo '${{ github.repository }}' --clobber
           exit $LASTEXITCODE
