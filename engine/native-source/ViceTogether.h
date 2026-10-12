@@ -6,6 +6,8 @@ void ViceTogetherNetworkTick();
 class CPed;
 bool ViceTogetherIsRemote(const CPed* ped);
 void ViceTogetherDrawNames();
+bool ViceTogetherMenuKey(int key,bool control);
+bool ViceTogetherMenuOpen();
 bool ViceTogetherRenderBody(CPed* ped);
 void ViceTogetherWeaponRendered(CPed* ped);
 void ViceTogetherFlushShots();

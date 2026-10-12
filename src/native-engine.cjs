@@ -23,10 +23,14 @@ class NativeEngine extends EventEmitter {
   async start(gameRoot, { multiplayer = false, authoritativeWorld = false, inputDisabled = false, testWalk = false, testCombat = false, followPlayer = false, muted = false, name = 'Player', fps = 144, fullscreen = true, mouseSensitivity = 1.5, windowBounds, spawnOffset = Math.random() * 6, userDir = path.join(gameRoot, 'userfiles') } = {}) {
     if (this.child && this.child.exitCode === null) {
       if(this.multiplayer !== multiplayer) throw new Error('Close the current game before switching between singleplayer and multiplayer.');
+      if(multiplayer&&this.authoritativeWorld!==authoritativeWorld)throw new Error('Close the current game before switching between hosting and joining.');
+      this.selfSequence=-1;this.received.clear();this.shotSequences?.clear();
       return;
     }
     await fs.access(this.executable);
     this.worldPending=null;this.worldReceived=0;this.shotSequences=new Map();this.authoritativeWorld=authoritativeWorld;
+    this.selfSequence=-1;
+    this.packetCounts={};this.lastPerformance=null;this.lastWorldStatus=null;this.worldHitCounts={npc:0,vehicle:0};
     await fs.access(path.join(gameRoot, 'Mss32.dll')).catch(() => { throw new Error('Vice City’s Mss32.dll is missing. Import your original game folder again.'); });
     await fs.mkdir(userDir, { recursive: true });
     const localExe = path.join(gameRoot, 'ViceTogether-engine.exe');
@@ -36,7 +40,7 @@ class NativeEngine extends EventEmitter {
     env.VT_MOUSE_SENSITIVITY=String(Math.max(0.25,Math.min(4,Number(mouseSensitivity)||1.5)));
     for(const key of ['X','Y','WIDTH','HEIGHT'])delete env['VT_WINDOW_'+key];
     if(windowBounds)for(const key of ['x','y','width','height'])if(Number.isInteger(windowBounds[key]))env['VT_WINDOW_'+key.toUpperCase()]=String(windowBounds[key]);
-    delete env.VT_PORT; delete env.VT_AUTOSTART; delete env.VT_TEST_WALK;delete env.VT_TEST_COMBAT;
+    delete env.VT_PORT; delete env.VT_AUTOSTART; delete env.VT_TEST_WALK;delete env.VT_TEST_COMBAT;delete env.VT_TEST_GUEST_DRIVE;
     delete env.VT_WORLD_HOST;delete env.VT_TEST_GUN_WALK;delete env.VT_TEST_SHOTS;delete env.VT_TEST_JUMP;delete env.VT_TEST_CAR;delete env.VT_TEST_CAR_BLAST;delete env.VT_TEST_WORLD_EFFECTS;
     delete env.VT_INPUT_DISABLED;
     delete env.VT_MUTE;delete env.VT_FOLLOW_PLAYER;delete env.VT_TEST_GUN;delete env.VT_TEST_MOVING_COMBAT;
@@ -48,6 +52,7 @@ class NativeEngine extends EventEmitter {
         if (source.address !== '127.0.0.1' || b.length !== 148 || b.readUInt32LE(0) !== MAGIC) return;
         if (this.endpoint && source.port !== this.endpoint) return;
         const type = b.readUInt32LE(4), slot = b.readUInt32LE(8);
+        if(type<=64)this.packetCounts[type]=(this.packetCounts[type]||0)+1;
         const state = Array.from({ length: 34 }, (_, i) => b.readFloatLE(12 + 4 * i));
         if((type>=19 && type<=22) || type===35 || type===37 || type===42) {
           if(!this.authoritativeWorld || !this.endpoint)return;
@@ -62,13 +67,15 @@ class NativeEngine extends EventEmitter {
         if (type === 1 && validState(state)) { this.endpoint = source.port; this.emit('state', state); }
         else if(type===23 && state.slice(0,15).every(Number.isFinite))this.emit('world-observed',{seq:state[0],peds:state[1],vehicles:state[2],loadedPeds:state[3],loadedVehicles:state[4],rain:state[5],wetRoads:state[6],oldWeather:state[7],newWeather:state[8],hour:state[9],minute:state[10],glassRecords:state[11],brokenGlass:state[12],crackedGlass:state[13],explosionSequence:state[14]});
         else if(type===28 && Number.isSafeInteger(state[0]) && Number.isInteger(state[1]))this.emit('seat-state',{id:state[0],seat:state[1]});
-        else if(type===30)this.emit('seat-request',{id:slot});
+        else if(type===30)this.emit('seat-request',{id:slot,driver:state[0]===-1});
+        else if(type===43&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&state.every(Number.isFinite))this.emit('driver-state',{id:slot,state});
         else if(type===40 && !this.authoritativeWorld && validGlass(state))this.emit('glass-request',state);
         else if(type===36 && this.authoritativeWorld && slot<=7 && Number.isFinite(state[0]) && state[0]>0 && state[0]<=100){const target=slot===7?null:[...this.slots].find(([,s])=>s===slot)?.[0];if(slot===7 || target)this.emit('world-damage',{target,amount:state[0]});}
         else if (testWalk && type === 4 && slot < 7 && state.every(Number.isFinite)) this.emit('remote-observed', { slot, state });
         else if (type === 11 && slot < 7 && state.every(Number.isFinite)) this.emit('skeleton-observed', { slot, state });
         else if(testWalk && type===18 && state.every(Number.isFinite))this.emit('local-skeleton-observed',{state});
-        else if (type === 6 && state.every(Number.isFinite)) this.emit('performance', { fps: state[0], frameMsP95: state[1],window:{x:state[2],y:state[3],width:state[4],height:state[5]} });
+        else if (type === 6 && state.every(Number.isFinite)) {this.lastPerformance={fps:state[0],frameMsP95:state[1]};this.emit('performance', { fps: state[0], frameMsP95: state[1],window:{x:state[2],y:state[3],width:state[4],height:state[5]} });}
+        else if(type===45&&this.authoritativeWorld&&[0,1].includes(slot))this.worldHitCounts[slot===0?'npc':'vehicle']++;
         else if(type===12 && validWeapon(state[0]))this.emit('equipment',{weapon:state[0],visible:state[1]===1});
         else if(type===14 && instantWeapon(state[0]) && state.slice(1,12).every(Number.isFinite))this.emit('shot',{weapon:state[0],source:state.slice(1,4),end:state.slice(4,7),hit:state[7]===1,normal:state.slice(8,11),hitKind:state[11]});
         else if(type===16 && slot<7)this.emit('shot-played',{slot,weapon:state[0],source:state.slice(1,4),end:state.slice(4,7),hit:state[7]===1,hitKind:state[11]});
@@ -82,7 +89,7 @@ class NativeEngine extends EventEmitter {
       env.VT_WORLD_HOST=authoritativeWorld?'1':'0';
       env.VT_SPAWN_OFFSET = String(Math.min(6, Math.max(0, Number(spawnOffset) || 0)));
       if (testWalk) env.VT_TEST_WALK = '1';
-      if(testWalk)for(const flag of ['VT_TEST_JUMP','VT_TEST_GUN_WALK','VT_TEST_SHOTS','VT_TEST_CAR','VT_TEST_CAR_BLAST','VT_TEST_WORLD_EFFECTS'])if(process.env[flag]==='1')env[flag]='1';
+      if(testWalk)for(const flag of ['VT_TEST_JUMP','VT_TEST_GUN_WALK','VT_TEST_SHOTS','VT_TEST_CAR','VT_TEST_GUEST_DRIVE','VT_TEST_CAR_BLAST','VT_TEST_WORLD_EFFECTS'])if(process.env[flag]==='1')env[flag]='1';
       if(testCombat)env.VT_TEST_COMBAT='1';
       if(testCombat && process.env.VT_TEST_GUN==='1')env.VT_TEST_GUN='1';
       if(testCombat && process.env.VT_TEST_MOVING_COMBAT==='1')env.VT_TEST_MOVING_COMBAT='1';
@@ -111,7 +118,8 @@ class NativeEngine extends EventEmitter {
     if (!this.socket || !this.endpoint) return;
     if (!Array.isArray(frame) || frame.length > 8) return;
     const self=frame.find(p=>p?.self);
-    if(self) {
+    if(self && (!Number.isSafeInteger(self.seq) || self.seq>(this.selfSequence??-1))) {
+      if(Number.isSafeInteger(self.seq))this.selfSequence=self.seq;
       this.send(7,0,[Number.isInteger(self.color)?self.color%8:0,...Array(9).fill(0)]);
       if(validState(self.state))this.send(10,0,[self.state[8],...Array(9).fill(0)]);
     }
@@ -143,7 +151,8 @@ class NativeEngine extends EventEmitter {
   }
   glassRequest(state){if(this.authoritativeWorld && validGlass(state))this.send(41,0,state);}
   closeSocket() { if (this.socket) { try { this.socket.close(); } catch {} this.socket = null; } this.endpoint = null; this.slots.clear(); }
-  seatGrant(claim){if(!this.authoritativeWorld && Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=0 && claim.seat<8)this.send(32,0,[claim.id,claim.seat]);}
+  seatGrant(claim){if(Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=-1 && claim.seat<8)this.send(32,0,[claim.id,claim.seat]);}
+  driverState(update){if(this.authoritativeWorld&&Number.isSafeInteger(update?.id)&&update.id>=0&&Array.isArray(update.state)&&update.state.length===34&&update.state.every(Number.isFinite))this.send(44,update.id,update.state);}
   remoteShot(shot) {
     if(shot?.self || typeof shot?.id!=='string' || !instantWeapon(shot.weapon) || !Number.isSafeInteger(shot.seq))return;
     const slot=this.slots.get(shot.id);if(slot===undefined)return;
@@ -154,6 +163,7 @@ class NativeEngine extends EventEmitter {
     this.send(15,slot,[shot.weapon,...shot.source,...shot.end,shot.hit?1:0,...shot.normal,[0,1,2].includes(shot.hitKind)?shot.hitKind:0]);
   }
   stop() { this.child?.kill(); this.closeSocket(); }
+  diagnostics(){return {running:!!this.child&&this.child.exitCode===null,host:this.authoritativeWorld===true,remotePlayers:this.slots.size,worldSequence:this.worldReceived||0,packets:this.packetCounts||{},performance:this.lastPerformance,appliedGuestHits:this.worldHitCounts||{npc:0,vehicle:0}};}
 }
 function cleanLabel(name) { return String(name || 'Player').replace(/[^a-zA-Z0-9 _.-]/g, '').trim().slice(0, 24) || 'Player'; }
 module.exports = { NativeEngine, validState, packet, cleanLabel };

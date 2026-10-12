@@ -80,7 +80,7 @@ export class Social extends EventTarget {
     }
     if (p.type !== 'chat' || !TOKEN.test(p.message) || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 1000) return;
     s.lastSeen = this.now();
-    if (!f.messages.some(m => m.id === p.message)) { f.messages.push({ id: p.message, text: p.text, direction: 'received', time: this.now() }); f.messages = f.messages.slice(-50); f.unread++; this.changed(); }
+    if (!f.messages.some(m => m.id === p.message)) { f.messages.push({ id: p.message, text: p.text, direction: 'received', time: this.now() }); f.messages = f.messages.slice(-50); f.unread++; this.changed(); this.emit('message',{room:f.room,name:f.name}); }
     s.wire.send({ v: 1, type: 'ack', id: this.id, message: p.message }, { target: peerId }).catch(() => {});
   }
   async send(room, text) {

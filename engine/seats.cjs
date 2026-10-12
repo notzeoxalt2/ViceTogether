@@ -1,13 +1,19 @@
-// Initial host-driver / guest-passenger ownership. Guest driving is not granted.
+// Host grants exclusive seats. Vehicle transforms from a guest require ownership.
 class SeatAuthority {
-  constructor(){this.cars=new Map();this.claims=new Map();this.npcs=new Set();}
-  world(frame){this.cars=new Map(frame.entities.filter(e=>e.type===22).map(e=>[e.id,e.state]));this.npcs=new Set(frame.entities.filter(e=>e.type===21 && e.state[8]>=0).map(e=>e.state[8]+':'+e.state[9]));for(const [id,seat] of this.claims)if(!this.cars.has(seat.id))this.claims.delete(id);}
-  driver(id,car,player,trustedLocal=false){this.claims.delete(id);if(!car || car.id<0)return true;const state=this.cars.get(car.id);if(car.seat!==-1 || !state || (!trustedLocal && (!player || Math.hypot(...player.state.slice(0,3).map((v,k)=>v-state[k+2]))>8)))return false;this.claims.set(id,{id:car.id,seat:-1});return true;}
-  request(id,carId,player,now){const state=this.cars.get(carId);if(!state || !player || now-player.time>500 || player.state[8]<=0 || Math.hypot(...player.state.slice(0,3).map((v,k)=>v-state[k+2]))>8)return null;
+  constructor(){this.cars=new Map();this.claims=new Map();this.npcs=new Set();this.wrecks=new Set();}
+  world(frame){const cars=frame.entities.filter(e=>e.type===22);this.cars=new Map(cars.map(e=>[e.id,e.state]));this.wrecks=new Set(cars.filter(e=>e.state[17]<=0||e.visual?.[31]===5).map(e=>e.id));this.npcs=new Set(frame.entities.filter(e=>e.type===21 && e.state[8]>=0).map(e=>e.state[8]+':'+e.state[9]));for(const [id,seat] of this.claims)if(!this.cars.has(seat.id)||this.wrecks.has(seat.id))this.release(id);}
+  driver(id,car,player,trustedLocal=false){this.claims.delete(id);if(!car || car.id<0)return true;const state=this.cars.get(car.id);if(car.seat!==-1 || !state || this.wrecks.has(car.id) || (!trustedLocal && (!player || Math.hypot(...player.state.slice(0,3).map((v,k)=>v-state[k+2]))>8)))return false;this.claims.set(id,{id:car.id,seat:-1});return true;}
+  request(id,carId,player,now){const state=this.cars.get(carId);if(!state || this.wrecks.has(carId) || !player || now-player.time>500 || player.state[8]<=0 || Math.hypot(...player.state.slice(0,3).map((v,k)=>v-state[k+2]))>8)return null;
     if(this.claims.get(id)?.id===carId)return this.claims.get(id);
     for(let seat=0;seat<Math.min(8,state[22]);seat++){if(this.npcs.has(carId+':'+seat) || [...this.claims.values()].some(s=>s.id===carId && s.seat===seat))continue;const claim={id:carId,seat};this.claims.set(id,claim);return claim;}return null;
   }
-  release(id){this.claims.delete(id);}
+  release(id){this.claims.delete(id);this.motion?.delete(id);}
+  requestDriver(id,carId,player,now){const car=this.cars.get(carId);if(!car||this.wrecks.has(carId)||!player||now-player.time>750||player.state[8]<=0||Math.hypot(...player.state.slice(0,3).map((v,k)=>v-car[k+2]))>8)return null;if(this.npcs.has(carId+':-1')||[...this.claims.entries()].some(([owner,s])=>owner!==id&&s.id===carId&&s.seat===-1))return null;const claim={id:carId,seat:-1};this.claims.set(id,claim);return claim;}
+  acceptVehicle(id,update,now){const claim=this.claims.get(id),car=claim&&this.cars.get(claim.id);if(!car||this.wrecks.has(claim.id)||claim.seat!==-1||update?.id!==claim.id||!Array.isArray(update.state)||update.state.length!==34||!update.state.every(Number.isFinite))return null;const d=update.state;if(d[0]!==car[0]||d[1]!==car[1]||d.slice(2,5).some((v,k)=>Math.abs(v)>[10000,10000,3000][k])||d.slice(5,14).some(v=>Math.abs(v)>1.1)||d.slice(14,17).some(v=>Math.abs(v)>3))return null;
+    if(d[2]<-2350||d[2]>1550||Math.abs(d[3])>1950)return null;const axes=[d.slice(5,8),d.slice(8,11),d.slice(11,14)];if(axes.some(v=>Math.abs(Math.hypot(...v)-1)>0.05))return null;for(let a=0;a<3;a++)for(let b=a+1;b<3;b++)if(Math.abs(axes[a].reduce((sum,v,i)=>sum+v*axes[b][i],0))>0.05)return null;
+    const last=this.motion?.get(id);if(last&&now-last.time<30)return null;const elapsed=last?Math.min(1500,now-last.time):100;const position=last?.position||car.slice(2,5);if(Math.hypot(...d.slice(2,5).map((v,k)=>v-position[k]))>4+elapsed*0.09)return null;
+    const result=[...car];for(let i=2;i<=16;i++)result[i]=d[i];this.motion??=new Map();this.motion.set(id,{time:now,position:d.slice(2,5)});this.cars.set(claim.id,result);return {id:claim.id,state:result};
+  }
   validOccupant(id,state){if(state[9]===0)return true;const claim=this.claims.get(id),car=claim&&this.cars.get(claim.id);return !!car && Math.hypot(...state.slice(0,3).map((v,k)=>v-car[k+2]))<10;}
 }
 module.exports={SeatAuthority};

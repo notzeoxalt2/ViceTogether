@@ -1,6 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { NativeEngine, cleanLabel,validState,packet } = require('../src/native-engine.cjs');
+test('late reliable snapshots cannot undo newer authoritative death/health updates',()=>{
+ const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
+ const state=[0,0,10,0,0,0,0,1,0,0];engine.frame([{id:'me',self:true,seq:20,state}]);engine.frame([{id:'me',self:true,seq:19,state:[...state.slice(0,8),100,0]}]);
+ const health=packets.filter(b=>b.readUInt32LE(4)===10);assert.equal(health.length,1);assert.equal(health[0].readFloatLE(12),0);
+});
 test('cheat inventory selections survive the bridge and actual hand visibility can change independently',()=>{
   const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
   const state=[0,0,10,0,0,0,0,1,100,0];

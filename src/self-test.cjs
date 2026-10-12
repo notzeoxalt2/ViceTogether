@@ -59,10 +59,11 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
       await win.webContents.executeJavaScript("document.getElementById('library-host').click()");
       await waitFor(()=>win.webContents.executeJavaScript('!!testLobby.invite?.code'),'Hidden Host UI did not create invite');
       const code=await win.webContents.executeJavaScript('testLobby.invite.code');
+      await waitFor(()=>win.webContents.executeJavaScript("!document.getElementById('multiplayer').disabled"),'Solo host could not start');
+      await win.webContents.executeJavaScript("document.getElementById('multiplayer').click()");
+      await waitFor(()=>hostLaunches===1,'Solo host did not reach launch handler');
       await uiGuest.webContents.executeJavaScript(`document.getElementById('invite-input').value=${JSON.stringify(code)};document.getElementById('join').click()`);
       await waitFor(async()=>await win.webContents.executeJavaScript('testLobby.players.size===2 && [...testLobby.players.values()].every(p=>p.ready)')&&await uiGuest.webContents.executeJavaScript('testLobby.players.size===2'),'Hidden UI lobby did not connect over public signaling',60000);
-      await waitFor(()=>win.webContents.executeJavaScript("!document.getElementById('multiplayer').disabled"),'Host start button did not become ready');
-      await win.webContents.executeJavaScript("document.getElementById('multiplayer').click()");
       try{await waitFor(()=>hostLaunches===1 && guestLaunches===1,'Start did not reach both validated launch handlers');}
       catch(error){result.launchDiagnostics={hostLaunches,guestLaunches,host:await win.webContents.executeJavaScript("({notice:document.getElementById('notice').textContent,started:testLobby.sessionStarted,ready:testLobby.ready})"),guest:await uiGuest.webContents.executeJavaScript("({notice:document.getElementById('notice').textContent,started:testLobby.sessionStarted,ready:testLobby.ready})")};throw error;}
       await win.webContents.executeJavaScript('testLobby.startGame()');await delay(300);assert.equal(hostLaunches,1);assert.equal(guestLaunches,1);
@@ -169,6 +170,10 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     await b.webContents.executeJavaScript('testLobby.sendState([5,0,5,0,0,0,0,2,100,0])');
     await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='frame' && e.detail.length===2)"), 'Host-approved movement snapshots were not received');
     result.tests.push('Host forwards validated synthetic movement packets to guest (not a gameplay test)');
+    await waitFor(async()=>await a.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.sent>0&&c.received>0)')&&await b.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.sent>0&&c.received>0)'),'Unreliable snapshot channel did not carry two-way movement');
+    result.snapshotChannels=await a.webContents.executeJavaScript('testLobby.fast.report()');
+    assert.ok(result.snapshotChannels.every(c=>c.ordered===false&&c.retransmits===0),'Snapshot channel unexpectedly uses ordered retransmission');
+    result.tests.push('Two-way snapshots use a separate unordered WebRTC stream without retransmission; lobby and gameplay events remain on Trystero');
     await a.webContents.executeJavaScript('testLobby.startGame()');
     await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='launch')"), 'Launch broadcast did not reach the guest');
     result.tests.push('Host launch message reaches guest');

@@ -26,7 +26,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const diagnostics=[],skeleton=[[],[]],shots=[[],[]],playedShots=[[],[]];
   const sourceSkeleton=[[],[]];
   const worldFrames=[0,0],worldObserved=[null,null];
-  const localSeats=[[],[]];let lastGuestSeat=-1;
+  const driverSamples=[];const localSeats=[[],[]];let lastGuestSeat=-1;
   const deliveredGlass=new Map();
   const placements=[0,1].map(i=>require('./display.cjs').gameWindow(i));
   const local = [[], []], remote = [[], []], performance = [[], []], errors = [];
@@ -60,19 +60,20 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       engines[i].on('shot-played',shot=>playedShots[i].push(shot));
       engines[i].on('world',frame=>{worldFrames[i]++;windows[i].webContents.executeJavaScript(`testLobby.sendWorld(${JSON.stringify(frame)})`).catch(e=>errors.push(e.message));});
       engines[i].on('world-observed',status=>worldObserved[i]=status);
-      engines[i].on('seat-state',seat=>{localSeats[i].push(seat);if(i===0)windows[i].webContents.executeJavaScript(`testLobby.sendSeat(${JSON.stringify({driver:true,car:seat})})`).catch(e=>errors.push(e.message));else if(seat.id<0 && lastGuestSeat>=0)windows[i].webContents.executeJavaScript('testLobby.sendSeat({release:true})').catch(e=>errors.push(e.message));if(i===1)lastGuestSeat=seat.id;});
+      engines[i].on('seat-state',seat=>{localSeats[i].push(seat);if(i===0)windows[i].webContents.executeJavaScript(`testLobby.sendSeat(${JSON.stringify(seat.seat===-1?{driver:true,car:seat}:{id:seat.id})})`).catch(e=>errors.push(e.message));else if(seat.id<0 && lastGuestSeat>=0)windows[i].webContents.executeJavaScript('testLobby.sendSeat({release:true})').catch(e=>errors.push(e.message));if(i===1)lastGuestSeat=seat.id;});
       engines[i].on('seat-request',request=>windows[i].webContents.executeJavaScript(`testLobby.sendSeat(${JSON.stringify(request)})`).catch(e=>errors.push(e.message)));
-      const launch=()=>engines[i].start(root, { multiplayer: true, authoritativeWorld:i===0, inputDisabled:interactive&&i===1&&process.env.VT_MANUAL_HOST_ONLY==='1', testWalk: !interactive, testCombat:!interactive&&combatTest, followPlayer:autoFollow&&i===1, muted:interactive&&i===1, name: i ? 'Friend' : 'Host', fullscreen: process.env.VT_TEST_FULLSCREEN === '1',windowBounds:placements[i], fps: Number(process.env.VT_TEST_FPS ?? 144), spawnOffset: i * (interactive?4:process.env.VT_TEST_GUN==='1'?6:1.1) });
+      engines[i].on('driver-state',update=>{driverSamples.push(update.state);return windows[i].webContents.executeJavaScript(`testLobby.sendVehicle(${JSON.stringify(update)})`).catch(e=>errors.push(e.message));});
+      const launch=()=>engines[i].start(root, { multiplayer: true, authoritativeWorld:i===0, inputDisabled:interactive&&i===1&&process.env.VT_MANUAL_HOST_ONLY==='1', testWalk: !interactive, testCombat:!interactive&&combatTest, followPlayer:autoFollow&&i===1, muted:!interactive||i===1, name: i ? 'Friend' : 'Host', fullscreen: process.env.VT_TEST_FULLSCREEN === '1',windowBounds:placements[i], fps: Number(process.env.VT_TEST_FPS ?? 144), spawnOffset: i * (interactive?4:process.env.VT_TEST_GUN==='1'?6:1.1) });
       if(registerLauncher)registerLauncher(windows[i],launch);else await launch();
     }
     timer = setInterval(async () => {
       if (forwarding) return; forwarding = true;
       try {
         for (let i = 0; i < 2; i++) {
-          const data = await windows[i].webContents.executeJavaScript("({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail)})");
+          const data = await windows[i].webContents.executeJavaScript("({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,driver:testEvents.findLast(e=>e.name==='driver-state')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail)})");
           engines[i].frame(data.frame);for(const shot of data.shots)engines[i].remoteShot(shot);
           if(data.ambient)engines[i].remoteWorld(data.ambient);
-          if(data.seat)engines[i].seatGrant(data.seat);
+          if(data.seat)engines[i].seatGrant(data.seat); if(data.driver)engines[i].driverState(data.driver);
           if(i===0)for(const pane of data.glass||[]){const key=JSON.stringify(pane.slice(0,5));const previous=deliveredGlass.get(key)||0;if(pane[1]>previous){engines[i].glassRequest(pane);deliveredGlass.set(key,pane[1]);}}
         }
       } catch(e) { errors.push(e.message); } finally { forwarding = false; }
@@ -97,6 +98,16 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       return {success:true,interactiveManualFollow:true,automatedPadInput:false};
     }
     await delay(durationSeconds * 1000);
+    if(process.env.VT_TEST_GUEST_DRIVE==='1'){
+      await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify({errors,driverSamples:driverSamples.slice(-20),local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),worldObserved},null,2));
+      assert.equal(errors.length,0,errors.join('; '));
+      const guestDriver=localSeats[1].filter(s=>s.id>=0&&s.seat===-1),hostPassenger=localSeats[0].filter(s=>s.id>=0&&s.seat>=0);
+      assert.ok(guestDriver.length>100,'Guest did not become the native driver');assert.ok(hostPassenger.length>100,'Host did not become the native passenger');assert.equal(guestDriver.at(-1).id,hostPassenger.at(-1).id,'Players occupied different cars');
+      const distance=local.map(samples=>{const first=samples.find(s=>s.state[9]===1),last=samples.at(-1);return first&&last?Math.hypot(...last.state.slice(0,3).map((v,k)=>v-first.state[k])):0;});
+      assert.ok(distance.every(d=>d>20),'Guest-driven car did not move both players at least twenty metres');
+      assert.ok(driverSamples.filter(s=>Math.hypot(s[14],s[15])>0.1).length>10,'Guest vehicle did not maintain real horizontal driving speed');
+      return {success:true,scenario:'Guest driver with host passenger',distance,guestDriverSamples:guestDriver.length,hostPassengerSamples:hostPassenger.length,sharedVehicleId:guestDriver.at(-1).id,samePC:true,internetTested:false};
+    }
     if(process.env.VT_TEST_CAR_BLAST==='1'){
       assert.equal(errors.length,0,errors.join('; '));
       const driver=localSeats[0].find(s=>s.id>=0 && s.seat===-1);

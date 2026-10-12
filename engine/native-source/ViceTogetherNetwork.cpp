@@ -44,7 +44,7 @@ namespace {
 const unsigned MAGIC=0x31545656;
 struct Wire { unsigned magic,type,slot; float state[34]; };
 static_assert(sizeof(Wire)==148,"Wire layout changed");
-struct Snapshot { bool live; int count; DWORD times[8]; float states[8][34]; };
+struct Snapshot { bool live; int count; DWORD times[8]; float states[8][34]; float jitter,delay; DWORD playback; };
 Snapshot history[7]={};
 SOCKET bridge=INVALID_SOCKET;
 sockaddr_in launcher={};
@@ -110,8 +110,10 @@ extern "C" void VT_SendShot(int weapon,const CVector& source,const CVector& end,
     sendto(bridge,(const char*)&shot,sizeof(shot),0,(sockaddr*)&launcher,sizeof(launcher));
 }
 extern "C" void VT_SendSeatRequest(unsigned id){float state[34]={};sendWorld(30,id,state);}
+extern "C" void VT_SendDriverRequest(unsigned id){float state[34]={};state[0]=-1;sendWorld(30,id,state);}
 extern "C" void VT_SendWorldDamage(int slot,float amount){if(bridge==INVALID_SOCKET || slot<0 || slot>7 || !std::isfinite(amount) || amount<=0)return;float state[34]={};state[0]=std::min(100.0f,amount);sendWorld(36,unsigned(slot),state);}
 extern "C" void VT_SendGlassRequest(const float* state){if(bridge!=INVALID_SOCKET)sendWorld(40,0,state);}
+extern "C" void VT_ReportWorldHit(int kind,float health){float state[34]={};state[0]=health;if(bridge!=INVALID_SOCKET)sendWorld(45,unsigned(kind),state);}
 void ViceTogetherFlushShots(){const DWORD now=clockMs();for(auto it=delayedShots.begin();it!=delayedShots.end();){if(int(now-it->due)<0){++it;continue;}if(VT_PlayRemoteShot(it->wire.slot,it->wire.state)){Wire played=it->wire;played.type=16;sendto(bridge,(const char*)&played,sizeof(played),0,(sockaddr*)&launcher,sizeof(launcher));}it=delayedShots.erase(it);}}
 void ViceTogetherBeforeWorld() {
     if(getenv("VT_INPUT_DISABLED")){CPad::GetPad(0)->NewState.Clear();return;}
@@ -192,17 +194,18 @@ void ViceTogetherNetworkTick() {
     const DWORD now=clockMs();
     reportPerformance(now);
     static DWORD lastWorld=0;
-    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);lastWorld=now;}
+    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);ViceTogetherCaptureDriver(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);lastWorld=now;}
     for(int count=0;count<512;count++) {
         Wire wire;sockaddr_in source={};int sourceSize=sizeof(source);
         const int size=recvfrom(bridge,(char*)&wire,sizeof(wire),0,(sockaddr*)&source,&sourceSize);
         if(size<0)break;
         if(size!=sizeof(wire)||wire.magic!=MAGIC||source.sin_addr.s_addr!=launcher.sin_addr.s_addr||source.sin_port!=launcher.sin_port)continue;
         if((wire.type>=19 && wire.type<=22) || wire.type==35 || wire.type==37 || wire.type==42){ViceTogetherWorldPacket(wire.type,wire.slot,wire.state);continue;}
+        if(wire.type==44){ViceTogetherApplyDriver(wire.slot,wire.state);continue;}
         if(wire.type==41){ViceTogetherWorldGlassRequest(wire.state);continue;}
         if(wire.slot>=7)continue;
         if(wire.type==29){if(std::isfinite(wire.state[0]) && wire.state[0]>=-1 && wire.state[0]<16777216 && wire.state[1]>=-1 && wire.state[1]<8)VT_SetRemoteVehicle(wire.slot,int(wire.state[0]),int(wire.state[1]));continue;}
-        if(wire.type==32){if(std::isfinite(wire.state[0]) && wire.state[0]>=0 && wire.state[0]<16777216 && wire.state[1]>=0 && wire.state[1]<8)ViceTogetherGrantPassenger(unsigned(wire.state[0]),int(wire.state[1]));continue;}
+        if(wire.type==32){if(std::isfinite(wire.state[0]) && wire.state[0]>=0 && wire.state[0]<16777216 && wire.state[1]>=-1 && wire.state[1]<8)ViceTogetherGrantPassenger(unsigned(wire.state[0]),int(wire.state[1]));continue;}
         Snapshot& s=history[wire.slot];
         if(wire.type==3){s.live=false;s.count=0;VT_RemoveRemote(wire.slot);continue;}
         if(wire.type==5){char name[25]={};std::memcpy(name,wire.state,24);VT_SetRemoteName(wire.slot,name,((unsigned char*)wire.state)[24]%8);continue;}
@@ -215,7 +218,8 @@ void ViceTogetherNetworkTick() {
         for(int i=10;i<30;i+=5)if(wire.state[i]<0 || wire.state[i]>1000 || wire.state[i+1]<0 || wire.state[i+1]>1000 || wire.state[i+2]<0 || wire.state[i+2]>1000 || wire.state[i+3]<0 || wire.state[i+3]>10 || wire.state[i+4]<0 || wire.state[i+4]>1.01f)valid=false;
         if((wire.state[30]!=0 && wire.state[30]!=1) || fabsf(wire.state[31])>=100 || fabsf(wire.state[32])>=4 || (wire.state[33]!=0 && wire.state[33]!=1))valid=false;
         if(!valid||std::fabs(wire.state[0])>=10000||std::fabs(wire.state[1])>=10000||std::fabs(wire.state[2])>=3000||(wire.state[9]!=0 && wire.state[9]!=1))continue;
-        if(!s.live)s.count=0;
+        if(!s.live){s.count=0;s.jitter=0;s.delay=100;s.playback=0;}
+        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-50.0f)*0.1f;s.delay=s.delay*0.9f+std::min(220.0f,100.0f+1.5f*s.jitter)*0.1f;}}
         if(s.count==8) {
             std::memmove(s.times,s.times+1,7*sizeof(DWORD));
             std::memmove(s.states,s.states+1,7*sizeof(s.states[0]));s.count=7;
@@ -226,10 +230,11 @@ void ViceTogetherNetworkTick() {
         Snapshot& s=history[slot];if(!s.live)continue;
         if(now-s.times[s.count-1]>2000){s.live=false;s.count=0;VT_RemoveRemote(slot);continue;}
         int lower=0;
-        for(int i=0;i<s.count;i++)if(now-s.times[i]>=100)lower=i;
+        const DWORD playback=now-DWORD(s.delay);s.playback=std::max(s.playback,playback);
+        for(int i=0;i<s.count;i++)if(int(s.playback-s.times[i])>=0)lower=i;
         const int upper=lower+1<s.count?lower+1:lower;
         const float* a=s.states[lower];const float* b=s.states[upper];
-        const int elapsed=int(now-s.times[lower])-100;
+        const int elapsed=int(s.playback-s.times[lower]);
         float t=s.times[upper]==s.times[lower]?1.0f:float(elapsed)/float(s.times[upper]-s.times[lower]);
         if(t<0)t=0;if(t>1)t=1;
         const float dx=b[0]-a[0],dy=b[1]-a[1],dz=b[2]-a[2];
@@ -243,13 +248,14 @@ void ViceTogetherNetworkTick() {
             if(dt>0 && dt<200) {
                 const float* prev=s.states[lower-1];
                 const float vx=(b[0]-prev[0])/dt,vy=(b[1]-prev[1])/dt,vz=(b[2]-prev[2])/dt;
-                if(vx*vx+vy*vy+vz*vz<0.0004f){x+=vx*ahead;y+=vy*ahead;z+=vz*ahead;}
+                // Do not project old vertical motion into floating after a jump.
+                if(vx*vx+vy*vy+vz*vz<0.0004f){x+=vx*ahead;y+=vy*ahead;}
             }
         }
         VT_SetRemote(slot,x,y,z,heading,int(t<0.5f?a[7]:b[7]));
         VT_SetRemoteHealth(slot,b[8]);
-        VT_SetRemoteAim(slot,a+30,b+30,t);
-        VT_SetRemoteAnimation(slot,a+10,b+10,t,lower==upper?float(std::max(0,std::min(100,elapsed)))/1000.0f:0.0f);
+        if(a[9]!=b[9]){VT_SetRemoteAim(slot,b+30,b+30,1);VT_SetRemoteAnimation(slot,b+10,b+10,1,0);}
+        else {VT_SetRemoteAim(slot,a+30,b+30,t);VT_SetRemoteAnimation(slot,a+10,b+10,t,lower==upper?float(std::max(0,std::min(100,elapsed)))/1000.0f:0.0f);}
     }
     if(now-lastSent>=50) {
         Wire local={};local.magic=MAGIC;local.type=1;

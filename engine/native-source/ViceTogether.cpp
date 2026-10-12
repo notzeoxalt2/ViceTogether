@@ -31,11 +31,35 @@
 #include "SpecialFX.h"
 #include "Radar.h"
 #include "Pools.h"
+#include "ColPoint.h"
 #include <cstdlib>
 #include <cstring>
 #include <vector>
 #include <algorithm>
 #include <cmath>
+void WeaponCheat1();void WeaponCheat2();void WeaponCheat3();
+extern "C" void VT_ReportWorldHit(int kind,float health);
+static bool modMenuOpen=false;static int modMenuRow=0,modMenuAction=-1;
+bool ViceTogetherMenuOpen(){return modMenuOpen;}
+bool ViceTogetherMenuKey(int key,bool control){
+    if(key=='O'&&control){modMenuOpen=!modMenuOpen;return true;}
+    if(!modMenuOpen)return false;
+    if(key==38)modMenuRow=(modMenuRow+3)%4;
+    else if(key==40)modMenuRow=(modMenuRow+1)%4;
+    else if(key==13){if(modMenuRow==3)modMenuOpen=false;else modMenuAction=modMenuRow;}
+    else if(key==8||key==27)modMenuOpen=false;
+    return true;
+}
+static void drawModMenu(){
+    if(!modMenuOpen)return;
+    const CFontDetails saved=CFont::Details;const float x=SCREEN_SCALE_X(28),y=SCREEN_SCALE_Y(60),w=SCREEN_SCALE_X(260),row=SCREEN_SCALE_Y(26);
+    CSprite2d::DrawRect(CRect(x,y,x+w,y+row*7),CRGBA(14,17,25,235));CSprite2d::DrawRect(CRect(x,y,x+w,y+row*1.5f),CRGBA(73,54,113,255));
+    CFont::SetFontStyle(FONT_STANDARD);CFont::SetScale(SCREEN_SCALE_X(0.42f),SCREEN_SCALE_Y(0.78f));CFont::SetCentreOff();CFont::SetRightJustifyOff();CFont::SetJustifyOff();CFont::SetBackgroundOff();CFont::SetPropOn();CFont::SetColor(CRGBA(255,255,255,255));
+    wchar text[96];AsciiToUnicode("ViceTogether",text);CFont::PrintString(x+SCREEN_SCALE_X(12),y+SCREEN_SCALE_Y(10),text);
+    const char* rows[]={"Weapons - basic pack","Weapons - advanced pack","Weapons - heavy pack","Close menu"};
+    for(int i=0;i<4;i++){const float top=y+row*(1.6f+i);if(i==modMenuRow)CSprite2d::DrawRect(CRect(x,top,x+w,top+row),CRGBA(104,86,151,240));AsciiToUnicode(rows[i],text);CFont::PrintString(x+SCREEN_SCALE_X(12),top+SCREEN_SCALE_Y(5),text);}
+    CFont::SetScale(SCREEN_SCALE_X(0.27f),SCREEN_SCALE_Y(0.55f));AsciiToUnicode("Arrows: select   Enter: use   Backspace: close",text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*6.2f,text);CFont::Details=saved;
+}
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
 #else
@@ -56,7 +80,7 @@ struct Remote {
     float health;
     int weapon;
     uint32 createdFrame;
-    int vehicle,seat;
+    int vehicle,seat,appliedSeat;
     unsigned weaponDraws;
     bool weaponVisible;
 };
@@ -170,6 +194,21 @@ int VT_PlayRemoteShot(int slot,const float* data) {
     CVector shellDirection=CrossProduct(CVector(direction.x,direction.y,0),CVector(0,0,5));shellDirection.Normalise2D();
     ped->GetWeapon()->AddGunshell(ped,source-CVector(direction.x,direction.y,0)*0.2f,CVector2D(shellDirection.x,shellDirection.y),0.015f);
     CBulletTraces::AddTrace(&source,&end,eWeaponType(weapon),ped);
+    // The launcher already validates equipment, shot rate and source proximity.
+    // Recast on the host: never trust a guest's claimed NPC or hit location.
+    const char* worldRole=getenv("VT_WORLD_HOST");
+    if(worldRole && atoi(worldRole)==1 && direction.MagnitudeSqr()>0.001f) {
+        CColPoint impact;CEntity* victim=nil;CEntity* oldIgnore=CWorld::pIgnoreEntity;CWorld::pIgnoreEntity=ped;
+        const bool hit=CWorld::ProcessLineOfSight(source,end+direction*0.25f,impact,victim,true,true,true,true,true,false);
+        CWorld::pIgnoreEntity=oldIgnore;
+        if(hit && victim && victim->IsPed()) {
+            CPed* npc=(CPed*)victim;
+            if(!npc->IsPlayer() && !ViceTogetherIsRemote(npc) && !npc->DyingOrDead()) {
+                const int piece=int(impact.pieceB);
+                if(npc->InflictDamage(ped,eWeaponType(weapon),float(CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_nDamage),piece>=PEDPIECE_TORSO && piece<=PEDPIECE_HEAD?(ePedPieceTypes)piece:PEDPIECE_TORSO,0))VT_ReportWorldHit(0,npc->m_fHealth);
+            }
+        } else if(hit && victim && victim->IsVehicle()) {((CVehicle*)victim)->InflictDamage(ped,eWeaponType(weapon),float(CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_nDamage));VT_ReportWorldHit(1,((CVehicle*)victim)->m_fHealth);}
+    }
     DMAudio.PlayOneShot(ped->m_audioEntityId,SOUND_WEAPON_SHOT_FIRED,0.0f);
     if(data[7]>0) {
         const CVector normal(data[8],data[9],data[10]);
@@ -182,14 +221,17 @@ void VT_SendHit(int slot,int weapon);
 void VT_SetRemoteHealth(int slot,float health) {if(slot>=0 && slot<7)peers[slot].health=health;}
 void VT_ApplyLocalHealth(float health) {
     CPlayerPed* player=FindPlayerPed();if(!player || !std::isfinite(health) || health<0 || health>100)return;
+    static CVector deathPosition(-592.0f,670.0f,10.0f);static bool deathRecorded=false;
+    if(health<=0 && !deathRecorded){deathPosition=player->GetPosition();deathRecorded=true;}
     if(health>0 && player->DyingOrDead()) {
-        CVector spawn(-592.0f,670.0f,10.0f);
-        const char* offset=getenv("VT_SPAWN_OFFSET");if(offset)spawn.x+=float(atof(offset));
+        CVector spawn=deathPosition+CVector(2,0,1);
+        if(spawn.x< -2350 || spawn.x>1550 || fabsf(spawn.y)>1950 || spawn.z< -30 || spawn.z>1000)spawn=CVector(-592.0f,670.0f,10.0f);
         CGameLogic::RestorePlayerStuffDuringResurrection(player,spawn,0);
         player->GetPlayerInfoForThisPlayerPed()->m_WBState=WBSTATE_PLAYING;
         CPad::GetPad(0)->DisablePlayerControls=PLAYERCONTROL_ENABLED;
         TheCamera.Fade(0.0f,FADE_IN);
         loadoutGiven=false;
+        deathRecorded=false;
     }
     player->m_fHealth=health;
     if(health<=0 && !player->DyingOrDead())player->SetDie();
@@ -367,18 +409,22 @@ void ViceTogetherDrawNames() {
         const char* label=peers[i].name;
         if(!label || !label[0]) label="Player";
         wchar text[32]; AsciiToUnicode(label,text);
-        CFont::SetColor(CRGBA(90,240,210,255));
+        const float labelHalf=std::max(SCREEN_SCALE_X(30.0f),CFont::GetStringWidth(text,true)*0.5f+SCREEN_SCALE_X(8));
+        CSprite2d::DrawRect(CRect(screen.x-labelHalf,screen.y-SCREEN_SCALE_Y(2),screen.x+labelHalf,screen.y+SCREEN_SCALE_Y(13)),CRGBA(13,17,23,190));
+        CFont::SetColor(CRGBA(230,244,240,255));
         CFont::PrintString(screen.x,screen.y,text);
         if(i>=0) {
-            const float half=SCREEN_SCALE_X(25.0f), y=screen.y+SCREEN_SCALE_Y(14.0f), height=SCREEN_SCALE_Y(3.0f);
+            const float half=labelHalf, y=screen.y+SCREEN_SCALE_Y(15.0f), height=SCREEN_SCALE_Y(3.0f);
             CSprite2d::DrawRect(CRect(screen.x-half,y,screen.x+half,y+height),CRGBA(0,0,0,180));
-            CSprite2d::DrawRect(CRect(screen.x-half,y,screen.x-half+2*half*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f)),y+height),CRGBA(90,240,150,240));
+            CSprite2d::DrawRect(CRect(screen.x-half,y,screen.x-half+2*half*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f)),y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
         }
     }
     CFont::Details=saved;
+    drawModMenu();
 }
 
 void ViceTogetherTick() {
+    if(modMenuAction>=0){const int action=modMenuAction;modMenuAction=-1;if(action==0)WeaponCheat1();else if(action==1)WeaponCheat2();else WeaponCheat3();}
     ViceTogetherNetworkTick();
     ViceTogetherWorldTick();
     if(getenv("VT_FOLLOW_PLAYER") || getenv("VT_MUTE")){DMAudio.SetEffectsMasterVolume(0);DMAudio.SetMusicMasterVolume(0);}
@@ -436,7 +482,7 @@ void ViceTogetherTick() {
         // A logical weapon selection is insufficient after a model was removed
         // during entry/exit or streaming. Repair the actual hand-held atomic.
         const int expectedWeaponModel=CWeaponInfo::GetWeaponInfo(eWeaponType(r.weapon))->m_nModelId;
-        if(r.weaponVisible && expectedWeaponModel>=0 && (!r.ped->m_pWeaponModel || r.ped->m_wepModelID!=expectedWeaponModel)){CStreaming::RequestModel(expectedWeaponModel,STREAMFLAGS_DONT_REMOVE);if(CStreaming::HasModelLoaded(expectedWeaponModel))r.ped->AddWeaponModel(expectedWeaponModel);}
+        if(r.weaponVisible && expectedWeaponModel>=0 && (!r.ped->m_pWeaponModel || r.ped->m_wepModelID!=expectedWeaponModel)){CStreaming::RequestModel(expectedWeaponModel,STREAMFLAGS_DONT_REMOVE);if(CStreaming::HasModelLoaded(expectedWeaponModel)){if(r.ped->m_pWeaponModel)r.ped->RemoveWeaponModel(-1);r.ped->AddWeaponModel(expectedWeaponModel);}}
         if(!r.weaponVisible && r.ped->m_pWeaponModel)r.ped->RemoveWeaponModel(-1);
         if(r.health<=0) {
             if(!r.ped->DyingOrDead())r.ped->SetDie();
@@ -448,7 +494,11 @@ void ViceTogetherTick() {
             continue;
         }
         CVehicle* car=r.vehicle>=0?ViceTogetherWorldFindVehicle(unsigned(r.vehicle)):nil;
-        if(r.ped->m_pMyVehicle!=car){if(r.ped->m_pMyVehicle){if(r.ped->m_pMyVehicle->pDriver==r.ped)r.ped->m_pMyVehicle->RemoveDriver();else r.ped->m_pMyVehicle->RemovePassenger(r.ped);}r.ped->m_pMyVehicle=car;if(car){car->RegisterReference((CEntity**)&r.ped->m_pMyVehicle);if(r.seat<0 && !car->pDriver)car->SetDriver(r.ped);else if(r.seat>=0)car->AddPassenger(r.ped,uint8(r.seat));}}
+        if(r.ped->m_pMyVehicle!=car || (car && r.appliedSeat!=r.seat)){
+            if(r.ped->m_pMyVehicle){if(r.ped->m_pMyVehicle->pDriver==r.ped)r.ped->m_pMyVehicle->RemoveDriver();else r.ped->m_pMyVehicle->RemovePassenger(r.ped);}
+            r.ped->m_pMyVehicle=nil;
+            if(car){bool seated=false;if(r.seat<0 && (!car->pDriver || car->pDriver==r.ped)){car->SetDriver(r.ped);seated=true;}else if(r.seat>=0)seated=car->AddPassenger(r.ped,uint8(r.seat));if(seated){r.ped->m_pMyVehicle=car;car->RegisterReference((CEntity**)&r.ped->m_pMyVehicle);r.appliedSeat=r.seat;}else car=nil;}
+        }
         r.ped->bInVehicle=car!=nil;r.ped->bUsesCollision=car==nil;
         r.ped->SetPedState(car?PED_DRIVING:PED_IDLE);
         r.ped->SetMoveState((eMoveState)r.move);

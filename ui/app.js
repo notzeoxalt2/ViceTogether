@@ -12,6 +12,10 @@ window.desktop.on('detected', found => { latestDetected = found; if(state) { sta
 const lobby = new PrivateLobby();
 const copyConnection=document.createElement('button');copyConnection.type='button';copyConnection.textContent='Copy connection details';$('copy-code').parentElement.append(copyConnection);
 copyConnection.onclick=async()=>{try{await call(window.desktop.copyText(JSON.stringify({version:state.version,...await lobby.connectionReport()})));notice('Connection details copied. Share these to diagnose lag; no invite or IP addresses included.');}catch(e){notice(e.message)}};
+const debugPanel=document.createElement('details');debugPanel.className='panel';const debugTitle=document.createElement('summary');debugTitle.textContent='Troubleshooting';const debugReadout=document.createElement('pre');debugReadout.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px';const debugRefresh=document.createElement('button');debugRefresh.textContent='Refresh diagnostics';const debugCopy=document.createElement('button');debugCopy.textContent='Copy report';debugPanel.append(debugTitle,debugRefresh,debugCopy,debugReadout);$('page-settings').append(debugPanel);
+async function supportReport(){return {desktop:window.desktop.diagnostics?await call(window.desktop.diagnostics()):{version:state.version},network:await lobby.connectionReport(),lobby:{players:lobby.players.size,host:lobby.isHost===true,started:lobby.sessionStarted===true}};}
+debugRefresh.onclick=async()=>{try{debugReadout.textContent=JSON.stringify(await supportReport(),null,2);}catch(e){notice(e.message)}};
+debugCopy.onclick=async()=>{try{await call(window.desktop.copyText(JSON.stringify(await supportReport())));notice('Troubleshooting report copied. No game paths, invites, chat messages or IP addresses included.');}catch(e){notice(e.message)}};
 function notice(text) { $('notice').textContent = text; $('notice').hidden = !text; }
 function renderLibrary() {
   if(!state)return;
@@ -93,8 +97,10 @@ window.desktop.on('local-world',frame=>lobby.sendWorld(frame));
 window.desktop.on('local-glass-request',state=>lobby.sendGlass(state));
 lobby.addEventListener('glass-request',event=>window.desktop.glassRequest(event.detail));
 lobby.addEventListener('ambient',event=>window.desktop.sendWorld(event.detail));
+window.desktop.on('local-driver-state',update=>lobby.sendVehicle(update));
+lobby.addEventListener('driver-state',event=>window.desktop.sendDriverState(event.detail));
 let lastSeat=-1;
-window.desktop.on('local-seat-state',seat=>{if(lobby.isHost)lobby.sendSeat({driver:true,car:seat});else if(seat.id<0 && lastSeat>=0)lobby.sendSeat({release:true});lastSeat=seat.id;});
+window.desktop.on('local-seat-state',seat=>{if(lobby.isHost){if(seat.seat===-1)lobby.sendSeat({driver:true,car:seat});else lobby.sendSeat({id:seat.id});}else if(seat.id<0 && lastSeat>=0)lobby.sendSeat({release:true});lastSeat=seat.id;});
 window.desktop.on('local-seat-request',request=>lobby.sendSeat(request));
 lobby.addEventListener('seat-grant',event=>window.desktop.seatGrant(event.detail));
 lobby.addEventListener('change', event => {
@@ -108,9 +114,9 @@ lobby.addEventListener('change', event => {
     row.append(name, info); $('players').append(row);
   }
   $('lobby-note').textContent = `${lobbyInfo.players.length}/8 players · Private WebRTC lobby · On-foot prototype`;
-  social?.update(state.settings.name, 'In private lobby', lobbyInfo.isHost && invitation?.code ? `vicetogether://join/${invitation.code}` : null);
-  $('multiplayer').disabled = state?.capabilities?.nativeMultiplayer===false || !state?.engineBuilt || !state?.assets.gameReady || !lobbyInfo.isHost || lobbyInfo.players.length<2 || lobby.sessionStarted || lobbyInfo.players.some(p=>!p.ready);
-  if (lobbyInfo.connected && lobbyInfo.players.length > 1) notice('Your lobby is connected. Movement, combat and the shared world are experimental. Guest driving and complete police interactions remain unfinished.');
+  social?.update(state.settings.name, lobby.sessionStarted?'Playing Vice City':'In private lobby', lobbyInfo.isHost && invitation?.code ? `vicetogether://join/${invitation.code}` : null);
+  $('multiplayer').disabled = state?.capabilities?.nativeMultiplayer===false || !state?.engineBuilt || !state?.assets.gameReady || !lobbyInfo.isHost || lobbyInfo.players.length<1 || lobby.sessionStarted || lobbyInfo.players.some(p=>!p.ready);
+  if (lobbyInfo.connected && lobbyInfo.players.length > 1) notice('Your lobby is connected. This experimental build supports initial guest driving; full world, combat and police synchronization remain unfinished.');
 });
 action('import-game', importGame);
 action('lobby-import', importGame);
@@ -138,7 +144,7 @@ action('save', async () => {
   notice('Preferences saved. Your player name applies when you next join a lobby or launch a game.');
 });
 action('repair', async () => { const result = await call(window.desktop.repair()); assetStatus(result); notice(`File check complete. ${result.repaired} file(s) restored.`); });
-action('updates', async () => { const result = await call(window.desktop.checkUpdates()); notice(result.message); });
+action('updates', async () => { const result = await call(window.desktop.checkUpdates()); $('update-note').textContent=result.message;notice(result.message); });
 action('import-runtime', async () => { const result = await call(window.desktop.importRuntime()); if (result) { assetStatus(result); notice('Legacy runtime imported. It has no multiplayer integration.'); } });
 action('exit', () => window.desktop.quit());
 window.desktop.on('invite', invite => { if(!state) { deferredInvite = invite; return; } join(invite).catch(e => notice(e.message)); });
@@ -148,7 +154,7 @@ window.desktop.on('progress', progress => {
   $('progress-file').textContent = progress.file;
   $('progress').value = progress.total ? Math.round(progress.done / progress.total * 100) : 0;
 });
-window.desktop.on('update', notice); window.desktop.on('game-error', notice);
+window.desktop.on('update', text=>{$('update-note').textContent=text;notice(text);}); window.desktop.on('game-error', notice);
 try {
   state = await call(window.desktop.init());
   social = setupFriends({ state, call, notice, join });

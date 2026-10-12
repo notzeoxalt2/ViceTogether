@@ -18,6 +18,9 @@ jobs:
       - run: npm test
       - name: Build installer and portable launcher
         run: npm run dist -- --config.directories.output=dist
+      - name: Keep existing launchers compatible with the published feed
+        shell: pwsh
+        run: Copy-Item -LiteralPath dist/alpha.yml -Destination dist/latest.yml
       - uses: actions/upload-artifact@v4
         with:
           name: ViceTogether-Windows
@@ -26,6 +29,7 @@ jobs:
             dist/*portable.exe
             dist/*.blockmap
             dist/alpha.yml
+            dist/latest.yml
       - name: Publish tagged update
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -40,7 +44,7 @@ jobs:
             gh release create $tag --repo '${{ github.repository }}' --title "ViceTogether $version — experimental" --notes-file RELEASE-NOTES.md --latest
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
-          $files = Get-ChildItem dist -File | Where-Object { $_.Name -match '(Setup\.exe|portable\.exe|\.blockmap|alpha\.yml)$' }
+          $files = Get-ChildItem dist -File | Where-Object { $_.Name -match '(Setup\.exe|portable\.exe|\.blockmap|alpha\.yml|latest\.yml)$' }
           if (!$files.Count) { throw 'Release files are missing.' }
           gh release upload $tag @($files.FullName) --repo '${{ github.repository }}' --clobber
           exit $LASTEXITCODE

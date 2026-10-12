@@ -114,6 +114,7 @@ async function start() {
   nativeEngine.on('equipment',weapon=>win?.webContents.send('local-equipment',weapon));
   nativeEngine.on('shot',shot=>win?.webContents.send('local-shot',shot));
   nativeEngine.on('world',frame=>win?.webContents.send('local-world',frame));
+  nativeEngine.on('driver-state',update=>win?.webContents.send('local-driver-state',update));
   nativeEngine.on('glass-request',state=>win?.webContents.send('local-glass-request',state));
   nativeEngine.on('seat-state',seat=>win?.webContents.send('local-seat-state',seat));
   nativeEngine.on('seat-request',request=>win?.webContents.send('local-seat-request',request));
@@ -134,6 +135,8 @@ async function start() {
     try { await fs.access(nativeExecutable()); engineBuilt = true; } catch {}
     return { settings, detected, games:listGames(),activeGameId:activeGame.metadata.id, assets: await assets.status(), engineBuilt, invite: pendingInvite, config, version: app.getVersion(), selfTest };
   });
+  let lastSocialNotification=0;
+  ipc('social-notification',text=>{if(typeof text!=='string'||text.length>100||/[\u0000-\u001f]/.test(text))throw new Error('Invalid notification.');if(!selfTest&&!win?.isFocused()&&Date.now()-lastSocialNotification>1500){const {Notification}=require('electron');if(Notification.isSupported()){new Notification({title:'ViceTogether',body:text,silent:true}).show();lastSocialNotification=Date.now();}}return true;});
   ipc('import-game', async candidate => {
     let folder;
     if (Number.isInteger(candidate) && candidate >= 0 && candidate < detected.length) folder = detected[candidate].root;
@@ -198,12 +201,14 @@ async function start() {
     return true;
   });});
   ipc('updates', checkUpdates);
+  ipc('diagnostics',()=>({version:app.getVersion(),native:nativeEngine.diagnostics()}));
   ipc('remote-frame', frame => {
     if (!Array.isArray(frame) || frame.length > 8) throw new Error('Invalid game state.');
     nativeEngine.frame(frame);
   });
   ipc('remote-shot',shot=>{nativeEngine.remoteShot(shot);return true;});
   ipc('remote-world',frame=>nativeEngine.remoteWorld(frame));
+  ipc('remote-driver-state',update=>nativeEngine.driverState(update));
   ipc('seat-grant',claim=>nativeEngine.seatGrant(claim));
   ipc('glass-request',state=>nativeEngine.glassRequest(state));
   ipcMain.on('local-state', (event, state) => {
@@ -240,14 +245,19 @@ async function checkUpdates() {
   if (url.protocol !== 'https:') throw new Error('The update service is not configured securely.');
   updateBusy = true;
   const { autoUpdater } = require('electron-updater');
-  autoUpdater.setFeedURL({ provider: 'generic', url: url.href });
+  autoUpdater.channel = 'alpha';
+  autoUpdater.setFeedURL({ provider: 'generic', url: url.href, channel: 'alpha' });
   autoUpdater.autoDownload = true;
   autoUpdater.allowPrerelease = true;
   autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.removeAllListeners('error'); autoUpdater.removeAllListeners('update-downloaded');
+  autoUpdater.removeAllListeners('error'); autoUpdater.removeAllListeners('update-downloaded');autoUpdater.removeAllListeners('download-progress');
   autoUpdater.on('error', () => win?.webContents.send('update', 'The update service could not be reached. You can continue using the launcher.'));
   autoUpdater.on('update-downloaded', () => win?.webContents.send('update', 'An update is ready and will install when you close the launcher.'));
-  try { await autoUpdater.checkForUpdates(); return { message: 'Update check completed.' }; } finally { updateBusy = false; }
+  let lastProgress=0;
+  autoUpdater.on('download-progress',progress=>{if(Date.now()-lastProgress<1500)return;lastProgress=Date.now();win?.webContents.send('update',`Downloading launcher update: ${Math.round(progress.percent)}%. Your game files stay installed.`);});
+  try { const result=await autoUpdater.checkForUpdates();result?.downloadPromise?.catch(()=>{});return {message:result?.isUpdateAvailable?`Launcher ${result.updateInfo.version} is downloading. Finish playing, then close the launcher to install it.`:`You’re up to date (${app.getVersion()}).`}; }
+  catch{throw new Error('The update could not be checked. Please retry shortly; your current game remains usable.');}
+  finally { updateBusy = false; }
 }
 app.on('window-all-closed', () => app.quit());
 app.on('before-quit', () => nativeEngine?.stop());

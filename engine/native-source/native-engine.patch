@@ -9,7 +9,7 @@ index 6fa3221..5a9c32a 100644
  set(EXECUTABLE reVC)
  set(PROJECT REVC)
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 363aa2d..d38ea78 100644
+index 363aa2d..01fb087 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -53,7 +53,7 @@ target_compile_definitions(${EXECUTABLE}
@@ -39,6 +39,13 @@ index 363aa2d..d38ea78 100644
  if(${PROJECT}_WITH_OPUS)
      find_package(opusfile REQUIRED)
      target_link_libraries(${EXECUTABLE} PRIVATE
+@@ -356,3 +356,6 @@ if(${PROJECT}_INSTALL)
+ endif()
+ 
+ reVC_platform_target(${EXECUTABLE} INSTALL)
++if(MSVC)
++  target_link_options(reVC PRIVATE /MAP)
++endif()
 diff --git a/src/control/Script.cpp b/src/control/Script.cpp
 index b4459be..5d8c572 100644
 --- a/src/control/Script.cpp
@@ -78,7 +85,7 @@ index b4459be..5d8c572 100644
  }
  
 diff --git a/src/core/Game.cpp b/src/core/Game.cpp
-index 4248f14..256c675 100644
+index 4248f14..42c9473 100644
 --- a/src/core/Game.cpp
 +++ b/src/core/Game.cpp
 @@ -2,6 +2,7 @@
@@ -89,10 +96,12 @@ index 4248f14..256c675 100644
  #include "main.h"
  #include "RwHelper.h"
  #include "Accident.h"
-@@ -845,6 +846,13 @@ void CGame::InitialiseWhenRestarting(void)
+@@ -845,6 +846,15 @@ void CGame::InitialiseWhenRestarting(void)
  void CGame::Process(void) 
  {
  	CPad::UpdatePads();
++    if(ViceTogetherMenuOpen()){CPad::GetPad(0)->NewState.Clear();CPad::GetPad(0)->NewMouseControllerState.Clear();}
++    if(getenv("VT_PORT"))CTimer::m_UserPause=false;
 +	if(getenv("VT_TEST_COMBAT")) {
 +		FrontEndMenuManager.m_bMenuActive=false;
 +		FrontEndMenuManager.m_bStartUpFrontEndRequested=false;
@@ -103,7 +112,7 @@ index 4248f14..256c675 100644
  #ifdef USE_CUSTOM_ALLOCATOR
  	ProcessTidyUpMemory();
  #endif
-@@ -855,8 +863,14 @@ void CGame::Process(void)
+@@ -855,8 +865,14 @@ void CGame::Process(void)
  
  	if (!CCutsceneMgr::IsCutsceneProcessing() && !CTimer::GetIsCodePaused())
  		FrontEndMenuManager.Process();
@@ -118,7 +127,7 @@ index 4248f14..256c675 100644
  #ifdef SECUROM
  	if (CTimer::GetTimeInMilliseconds() >= (35 * 60 * 1000) && gameProcessPirateCheck == 0){
  		// if game not pirated
-@@ -931,7 +945,9 @@ void CGame::Process(void)
+@@ -931,7 +947,9 @@ void CGame::Process(void)
  		CReplay::Update();
  
  		PUSH_MEMID(MEMID_WORLD);
@@ -128,7 +137,7 @@ index 4248f14..256c675 100644
  		POP_MEMID();
  
  		gAccidentManager.Update();
-@@ -1336,7 +1352,7 @@ CGame::InitAfterFocusLoss()
+@@ -1336,7 +1354,7 @@ CGame::InitAfterFocusLoss()
  	FrontEndMenuManager.m_nPrefsAudio3DProviderIndex = FrontEndMenuManager.m_lastWorking3DAudioProvider;
  	DMAudio.SetCurrent3DProvider(FrontEndMenuManager.m_lastWorking3DAudioProvider);
  
@@ -152,6 +161,19 @@ index 9530f9e..74226f0 100644
  			PCTempMouseControllerState.LMB = state.rgbButtons[0] & 128;
  			PCTempMouseControllerState.RMB = state.rgbButtons[1] & 128;
  			PCTempMouseControllerState.MMB = state.rgbButtons[2] & 128;
+diff --git a/src/core/Timer.cpp b/src/core/Timer.cpp
+index 77f26a8..7c10c13 100644
+--- a/src/core/Timer.cpp
++++ b/src/core/Timer.cpp
+@@ -316,7 +316,7 @@ void CTimer::Stop(void)
+ 
+ void CTimer::StartUserPause(void)
+ {
+-	m_UserPause = true;
++	m_UserPause = getenv("VT_PORT")==nil;
+ }
+ 
+ void CTimer::EndUserPause(void)
 diff --git a/src/core/main.cpp b/src/core/main.cpp
 index a412a98..fd3232f 100644
 --- a/src/core/main.cpp
@@ -324,18 +346,19 @@ index 9f925a8..0d7bd99 100644
  		float fNewInterpolation = (CClock::GetMinutes() + CClock::GetSeconds()/60.0f)/60.0f;
  		if (fNewInterpolation < InterpolationValue) {
 diff --git a/src/skel/win/win.cpp b/src/skel/win/win.cpp
-index 3e7a26c..b469543 100644
+index 3e7a26c..40fe0d1 100644
 --- a/src/skel/win/win.cpp
 +++ b/src/skel/win/win.cpp
-@@ -41,6 +41,7 @@
+@@ -41,6 +41,8 @@
  #define WITHD3D
  #define WITHDINPUT
  #include "common.h"
 +#include "ViceTogetherWorld.h"
++#include "ViceTogether.h"
  #if (defined(_MSC_VER))
  #include <tchar.h>
  #endif /* (defined(_MSC_VER)) */
-@@ -173,6 +174,11 @@ void _psCreateFolder(LPCSTR path)
+@@ -173,6 +175,11 @@ void _psCreateFolder(LPCSTR path)
   */
  const char *_psGetUserFilesFolder()
  {
@@ -347,7 +370,7 @@ index 3e7a26c..b469543 100644
  #ifdef USE_MY_DOCUMENTS
  	HKEY hKey = NULL;
  
-@@ -234,6 +240,10 @@ psCameraBeginUpdate(RwCamera *camera)
+@@ -234,6 +241,10 @@ psCameraBeginUpdate(RwCamera *camera)
  void
  psCameraShowRaster(RwCamera *camera)
  {
@@ -358,7 +381,7 @@ index 3e7a26c..b469543 100644
  #ifdef LEGACY_MENU_OPTIONS
  	if (FrontEndMenuManager.m_PrefsVsync || FrontEndMenuManager.m_bMenuActive)
  #else
-@@ -296,6 +306,9 @@ psTimer(void)
+@@ -296,6 +307,9 @@ psTimer(void)
  void
  psMouseSetPos(RwV2d *pos)
  {
@@ -368,7 +391,7 @@ index 3e7a26c..b469543 100644
  	POINT point;
  
  	point.x = (RwInt32) pos->x;
-@@ -370,7 +383,8 @@ InitInstance(HANDLE instance)
+@@ -370,7 +384,8 @@ InitInstance(HANDLE instance)
  
  	return CreateWindow(AppClassName, RsGlobal.appName,
  						WS_OVERLAPPEDWINDOW,
@@ -378,7 +401,7 @@ index 3e7a26c..b469543 100644
  						rect.right - rect.left, rect.bottom - rect.top,
  						(HWND)nil, (HMENU)nil, (HINSTANCE)instance, nil);
  }
-@@ -619,6 +633,7 @@ void _psPrintCpuInfo()
+@@ -619,6 +634,7 @@ void _psPrintCpuInfo()
  RwBool
  psInitialize(void)
  {
@@ -386,7 +409,7 @@ index 3e7a26c..b469543 100644
  	PsGlobal.lastMousePos.x = PsGlobal.lastMousePos.y = 0.0f;
  
  	RsGlobal.ps = &PsGlobal;
-@@ -718,6 +733,18 @@ psInitialize(void)
+@@ -718,6 +734,18 @@ psInitialize(void)
  
  #ifndef PS2_MENU
  	FrontEndMenuManager.LoadSettings();
@@ -405,7 +428,7 @@ index 3e7a26c..b469543 100644
  #endif
  
  	dwDXVersion = GetDXVersion();
-@@ -786,6 +813,7 @@ psInitialize(void)
+@@ -786,6 +814,7 @@ psInitialize(void)
  void
  psTerminate(void)
  {
@@ -413,7 +436,7 @@ index 3e7a26c..b469543 100644
  	return;
  }
  
-@@ -969,11 +997,9 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -969,11 +998,9 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  	{
  		case WM_SETCURSOR:
  		{
@@ -428,16 +451,18 @@ index 3e7a26c..b469543 100644
  		}
  		
  		case WM_SIZE:
-@@ -1105,6 +1131,8 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1105,6 +1132,10 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  		case WM_KEYDOWN:
  		{
  			RsKeyCodes ks;
 +            if(getenv("VT_INPUT_DISABLED"))return 0L;
++            if(!(lParam&(1L<<30)) && ViceTogetherMenuKey(int(wParam),(GetKeyState(VK_CONTROL)&0x8000)!=0))return 0L;
 +            if(wParam=='G' && getenv("VT_PORT") && !(lParam&(1L<<30)))ViceTogetherRequestPassenger();
++            if(wParam=='F' && !(lParam&(1L<<30)) && ViceTogetherGuestOnFoot()){ViceTogetherRequestDriver();return 0L;}
  			
  			if ( _InputTranslateKey(&ks, lParam, wParam) )
  				RsKeyboardEventHandler(rsKEYDOWN, &ks);
-@@ -1171,6 +1199,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1171,6 +1202,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  
  		case WM_ACTIVATEAPP:
  		{
@@ -445,7 +470,16 @@ index 3e7a26c..b469543 100644
  			switch ( gGameState )
  			{
  				case GS_LOGO_MPEG:
-@@ -1358,6 +1387,10 @@ RwBool IsForegroundApp()
+@@ -1206,7 +1238,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+ 							else
+ 							{
+ 								WaitForState(State_Running);
+-								SetFocus(PSGLOBAL(window));
++								if(!getenv("VT_TEST_WALK"))SetFocus(PSGLOBAL(window));
+ 							}
+ 						}
+ 					}
+@@ -1358,6 +1390,10 @@ RwBool IsForegroundApp()
  	return !!ForegroundApp;
  }
  
@@ -456,7 +490,7 @@ index 3e7a26c..b469543 100644
  UINT GetBestRefreshRate(UINT width, UINT height, UINT depth)
  {
  #ifdef USE_D3D9
-@@ -1558,6 +1591,10 @@ psSelectDevice()
+@@ -1558,6 +1594,10 @@ psSelectDevice()
  #ifdef IMPROVED_VIDEOMODE
  	if (FrontEndMenuManager.m_nPrefsWindowed)
  		GcurSelVM = bestWndMode;
@@ -467,7 +501,7 @@ index 3e7a26c..b469543 100644
  
  	// Now GcurSelVM is 0 but vm has sizes(and fullscreen flag) of the video mode we want, that's why we changed the rwVIDEOMODEEXCLUSIVE conditions below
  	FrontEndMenuManager.m_nPrefsWidth = vm.width;
-@@ -1624,7 +1661,9 @@ psSelectDevice()
+@@ -1624,7 +1664,9 @@ psSelectDevice()
  		int spaceY = GetSystemMetrics(SM_CYSCREEN) - (rect.bottom-rect.top);
  
  		SetWindowLong(PSGLOBAL(window), GWL_STYLE, WS_VISIBLE | WS_OVERLAPPEDWINDOW);
@@ -478,7 +512,41 @@ index 3e7a26c..b469543 100644
  			(rect.right - rect.left),
  			(rect.bottom - rect.top), 0);
  
-@@ -2155,7 +2194,7 @@ WinMain(HINSTANCE instance,
+@@ -1892,7 +1934,7 @@ void CenterVideo(void)
+ 
+ 	JIF(pVW->put_MessageDrain((OAHWND) PSGLOBAL(window)));
+ 
+-	SetFocus(PSGLOBAL(window));
++	if(!getenv("VT_TEST_WALK"))SetFocus(PSGLOBAL(window));
+ }
+ 
+ /*
+@@ -1944,7 +1986,7 @@ void PlayMovieInWindow(int cmdShow, const char* szFile)
+ 		// Run the graph to play the media file
+ 		JIF(pMC->Run());
+ 
+-		SetFocus(PSGLOBAL(window));
++		if(!getenv("VT_TEST_WALK"))SetFocus(PSGLOBAL(window));
+ 	}
+ 	
+ 	ASSERT(pGB != nil);
+@@ -2007,6 +2049,7 @@ void HandleExit()
+ /*
+  *****************************************************************************
+  */
++static LONG WINAPI ViceTogetherTestException(EXCEPTION_POINTERS* info){if(info->ExceptionRecord->ExceptionCode==0xc0000005){FILE* f=fopen("native-exception.log","a");if(f){fprintf(f,"rva=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",DWORD(info->ExceptionRecord->ExceptionAddress)-DWORD(GetModuleHandle(nil)),info->ContextRecord->Eax,info->ContextRecord->Ebx,info->ContextRecord->Ecx,info->ContextRecord->Edx,info->ContextRecord->Esi,info->ContextRecord->Edi);fclose(f);}}return EXCEPTION_CONTINUE_SEARCH;}
+ int PASCAL
+ WinMain(HINSTANCE instance, 
+ 		HINSTANCE prevInstance	__RWUNUSED__, 
+@@ -2014,6 +2057,7 @@ WinMain(HINSTANCE instance,
+ 		int cmdShow)
+ {
+ 	MSG message;
++    if(getenv("VT_TEST_WALK"))AddVectoredExceptionHandler(1,ViceTogetherTestException);
+ 	RwV2d pos;
+ 	RwInt32 argc, i;
+ 	RwChar **argv;
+@@ -2155,7 +2199,7 @@ WinMain(HINSTANCE instance,
  	/*
  	 * Show the window, and refresh it...
  	 */
@@ -487,7 +555,7 @@ index 3e7a26c..b469543 100644
  	UpdateWindow(PSGLOBAL(window));
  	
  	{
-@@ -2269,7 +2308,7 @@ WinMain(HINSTANCE instance,
+@@ -2269,7 +2313,7 @@ WinMain(HINSTANCE instance,
  				TheModelViewer();
  			}
  #endif
@@ -496,7 +564,7 @@ index 3e7a26c..b469543 100644
  			{
  				switch ( gGameState )
  				{
-@@ -2399,6 +2438,7 @@ WinMain(HINSTANCE instance,
+@@ -2399,6 +2443,7 @@ WinMain(HINSTANCE instance,
  #ifndef PS2_MENU
  					case GS_INIT_FRONTEND:
  					{
@@ -504,7 +572,7 @@ index 3e7a26c..b469543 100644
  						LoadingScreen(nil, nil, "loadsc0");
  						// LoadingScreen(nil, nil, "loadsc0"); // duplicate
  						
-@@ -2489,8 +2529,13 @@ WinMain(HINSTANCE instance,
+@@ -2489,8 +2534,13 @@ WinMain(HINSTANCE instance,
  						float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
  						if ( RwInitialised )
  						{
@@ -520,7 +588,7 @@ index 3e7a26c..b469543 100644
  						}
  						break;
  					}
-@@ -2929,6 +2974,16 @@ HRESULT _InputAddJoys()
+@@ -2929,6 +2979,16 @@ HRESULT _InputAddJoys()
  HRESULT _InputGetMouseState(DIMOUSESTATE2 *state)
  {
  	HRESULT		  hr;

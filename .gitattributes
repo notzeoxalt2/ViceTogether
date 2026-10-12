@@ -11,3 +11,4 @@
 *.exe binary
 *.wasm binary
 *.ico binary
+*.patch -whitespace

@@ -12,17 +12,20 @@ contextBridge.exposeInMainWorld('desktop', {
   copyInvite: invite => invoke('invite-copy', invite),
   copyCode: invite => invoke('invite-code-copy',invite),
   copyText: text => invoke('copy-text', text),
+  notify: text=>invoke('social-notification',text),
+  diagnostics:()=>invoke('diagnostics'),
   saveSettings: value => invoke('settings', value),
   play: (multiplayer,authoritativeWorld=false) => invoke('play', multiplayer,authoritativeWorld),
   sendFrame: value => invoke('remote-frame', value),
   sendShot: value => invoke('remote-shot',value),
   sendWorld: value => invoke('remote-world',value),
+  sendDriverState: value=>invoke('remote-driver-state',value),
   seatGrant: value=>invoke('seat-grant',value),
   glassRequest: value=>invoke('glass-request',value),
   checkUpdates: () => invoke('updates'),
   quit: () => invoke('quit'),
   on: (name, callback) => {
-    if (!['invite', 'progress', 'update', 'game-error', 'local-state', 'local-hit', 'local-world-damage', 'local-equipment', 'local-shot','local-world','local-glass-request','local-seat-state','local-seat-request','detected'].includes(name)) return;
+    if (!['invite', 'progress', 'update', 'game-error', 'local-state', 'local-hit', 'local-world-damage', 'local-equipment', 'local-shot','local-world','local-driver-state','local-glass-request','local-seat-state','local-seat-request','detected'].includes(name)) return;
     const handler = (_, payload) => callback(payload);
     ipcRenderer.on(name, handler);
     return () => ipcRenderer.removeListener(name, handler);
