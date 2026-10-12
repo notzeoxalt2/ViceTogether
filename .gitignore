@@ -16,3 +16,4 @@ social-profile/
 dist/
 release/
 .env.*
+offline-builder.local.json
