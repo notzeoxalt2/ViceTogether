@@ -147,10 +147,18 @@ index 4248f14..42c9473 100644
  }
  
 diff --git a/src/core/Pad.cpp b/src/core/Pad.cpp
-index 9530f9e..74226f0 100644
+index 9530f9e..b7b2721 100644
 --- a/src/core/Pad.cpp
 +++ b/src/core/Pad.cpp
-@@ -922,6 +922,10 @@ void CPad::UpdateMouse()
+@@ -12,6 +12,7 @@
+ #endif
+ 
+ #include "Pad.h"
++#include "ViceTogether.h"
+ #include "ControllerConfig.h"
+ #include "Timer.h"
+ #include "Frontend.h"
+@@ -922,6 +923,10 @@ void CPad::UpdateMouse()
  
  			PCTempMouseControllerState.x = (float)(signX * state.lX);
  			PCTempMouseControllerState.y = (float)(signy * state.lY);
@@ -161,6 +169,20 @@ index 9530f9e..74226f0 100644
  			PCTempMouseControllerState.LMB = state.rgbButtons[0] & 128;
  			PCTempMouseControllerState.RMB = state.rgbButtons[1] & 128;
  			PCTempMouseControllerState.MMB = state.rgbButtons[2] & 128;
+@@ -2265,6 +2270,13 @@ int16 CPad::GetCarGunUpDown(void)
+ {
+ 	if ( ArePlayerControlsDisabled() )
+ 		return 0;
++	if (getenv("VT_PORT") && !ViceTogetherMenuOpen()) {
++		CVehicle* vehicle=FindPlayerVehicle();
++		if(vehicle && (vehicle->IsBike() || vehicle->IsRealHeli() || vehicle->IsRealPlane())) {
++			const int pitch=(NewKeyState.UP?128:0)-(NewKeyState.DOWN?128:0);
++			if(pitch)return int16(pitch);
++		}
++	}
+ 
+ 	switch (CURMODE)
+ 	{
 diff --git a/src/core/Timer.cpp b/src/core/Timer.cpp
 index 77f26a8..7c10c13 100644
 --- a/src/core/Timer.cpp
@@ -346,7 +368,7 @@ index 9f925a8..0d7bd99 100644
  		float fNewInterpolation = (CClock::GetMinutes() + CClock::GetSeconds()/60.0f)/60.0f;
  		if (fNewInterpolation < InterpolationValue) {
 diff --git a/src/skel/win/win.cpp b/src/skel/win/win.cpp
-index 3e7a26c..40fe0d1 100644
+index 3e7a26c..bed7dcf 100644
 --- a/src/skel/win/win.cpp
 +++ b/src/skel/win/win.cpp
 @@ -41,6 +41,8 @@
@@ -451,18 +473,19 @@ index 3e7a26c..40fe0d1 100644
  		}
  		
  		case WM_SIZE:
-@@ -1105,6 +1132,10 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1105,6 +1132,11 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  		case WM_KEYDOWN:
  		{
  			RsKeyCodes ks;
 +            if(getenv("VT_INPUT_DISABLED"))return 0L;
 +            if(!(lParam&(1L<<30)) && ViceTogetherMenuKey(int(wParam),(GetKeyState(VK_CONTROL)&0x8000)!=0))return 0L;
++            if(ViceTogetherMenuOpen())return 0L;
 +            if(wParam=='G' && getenv("VT_PORT") && !(lParam&(1L<<30)))ViceTogetherRequestPassenger();
 +            if(wParam=='F' && !(lParam&(1L<<30)) && ViceTogetherGuestOnFoot()){ViceTogetherRequestDriver();return 0L;}
  			
  			if ( _InputTranslateKey(&ks, lParam, wParam) )
  				RsKeyboardEventHandler(rsKEYDOWN, &ks);
-@@ -1171,6 +1202,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1171,6 +1203,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  
  		case WM_ACTIVATEAPP:
  		{
@@ -470,7 +493,7 @@ index 3e7a26c..40fe0d1 100644
  			switch ( gGameState )
  			{
  				case GS_LOGO_MPEG:
-@@ -1206,7 +1238,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1206,7 +1239,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  							else
  							{
  								WaitForState(State_Running);
@@ -479,7 +502,7 @@ index 3e7a26c..40fe0d1 100644
  							}
  						}
  					}
-@@ -1358,6 +1390,10 @@ RwBool IsForegroundApp()
+@@ -1358,6 +1391,10 @@ RwBool IsForegroundApp()
  	return !!ForegroundApp;
  }
  
@@ -490,7 +513,7 @@ index 3e7a26c..40fe0d1 100644
  UINT GetBestRefreshRate(UINT width, UINT height, UINT depth)
  {
  #ifdef USE_D3D9
-@@ -1558,6 +1594,10 @@ psSelectDevice()
+@@ -1558,6 +1595,10 @@ psSelectDevice()
  #ifdef IMPROVED_VIDEOMODE
  	if (FrontEndMenuManager.m_nPrefsWindowed)
  		GcurSelVM = bestWndMode;
@@ -501,7 +524,7 @@ index 3e7a26c..40fe0d1 100644
  
  	// Now GcurSelVM is 0 but vm has sizes(and fullscreen flag) of the video mode we want, that's why we changed the rwVIDEOMODEEXCLUSIVE conditions below
  	FrontEndMenuManager.m_nPrefsWidth = vm.width;
-@@ -1624,7 +1664,9 @@ psSelectDevice()
+@@ -1624,7 +1665,9 @@ psSelectDevice()
  		int spaceY = GetSystemMetrics(SM_CYSCREEN) - (rect.bottom-rect.top);
  
  		SetWindowLong(PSGLOBAL(window), GWL_STYLE, WS_VISIBLE | WS_OVERLAPPEDWINDOW);
@@ -512,7 +535,7 @@ index 3e7a26c..40fe0d1 100644
  			(rect.right - rect.left),
  			(rect.bottom - rect.top), 0);
  
-@@ -1892,7 +1934,7 @@ void CenterVideo(void)
+@@ -1892,7 +1935,7 @@ void CenterVideo(void)
  
  	JIF(pVW->put_MessageDrain((OAHWND) PSGLOBAL(window)));
  
@@ -521,7 +544,7 @@ index 3e7a26c..40fe0d1 100644
  }
  
  /*
-@@ -1944,7 +1986,7 @@ void PlayMovieInWindow(int cmdShow, const char* szFile)
+@@ -1944,7 +1987,7 @@ void PlayMovieInWindow(int cmdShow, const char* szFile)
  		// Run the graph to play the media file
  		JIF(pMC->Run());
  
@@ -530,7 +553,7 @@ index 3e7a26c..40fe0d1 100644
  	}
  	
  	ASSERT(pGB != nil);
-@@ -2007,6 +2049,7 @@ void HandleExit()
+@@ -2007,6 +2050,7 @@ void HandleExit()
  /*
   *****************************************************************************
   */
@@ -538,7 +561,7 @@ index 3e7a26c..40fe0d1 100644
  int PASCAL
  WinMain(HINSTANCE instance, 
  		HINSTANCE prevInstance	__RWUNUSED__, 
-@@ -2014,6 +2057,7 @@ WinMain(HINSTANCE instance,
+@@ -2014,6 +2058,7 @@ WinMain(HINSTANCE instance,
  		int cmdShow)
  {
  	MSG message;
@@ -546,7 +569,7 @@ index 3e7a26c..40fe0d1 100644
  	RwV2d pos;
  	RwInt32 argc, i;
  	RwChar **argv;
-@@ -2155,7 +2199,7 @@ WinMain(HINSTANCE instance,
+@@ -2155,7 +2200,7 @@ WinMain(HINSTANCE instance,
  	/*
  	 * Show the window, and refresh it...
  	 */
@@ -555,7 +578,7 @@ index 3e7a26c..40fe0d1 100644
  	UpdateWindow(PSGLOBAL(window));
  	
  	{
-@@ -2269,7 +2313,7 @@ WinMain(HINSTANCE instance,
+@@ -2269,7 +2314,7 @@ WinMain(HINSTANCE instance,
  				TheModelViewer();
  			}
  #endif
@@ -564,7 +587,7 @@ index 3e7a26c..40fe0d1 100644
  			{
  				switch ( gGameState )
  				{
-@@ -2399,6 +2443,7 @@ WinMain(HINSTANCE instance,
+@@ -2399,6 +2444,7 @@ WinMain(HINSTANCE instance,
  #ifndef PS2_MENU
  					case GS_INIT_FRONTEND:
  					{
@@ -572,7 +595,7 @@ index 3e7a26c..40fe0d1 100644
  						LoadingScreen(nil, nil, "loadsc0");
  						// LoadingScreen(nil, nil, "loadsc0"); // duplicate
  						
-@@ -2489,8 +2534,13 @@ WinMain(HINSTANCE instance,
+@@ -2489,8 +2535,13 @@ WinMain(HINSTANCE instance,
  						float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
  						if ( RwInitialised )
  						{
@@ -588,7 +611,7 @@ index 3e7a26c..40fe0d1 100644
  						}
  						break;
  					}
-@@ -2929,6 +2979,16 @@ HRESULT _InputAddJoys()
+@@ -2929,6 +2980,16 @@ HRESULT _InputAddJoys()
  HRESULT _InputGetMouseState(DIMOUSESTATE2 *state)
  {
  	HRESULT		  hr;
@@ -619,7 +642,7 @@ index 9b5aa30..a7a06e0 100644
  /////////////////////////////////////////////////////////////////////////////
 \ No newline at end of file
 diff --git a/src/vehicles/Automobile.cpp b/src/vehicles/Automobile.cpp
-index 281b71e..5019f3b 100644
+index 281b71e..a907a5d 100644
 --- a/src/vehicles/Automobile.cpp
 +++ b/src/vehicles/Automobile.cpp
 @@ -1,4 +1,5 @@
@@ -636,8 +659,16 @@ index 281b71e..5019f3b 100644
  	int i;
  	float wheelRot;
  	CColModel *colModel;
+@@ -3865,6 +3867,7 @@ CAutomobile::ProcessBuoyancy(void)
+ void
+ CAutomobile::DoDriveByShootings(void)
+ {
++	if(!pDriver || !pDriver->IsPlayer())return;
+ 	CAnimBlendAssociation *anim = nil;
+ 	CPlayerInfo* playerInfo = ((CPlayerPed*)pDriver)->GetPlayerInfoForThisPlayerPed();
+ 	if (playerInfo && !playerInfo->m_bDriveByAllowed)
 diff --git a/src/vehicles/Bike.cpp b/src/vehicles/Bike.cpp
-index a65b64d..384e1d5 100644
+index a65b64d..d555021 100644
 --- a/src/vehicles/Bike.cpp
 +++ b/src/vehicles/Bike.cpp
 @@ -1,4 +1,5 @@
@@ -654,8 +685,16 @@ index a65b64d..384e1d5 100644
  	int i;
  	float wheelRot;
  	float acceleration = 0.0f;
+@@ -2007,6 +2009,7 @@ CBike::ProcessBuoyancy(void)
+ void
+ CBike::DoDriveByShootings(void)
+ {
++	if(!pDriver || !pDriver->IsPlayer())return;
+ 	CAnimBlendAssociation *anim;
+ 	CPlayerInfo* playerInfo = ((CPlayerPed*)pDriver)->GetPlayerInfoForThisPlayerPed();
+ 	if (playerInfo && !playerInfo->m_bDriveByAllowed)
 diff --git a/src/vehicles/Boat.cpp b/src/vehicles/Boat.cpp
-index 5da8e1c..81d9218 100644
+index 5da8e1c..ce427d1 100644
 --- a/src/vehicles/Boat.cpp
 +++ b/src/vehicles/Boat.cpp
 @@ -1,4 +1,5 @@
@@ -672,6 +711,14 @@ index 5da8e1c..81d9218 100644
  	bool onLand = m_fDamageImpulse > 0.0f && m_vecDamageNormal.z > 0.1f;
  
  	PruneWakeTrail();
+@@ -1412,6 +1414,7 @@ CBoat::AddWakePoint(CVector point)
+ void
+ CBoat::DoDriveByShootings(void)
+ {
++	if(!pDriver || !pDriver->IsPlayer())return;
+ 	CAnimBlendAssociation *anim = nil;
+ 	CPlayerInfo* playerInfo = ((CPlayerPed*)pDriver)->GetPlayerInfoForThisPlayerPed();
+ 	if (playerInfo && !playerInfo->m_bDriveByAllowed)
 diff --git a/src/vehicles/Vehicle.cpp b/src/vehicles/Vehicle.cpp
 index d105419..8d9215e 100644
 --- a/src/vehicles/Vehicle.cpp

@@ -7,6 +7,8 @@
 #include "Vehicle.h"
 #include "Ped.h"
 #include "World.h"
+#include "PathFind.h"
+#include "WaterLevel.h"
 #include "ModelIndices.h"
 #include "Weapon.h"
 #include "Timer.h"
@@ -39,7 +41,21 @@
 #include <cmath>
 void WeaponCheat1();void WeaponCheat2();void WeaponCheat3();
 extern "C" void VT_ReportWorldHit(int kind,float health);
-static bool modMenuOpen=false;static int modMenuRow=0,modMenuAction=-1;
+static bool modMenuOpen=false;static int modMenuRow=0,modMenuPage=0,modMenuAction=-1;
+struct MenuItem{const char* label;int action;};
+static const MenuItem menuRoot[]={{"Weapons",-1},{"Vehicles",-2},{"Close",-99}};
+static const MenuItem menuWeapons[]={{"Street weapons",0},{"Professional weapons",1},{"Heavy weapons",2},{"Back",-100}};
+static const MenuItem menuVehicles[]={{"Cars",-3},{"Motorcycles",-4},{"Helicopters",-5},{"Boats",-6},{"Aircraft",-7},{"Back",-100}};
+static const MenuItem menuCars[]={{"Infernus",1141},{"Cheetah",1145},{"Sentinel",1135},{"Landstalker",1130},{"Banshee",1159},{"Back",-100}};
+static const MenuItem menuBikes[]={{"PCJ-600",1191},{"Freeway",1193},{"Angel",1166},{"Faggio",1192},{"Back",-100}};
+static const MenuItem menuHelis[]={{"Maverick",1217},{"Hunter",1155},{"Back",-100}};
+static const MenuItem menuBoats[]={{"Dinghy",1203},{"Speeder",1182},{"Squalo",1176},{"Back",-100}};
+static const MenuItem menuAircraft[]={{"Skimmer (water takeoff)",1190},{"Back",-100}};
+static const MenuItem menuAdmin[]={{"Morning",2000},{"Night",2001},{"Sunny weather",2002},{"Rainy weather",2003},{"Clear own wanted level",2004},{"Remove unused spawned vehicles",2005},{"Close",-99}};
+static bool menuHost(){const char* role=getenv("VT_WORLD_HOST");return !getenv("VT_PORT") || (role&&atoi(role)==1);}
+static const MenuItem* menuItems(int& count){
+    switch(modMenuPage){case 1:count=4;return menuWeapons;case 2:count=6;return menuVehicles;case 3:count=6;return menuCars;case 4:count=5;return menuBikes;case 5:count=3;return menuHelis;case 6:count=4;return menuBoats;case 7:count=2;return menuAircraft;case 8:count=7;return menuAdmin;default:count=3;return menuRoot;}
+}
 static float hudPing=-1,hudTransportPing=-1;static int hudPeers=0;static uint32 hudNetworkTime=0;
 void ViceTogetherNetworkStatus(const float* status){if(!std::isfinite(status[0])||!std::isfinite(status[1])||!std::isfinite(status[2])||status[0]<-1||status[0]>10000||status[1]<-1||status[1]>10000||status[2]<0||status[2]>7)return;hudPing=status[0];hudTransportPing=status[1];hudPeers=int(status[2]);hudNetworkTime=CTimer::GetTimeInMilliseconds();}
 static void drawNetworkStatus(){
@@ -50,23 +66,33 @@ static void drawNetworkStatus(){
 }
 bool ViceTogetherMenuOpen(){return modMenuOpen;}
 bool ViceTogetherMenuKey(int key,bool control){
-    if(key=='O'&&control){modMenuOpen=!modMenuOpen;return true;}
+    if(key=='O'&&control){modMenuOpen=!modMenuOpen;modMenuPage=modMenuRow=0;return true;}
+    if(key=='I'&&control){if(menuHost()){modMenuOpen=!modMenuOpen || modMenuPage!=8;modMenuPage=8;modMenuRow=0;}return true;}
     if(!modMenuOpen)return false;
-    if(key==38)modMenuRow=(modMenuRow+3)%4;
-    else if(key==40)modMenuRow=(modMenuRow+1)%4;
-    else if(key==13){if(modMenuRow==3)modMenuOpen=false;else modMenuAction=modMenuRow;}
-    else if(key==8||key==27)modMenuOpen=false;
+    int count;const MenuItem* rows=menuItems(count);
+    if(key==38||key=='W')modMenuRow=(modMenuRow+count-1)%count;
+    else if(key==40||key=='S')modMenuRow=(modMenuRow+1)%count;
+    else if(key==13||key==39||key=='D'){const int action=rows[modMenuRow].action;if(action==-99)modMenuOpen=false;else if(action==-100){modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}else if(action<0){modMenuPage=-action;modMenuRow=0;}else if(action<1000||menuHost())modMenuAction=action;}
+    else if(key==8||key==37||key=='A'){if(!modMenuPage||modMenuPage==8)modMenuOpen=false;else{modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}}
+    else if(key==27)modMenuOpen=false;
     return true;
 }
 static void drawModMenu(){
     if(!modMenuOpen)return;
-    const CFontDetails saved=CFont::Details;const float x=SCREEN_SCALE_X(28),y=SCREEN_SCALE_Y(60),w=SCREEN_SCALE_X(260),row=SCREEN_SCALE_Y(26);
-    CSprite2d::DrawRect(CRect(x,y,x+w,y+row*7),CRGBA(14,17,25,235));CSprite2d::DrawRect(CRect(x,y,x+w,y+row*1.5f),CRGBA(73,54,113,255));
+    int count;const MenuItem* rows=menuItems(count);const CFontDetails saved=CFont::Details;const float x=SCREEN_SCALE_X(28),y=SCREEN_SCALE_Y(60),w=SCREEN_SCALE_X(270),row=SCREEN_SCALE_Y(26);
+    CSprite2d::DrawRect(CRect(x,y,x+w,y+row*(count+3.8f)),CRGBA(19,18,35,235));CSprite2d::DrawRect(CRect(x,y,x+w,y+row*1.5f),CRGBA(192,78,151,255));
     CFont::SetFontStyle(FONT_STANDARD);CFont::SetScale(SCREEN_SCALE_X(0.42f),SCREEN_SCALE_Y(0.78f));CFont::SetCentreOff();CFont::SetRightJustifyOff();CFont::SetJustifyOff();CFont::SetBackgroundOff();CFont::SetPropOn();CFont::SetColor(CRGBA(255,255,255,255));
-    wchar text[96];AsciiToUnicode("ViceTogether",text);CFont::PrintString(x+SCREEN_SCALE_X(12),y+SCREEN_SCALE_Y(10),text);
-    const char* rows[]={"Weapons - basic pack","Weapons - advanced pack","Weapons - heavy pack","Close menu"};
-    for(int i=0;i<4;i++){const float top=y+row*(1.6f+i);if(i==modMenuRow)CSprite2d::DrawRect(CRect(x,top,x+w,top+row),CRGBA(104,86,151,240));AsciiToUnicode(rows[i],text);CFont::PrintString(x+SCREEN_SCALE_X(12),top+SCREEN_SCALE_Y(5),text);}
-    CFont::SetScale(SCREEN_SCALE_X(0.27f),SCREEN_SCALE_Y(0.55f));AsciiToUnicode("Arrows: select   Enter: use   Backspace: close",text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*6.2f,text);CFont::Details=saved;
+    wchar text[96];CFont::SetFontStyle(FONT_HEADING);AsciiToUnicode(modMenuPage==8?"ViceTogether - ADMIN":"ViceTogether",text);CFont::PrintString(x+SCREEN_SCALE_X(12),y+SCREEN_SCALE_Y(10),text);CFont::SetFontStyle(FONT_STANDARD);
+    for(int i=0;i<count;i++){const float top=y+row*(1.6f+i);if(i==modMenuRow)CSprite2d::DrawRect(CRect(x,top,x+w,top+row),CRGBA(91,174,174,240));CFont::SetColor(CRGBA(255,255,255,255));AsciiToUnicode(rows[i].label,text);CFont::PrintString(x+SCREEN_SCALE_X(12),top+SCREEN_SCALE_Y(5),text);}
+    CFont::SetScale(SCREEN_SCALE_X(0.27f),SCREEN_SCALE_Y(0.55f));AsciiToUnicode(modMenuPage>=3&&modMenuPage<=7&&!menuHost()?"Vehicle spawning: host only":"Arrows / WASD   Enter: use   Backspace: back",text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*(count+2.2f),text);AsciiToUnicode(ViceTogetherWorldMenuStatus(),text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*(count+3.0f),text);CFont::Details=saved;
+}
+bool ViceTogetherMenuTest(float* state){
+    if(!getenv("VT_TEST_WALK")||CTimer::GetFrameCounter()<500||!FindPlayerPed()||!FindPlayerPed()->m_rwObject)return false;
+    static int stage=0,flags=0;static uint32 started=0;if(stage==2)return false;
+    if(stage==0){started=CTimer::GetTimeInMilliseconds();ViceTogetherMenuKey('O',true);ViceTogetherMenuKey('W',false);if(modMenuRow==2)flags|=1;ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(40,false);ViceTogetherMenuKey(13,false);if(modMenuPage==2)flags|=2;ViceTogetherMenuKey('D',false);if(modMenuPage==3)flags|=4;ViceTogetherMenuKey(13,false);if((menuHost()&&modMenuAction==1141)||(!menuHost()&&modMenuAction==-1))flags|=8;ViceTogetherMenuKey(27,false);stage=1;return false;}
+    if(CTimer::GetTimeInMilliseconds()-started<4000)return false;if(menuHost()){FILE* log=fopen("native-menu.log","a");if(log){const CVector position=FindPlayerPed()->GetPosition();fprintf(log,"status=%s position=%f,%f,%f\n",ViceTogetherWorldMenuStatus(),position.x,position.y,position.z);fclose(log);}}ViceTogetherMenuKey('I',true);
+    if(menuHost()){if(modMenuPage==8&&modMenuOpen)flags|=16;ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(13,false);if(modMenuAction==2001)flags|=32;ViceTogetherMenuKey(27,false);}else if(!modMenuOpen)flags|=48;
+    state[0]=float(flags);state[1]=menuHost()?1:0;stage=2;return true;
 }
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -234,6 +260,8 @@ void VT_ApplyLocalHealth(float health) {
     if(health>0 && player->DyingOrDead()) {
         CVector spawn=deathPosition+CVector(2,0,1);
         if(spawn.x< -2350 || spawn.x>1550 || fabsf(spawn.y)>1950 || spawn.z< -30 || spawn.z>1000)spawn=CVector(-592.0f,670.0f,10.0f);
+        bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(spawn.x,spawn.y,2000,&groundFound);float water=0;const bool unsafeWater=CWaterLevel::GetWaterLevel(spawn.x,spawn.y,spawn.z,&water,true)&&(!groundFound || ground<water+0.2f);
+        if(groundFound&&!unsafeWater)spawn.z=ground+1.0f;else{const int road=ThePaths.FindNodeClosestToCoors(deathPosition,PATH_CAR,100.0f);if(road>=0)spawn=ThePaths.m_pathNodes[road].GetPosition()+CVector(0,0,1);else spawn=CVector(-592.0f,670.0f,10.0f);}
         CGameLogic::RestorePlayerStuffDuringResurrection(player,spawn,0);
         player->GetPlayerInfoForThisPlayerPed()->m_WBState=WBSTATE_PLAYING;
         CPad::GetPad(0)->DisablePlayerControls=PLAYERCONTROL_ENABLED;
@@ -433,7 +461,8 @@ void ViceTogetherDrawNames() {
 }
 
 void ViceTogetherTick() {
-    if(modMenuAction>=0){const int action=modMenuAction;modMenuAction=-1;if(action==0)WeaponCheat1();else if(action==1)WeaponCheat2();else WeaponCheat3();}
+    if(modMenuAction>=0){const int action=modMenuAction;modMenuAction=-1;if(action==0)WeaponCheat1();else if(action==1)WeaponCheat2();else if(action==2)WeaponCheat3();else if(menuHost())ViceTogetherWorldMenuAction(action);}
+    ViceTogetherWorldMenuTick();
     ViceTogetherNetworkTick();
     ViceTogetherWorldTick();
     if(getenv("VT_FOLLOW_PLAYER") || getenv("VT_MUTE")){DMAudio.SetEffectsMasterVolume(0);DMAudio.SetMusicMasterVolume(0);}

@@ -65,7 +65,7 @@ class NativeEngine extends EventEmitter {
           return;
         }
         if (type === 1 && validState(state)) { this.endpoint = source.port; this.emit('state', state); }
-        else if(type===23 && state.slice(0,15).every(Number.isFinite))this.emit('world-observed',{seq:state[0],peds:state[1],vehicles:state[2],loadedPeds:state[3],loadedVehicles:state[4],rain:state[5],wetRoads:state[6],oldWeather:state[7],newWeather:state[8],hour:state[9],minute:state[10],glassRecords:state[11],brokenGlass:state[12],crackedGlass:state[13],explosionSequence:state[14]});
+        else if(type===23 && state.slice(0,16).every(Number.isFinite))this.emit('world-observed',{seq:state[0],peds:state[1],vehicles:state[2],loadedPeds:state[3],loadedVehicles:state[4],rain:state[5],wetRoads:state[6],oldWeather:state[7],newWeather:state[8],hour:state[9],minute:state[10],glassRecords:state[11],brokenGlass:state[12],crackedGlass:state[13],explosionSequence:state[14],wreckedVehicles:state[15]});
         else if(type===28 && Number.isSafeInteger(state[0]) && Number.isInteger(state[1]))this.emit('seat-state',{id:state[0],seat:state[1]});
         else if(type===30)this.emit('seat-request',{id:slot,driver:state[0]===-1});
         else if(type===43&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&state.every(Number.isFinite))this.emit('driver-state',{id:slot,state});
@@ -74,6 +74,7 @@ class NativeEngine extends EventEmitter {
         else if (testWalk && type === 4 && slot < 7 && state.every(Number.isFinite)) this.emit('remote-observed', { slot, state });
         else if (type === 11 && slot < 7 && state.every(Number.isFinite)) this.emit('skeleton-observed', { slot, state });
         else if(testWalk && type===18 && state.every(Number.isFinite))this.emit('local-skeleton-observed',{state});
+        else if(testWalk && type===52 && state.every(Number.isFinite))this.emit('menu-observed',{state});
         else if (type === 6 && state.every(Number.isFinite)) {this.lastPerformance={fps:state[0],frameMsP95:state[1]};this.emit('performance', { fps: state[0], frameMsP95: state[1],window:{x:state[2],y:state[3],width:state[4],height:state[5]} });}
         else if(type===45&&this.authoritativeWorld&&[0,1].includes(slot))this.worldHitCounts[slot===0?'npc':'vehicle']++;
         else if(type===12 && validWeapon(state[0]))this.emit('equipment',{weapon:state[0],visible:state[1]===1});

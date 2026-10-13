@@ -8,6 +8,7 @@ bool ViceTogetherIsRemote(const CPed* ped);
 void ViceTogetherDrawNames();
 bool ViceTogetherMenuKey(int key,bool control);
 bool ViceTogetherMenuOpen();
+bool ViceTogetherMenuTest(float* state);
 void ViceTogetherNetworkStatus(const float* status);
 bool ViceTogetherRenderBody(CPed* ped);
 void ViceTogetherWeaponRendered(CPed* ped);
