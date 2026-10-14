@@ -3,6 +3,7 @@ import { Social } from './social.mjs';
 import { connectionDiagnostics } from './connection-diagnostics.mjs';
 import { SnapshotSender } from './snapshot-sender.mjs';
 import { RealtimeTransport } from './realtime-transport.mjs';
+import {lobbyConnection} from './lobby-connection.mjs';
 export class Friends extends Social { constructor(options) { super({ ...options, joinRoom: options.joinRoom || joinRoom, diagnosticsFactory: options.diagnosticsFactory || (() => connectionDiagnostics({relaySockets:getRelaySockets})) }); } }
 import { validState } from '../engine/sync.js';
 import { SessionCombat } from '../engine/combat.js';
@@ -38,7 +39,8 @@ export class PrivateLobby extends EventTarget {
   async join(invite, name, options = {}) { await this.leave(); this.start(invite, name, false, options); }
   start(invite, name, isHost, options) {
     this.snapshotSenders=new Map();
-    this.fast=new RealtimeTransport({receive:(kind,data,peerId)=>({movement:this.movement,players:this.world,ambient:this.ambient,driver:this.vehicleInput})[kind]?.onMessage?.(data,{peerId,realtime:true})});
+    this.connectionStartedAt=performance.now();this.connectAttempt=options.connectAttempt||0;this.networkDiagnostics=connectionDiagnostics({relaySockets:getRelaySockets});
+    this.fast=new RealtimeTransport({NativePeer:this.networkDiagnostics.Peer,receive:(kind,data,peerId)=>({movement:this.movement,players:this.world,ambient:this.ambient,driver:this.vehicleInput})[kind]?.onMessage?.(data,{peerId,realtime:true})});
     this.invite = invite; this.name = cleanName(name); this.isHost = isHost; this.sessionStarted = false;
     this.trustedHost=invite.host||null;
     const generation = this.generation;
@@ -176,6 +178,7 @@ export class PrivateLobby extends EventTarget {
       if (this.isHost) this.broadcastRoster().catch(() => {});
       else if (id === this.hostId) {
         this.hostId = null;
+        this.connectionStartedAt=performance.now();
         this.emit('notice', 'Connection to the host was lost. Reconnecting automatically; use Retry if it does not return.');
         this.changed();
       }
@@ -184,7 +187,13 @@ export class PrivateLobby extends EventTarget {
       this.hostId = selfId;
       this.players.set(selfId, { id: selfId, name: this.name, host: true, ready: this.ready === true });
     } else {
-      this.timeout = setTimeout(() => this.emit('notice', 'Your friend has not connected yet. Check that their lobby is open, then retry. Restricted networks may require a TURN relay.'), 25000);
+      const checkJoin=async()=>{
+        if(generation!==this.generation||!this.room||this.hostId)return;const phase=this.connectionPhase();
+        if(phase.retryable&&this.connectAttempt<2){this.emit('notice',`${phase.detail} Retrying connection (${this.connectAttempt+1}/2)...`);try{await this.join(invite,this.name,{...options,connectAttempt:this.connectAttempt+1});}catch{this.emit('notice','The connection could not restart. Use Retry to try again.');}}
+        else if(phase.label==='NEGOTIATING DIRECT LINK'){this.timeout=setTimeout(checkJoin,20000);this.changed();}
+        else {this.emit('notice',phase.detail+' Use Retry to start a fresh connection attempt.');this.changed();}
+      };
+      this.timeout=setTimeout(checkJoin,25000);
     }
     this.timer = setInterval(async () => {
       const room = this.room;
@@ -210,8 +219,9 @@ export class PrivateLobby extends EventTarget {
     this.changed();
   }
   changed() {
-    this.emit('change', { selfId, hostId: this.hostId, isHost: this.isHost, connected: !!this.hostId, players: [...this.players.values()].map(p => ({ ...p, self: p.id === selfId, ping: p.id === selfId ? 0 : this.pings[p.id] ?? null })) });
+    this.emit('change', { selfId, hostId: this.hostId, isHost: this.isHost, connected: !!this.hostId,connection:this.connectionPhase(), players: [...this.players.values()].map(p => ({ ...p, self: p.id === selfId, ping: p.id === selfId ? 0 : this.pings[p.id] ?? null })) });
   }
+  connectionPhase(){return lobbyConnection({connected:!!this.hostId,host:this.isHost,elapsedMs:performance.now()-(this.connectionStartedAt||performance.now()),diagnostics:this.networkDiagnostics?.snapshot()});}
   acceptState(id, state) {
     const now = performance.now(), previous = this.states.get(id);
     if(!this.seats.validOccupant(id,state))return;
@@ -278,7 +288,7 @@ export class PrivateLobby extends EventTarget {
       const pair=stats.get(transport?.selectedCandidatePairId);const local=stats.get(pair?.localCandidateId),remote=stats.get(pair?.remoteCandidateId);
       reports.push({state:pc.connectionState,ice:pc.iceConnectionState,route:pair?{localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,rttMs:Number.isFinite(pair.currentRoundTripTime)?Math.round(pair.currentRoundTripTime*1000):null,availableOutgoingKbps:pair.availableOutgoingBitrate===undefined?null:Math.round(pair.availableOutgoingBitrate/1000)}:null});
     }
-    return {peers:reports.slice(0,7),snapshotChannels:this.fast?.report()||[],pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
+    return {phase:this.connectionPhase(),attempt:this.connectAttempt||0,discovery:this.networkDiagnostics?.snapshot(),peers:reports.slice(0,7),snapshotChannels:this.fast?.report()||[],pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
   }
   sendWorld(frame) {
     if(!this.room || !this.isHost || !validWorldFrame(frame))return;

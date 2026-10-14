@@ -107,7 +107,7 @@ window.desktop.on('local-seat-request',request=>lobby.sendSeat(request));
 lobby.addEventListener('seat-grant',event=>window.desktop.seatGrant(event.detail));
 lobby.addEventListener('change', event => {
   lobbyInfo = event.detail;
-  $('connection').textContent = lobbyInfo.connected ? lobbyInfo.isHost ? 'HOSTING' : 'CONNECTED' : 'CONNECTING';
+  $('connection').textContent = lobbyInfo.connection?.label||(lobbyInfo.connected?'CONNECTED':'CONNECTING');
   $('players').replaceChildren();
   for (const player of lobbyInfo.players) {
     const row = document.createElement('div'); row.className = 'player';
@@ -115,7 +115,7 @@ lobby.addEventListener('change', event => {
     const info = document.createElement('span'); info.textContent = `${player.host ? 'HOST · ' : ''}${player.ready ? 'READY' : 'IMPORT GAME FILES'} · ${player.ping === null ? 'Measuring ping…' : player.ping + ' ms'}`;
     row.append(name, info); $('players').append(row);
   }
-  $('lobby-note').textContent = `${lobbyInfo.players.length}/8 players · Private WebRTC lobby · On-foot prototype`;
+  $('lobby-note').textContent = lobbyInfo.connected?`${lobbyInfo.players.length}/8 players · Private WebRTC lobby`:lobbyInfo.connection?.detail||'Looking for your friend...';
   social?.update(state.settings.name, lobby.sessionStarted?'Playing Vice City':'In private lobby', lobbyInfo.isHost && invitation?.code ? `vicetogether://join/${invitation.code}` : null);
   $('multiplayer').disabled = state?.capabilities?.nativeMultiplayer===false || !state?.engineBuilt || !state?.assets.gameReady || !lobbyInfo.isHost || lobbyInfo.players.length<1 || lobby.sessionStarted || lobbyInfo.players.some(p=>!p.ready);
   if (lobbyInfo.connected && lobbyInfo.players.length > 1) notice('Your lobby is connected. This experimental build supports initial guest driving; full world, combat and police synchronization remain unfinished.');
