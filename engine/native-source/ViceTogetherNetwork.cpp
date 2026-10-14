@@ -204,6 +204,7 @@ void ViceTogetherNetworkTick() {
         if((wire.type>=19 && wire.type<=22) || wire.type==35 || wire.type==37 || wire.type==42){ViceTogetherWorldPacket(wire.type,wire.slot,wire.state);continue;}
         if(wire.type==44){ViceTogetherApplyDriver(wire.slot,wire.state);continue;}
         if(wire.type==49){ViceTogetherNetworkStatus(wire.state);continue;}
+        if(wire.type==54){for(int slot=0;slot<7;slot++){history[slot]={};VT_RemoveRemote(slot);}delayedShots.clear();ViceTogetherWorldReset();continue;}
         if(wire.type==41){ViceTogetherWorldGlassRequest(wire.state);continue;}
         if(wire.slot>=7)continue;
         if(wire.type==29){if(std::isfinite(wire.state[0]) && wire.state[0]>=-1 && wire.state[0]<16777216 && wire.state[1]>=-1 && wire.state[1]<8)VT_SetRemoteVehicle(wire.slot,int(wire.state[0]),int(wire.state[1]));continue;}

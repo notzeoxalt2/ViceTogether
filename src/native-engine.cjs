@@ -24,7 +24,7 @@ class NativeEngine extends EventEmitter {
     if (this.child && this.child.exitCode === null) {
       if(this.multiplayer !== multiplayer) throw new Error('Close the current game before switching between singleplayer and multiplayer.');
       if(multiplayer&&this.authoritativeWorld!==authoritativeWorld)throw new Error('Close the current game before switching between hosting and joining.');
-      this.selfSequence=-1;this.received.clear();this.shotSequences?.clear();
+      this.resetSession();
       return;
     }
     await fs.access(this.executable);
@@ -164,6 +164,7 @@ class NativeEngine extends EventEmitter {
     this.send(15,slot,[shot.weapon,...shot.source,...shot.end,shot.hit?1:0,...shot.normal,[0,1,2].includes(shot.hitKind)?shot.hitKind:0]);
   }
   stop() { this.child?.kill(); this.closeSocket(); }
+  resetSession(){this.selfSequence=-1;this.worldReceived=0;this.worldPending=null;this.received.clear();this.slots.clear();this.shotSequences?.clear();this.send(54,0,[]);}
   diagnostics(){return {running:!!this.child&&this.child.exitCode===null,host:this.authoritativeWorld===true,remotePlayers:this.slots.size,worldSequence:this.worldReceived||0,packets:this.packetCounts||{},performance:this.lastPerformance,appliedGuestHits:this.worldHitCounts||{npc:0,vehicle:0}};}
   networkStatus(status){if(!status||![status.ping,status.transportPing,status.peers].every(Number.isFinite)||status.ping< -1||status.ping>10000||status.transportPing< -1||status.transportPing>10000||!Number.isInteger(status.peers)||status.peers<0||status.peers>7)return;this.send(49,0,[status.ping,status.transportPing,status.peers]);}
 }

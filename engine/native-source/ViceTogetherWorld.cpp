@@ -95,6 +95,10 @@ void commit() {
 }
 }
 extern "C" void VT_SendGlassRequest(const float* state);
+void ViceTogetherWorldReset(){
+    if(!guest())return;CPlayerPed* player=FindPlayerPed();if(player&&player->bInVehicle&&player->m_pMyVehicle){CVehicle* car=player->m_pMyVehicle;const CVector exit=car->GetPosition()+car->GetRight()*2.0f;if(car->pDriver==player)car->RemoveDriver();else car->RemovePassenger(player);player->m_pMyVehicle=nil;player->bInVehicle=false;player->bUsesCollision=true;player->ClearObjective();player->SetIdle();player->Teleport(exit);}
+    for(auto* map:{&pedestrians,&vehicles}){for(auto& entry:*map)remove(entry.second);map->clear();}pending.clear();glass.clear();pendingGlass.clear();explosions.clear();pendingExplosions.clear();receiving=active=false;generation=pendingSequence=expected=expectedGlass=expectedExplosions=lastExplosion=0;
+}
 const char* ViceTogetherWorldMenuStatus(){return menuStatus;}
 void ViceTogetherWorldMenuAction(int action){
     if(guest()){menuStatus="Only the host changes the shared world";return;}
@@ -278,7 +282,7 @@ void ViceTogetherWorldTick() {
                 animated[j+2]=r.previous[j+2]+delta*t;
             }
             if(d[6]<=0 && !p->DyingOrDead())p->SetDie();
-            pose(p,animated);
+            if(d[6]>0 || (unsigned(d[31])&128))pose(p,animated);
             const unsigned injury=unsigned(d[31]);p->m_bleedCounter=uint8(d[30]);p->m_bodyPartBleeding=int8((injury&31)-1);p->bBodyPartJustCameOff=(injury&32)!=0;p->bPedIsBleeding=(injury&64)!=0;p->bIsPedDieAnimPlaying=(injury&128)!=0;
             const int weapon=int(d[33]);if(weapon>=0 && weapon<WEAPONTYPE_TOTALWEAPONS && int(p->GetWeapon()->m_eWeaponType)!=weapon){const int weaponModel=CWeaponInfo::GetWeaponInfo((eWeaponType)weapon)->m_nModelId;if(weaponModel>=0)CStreaming::RequestModel(weaponModel,STREAMFLAGS_DONT_REMOVE);if(weaponModel<0 || CStreaming::HasModelLoaded(weaponModel)){p->GiveWeapon((eWeaponType)weapon,120);p->SetCurrentWeapon((eWeaponType)weapon);}}
             const int heldModel=CWeaponInfo::GetWeaponInfo(p->GetWeapon()->m_eWeaponType)->m_nModelId;

@@ -33,6 +33,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const placements=[0,1].map(i=>require('./display.cjs').gameWindow(i));
   const local = [[], []], remote = [[], []], performance = [[], []], errors = [];
   let timer, forwarding = false, stopping = false;
+  let resetInjected=false,resetDue=null,resetPid=null,resetRecovered=false;
   try {
     for (let i = 0; i < 2; i++) {
       const root = path.join(work, `native-live-${testId}-${i}`);
@@ -76,7 +77,13 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
           const data = await windows[i].webContents.executeJavaScript("({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,driver:testEvents.findLast(e=>e.name==='driver-state')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail)})");
           engines[i].frame(data.frame);for(const shot of data.shots)engines[i].remoteShot(shot);
           const connected=data.frame.filter(player=>!player.self);engines[i].networkStatus({ping:connected.map(player=>player.ping).filter(Number.isFinite).reduce((max,ping)=>Math.max(max,ping),-1),transportPing:-1,peers:Math.min(7,connected.length)});
-          if(data.ambient){engines[i].remoteWorld(data.ambient);for(const entity of data.ambient.entities)if(entity.type===22)vehicleModels[i].add(entity.state[0]);}
+          if(data.ambient){
+            if(i===1&&process.env.VT_TEST_RESET==='1'){
+              if(!resetInjected&&worldObserved[1]?.seq>10){engines[i].remoteWorld({...data.ambient,seq:1000000});resetInjected=true;resetDue=Date.now()+500;resetPid=engines[i].child.pid;}
+              else if(resetDue&&Date.now()>=resetDue){await engines[i].start('unused',{multiplayer:true,authoritativeWorld:false});assert.equal(engines[i].child.pid,resetPid,'Rejoin spawned another game');resetDue=null;}
+              else if(resetInjected&&!resetDue&&worldObserved[1]?.seq>0&&worldObserved[1].seq<1000000&&worldObserved[1].loadedPeds+worldObserved[1].loadedVehicles>0)resetRecovered=true;
+            }
+            engines[i].remoteWorld(data.ambient);for(const entity of data.ambient.entities)if(entity.type===22)vehicleModels[i].add(entity.state[0]);}
           if(data.seat)engines[i].seatGrant(data.seat); if(data.driver)engines[i].driverState(data.driver);
           if(i===0)for(const pane of data.glass||[]){const key=JSON.stringify(pane.slice(0,5));const previous=deliveredGlass.get(key)||0;if(pane[1]>previous){engines[i].glassRequest(pane);deliveredGlass.set(key,pane[1]);}}
         }
@@ -102,6 +109,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       return {success:true,interactiveManualFollow:true,automatedPadInput:false};
     }
     await delay(durationSeconds * 1000);
+    if(process.env.VT_TEST_RESET==='1'){assert.ok(resetInjected&&resetRecovered,'Reused native engine failed to accept a lower world sequence and render the new population after reset');await fs.writeFile(path.join(out,'native-reset.json'),JSON.stringify({resetRecovered,pidUnchanged:engines[1].child.pid===resetPid,previousWorldSequence:1000000,freshWorldSequence:worldObserved[1]?.seq,loadedPeds:worldObserved[1]?.loadedPeds,loadedVehicles:worldObserved[1]?.loadedVehicles},null,2));}
     if(process.env.VT_TEST_MENU==='1'){
       await fs.writeFile(path.join(out,'menu-observations.json'),JSON.stringify({menuObserved,vehicleModels:vehicleModels.map(models=>[...models]),worldObserved,errors},null,2));
       assert.equal(errors.length,0,errors.join('; '));assert.ok(menuObserved.every(state=>state?.[0]===63),'Native keyboard navigation or host-only admin checks failed');assert.ok(vehicleModels.every(models=>models.has(141)),'Host-spawned Infernus did not reach both world streams');assert.ok(worldObserved.every(world=>world?.hour===22),'Host admin time did not synchronize');

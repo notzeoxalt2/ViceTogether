@@ -1,6 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { NativeEngine, cleanLabel,validState,packet } = require('../src/native-engine.cjs');
+test('rejoining clears previous native world and player sequence gates',()=>{
+ const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;engine.worldReceived=900;engine.worldPending={seq:901};engine.selfSequence=800;engine.slots.set('old',0);engine.received.set('old',{seq:800});engine.shotSequences=new Map([['old',10]]);engine.resetSession();assert.equal(engine.worldReceived,0);assert.equal(engine.worldPending,null);assert.equal(engine.slots.size,0);assert.equal(engine.received.size,0);assert.equal(engine.shotSequences.size,0);assert.equal(packets[0].readUInt32LE(4),54);
+});
 test('network HUD preserves unknown ping and rejects malformed status',()=>{
  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
  engine.networkStatus({ping:-1,transportPing:-1,peers:0});

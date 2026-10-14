@@ -79,7 +79,7 @@ async function importGame() {
   if (result) { assetStatus(result); notice('Your files are imported. No game assets were downloaded.'); }
 }
 async function join(invite) {
-  await lobby.join(invite, state.settings.name, { iceServers: state.config.iceServers });
+  await lobby.join(invite, state.settings.name, { iceServers: state.config.iceServers,relayUrls:state.config.signalingRelayUrls });
   invitation = invite; $('lobby').hidden = false; page('host');
   social?.update(state.settings.name, 'In private lobby');
   $('room-code').textContent=invite.code||'Legacy invite';
@@ -125,7 +125,7 @@ action('lobby-import', importGame);
 action('play', async () => { if (!state.assets.gameReady) await importGame(); else await call(window.desktop.play()); });
 action('host', async () => {
   const invite = await call(window.desktop.createInvite());
-  invitation = await lobby.host(invite, state.settings.name, { iceServers: state.config.iceServers });
+  invitation = await lobby.host(invite, state.settings.name, { iceServers: state.config.iceServers,relayUrls:state.config.signalingRelayUrls });
   social?.update(state.settings.name, 'In private lobby', invitation.code ? `vicetogether://join/${invitation.code}` : null);
   $('room-code').textContent=invitation.code||'Legacy invite';
   $('lobby').hidden = false;

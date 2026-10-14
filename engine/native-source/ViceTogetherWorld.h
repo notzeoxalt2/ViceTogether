@@ -7,6 +7,7 @@ typedef void (*VTWorldSender)(unsigned type,unsigned id,const float* state);
 void ViceTogetherWorldCapture(VTWorldSender send);
 void ViceTogetherWorldPacket(unsigned type,unsigned id,const float* state);
 void ViceTogetherWorldTick();
+void ViceTogetherWorldReset();
 void ViceTogetherWorldMenuAction(int action);
 void ViceTogetherWorldMenuTick();
 const char* ViceTogetherWorldMenuStatus();

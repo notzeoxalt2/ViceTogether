@@ -141,7 +141,8 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     };
     a = await create(); b = await create();
     const publicSignaling = process.argv.includes('--public-signaling-test');
-    for(const [window,name] of [[a,'Alice'],[b,'Bob']])await window.webContents.executeJavaScript(`window.socialStore=new Map();window.socialTest=new testFriends({${publicSignaling?'':'joinRoom:testJoinRoom,'}storage:{getItem:k=>socialStore.get(k),setItem:(k,v)=>socialStore.set(k,v)}});socialTest.start(${JSON.stringify(name)},${publicSignaling?'{}':`{relayUrls:[${JSON.stringify(relayUrl)}]}`});`);
+    const publicOptions=JSON.stringify({relayUrls:require('../release-config.json').signalingRelayUrls});
+    for(const [window,name] of [[a,'Alice'],[b,'Bob']])await window.webContents.executeJavaScript(`window.socialStore=new Map();window.socialTest=new testFriends({${publicSignaling?'':'joinRoom:testJoinRoom,'}storage:{getItem:k=>socialStore.get(k),setItem:(k,v)=>socialStore.set(k,v)}});socialTest.start(${JSON.stringify(name)},${publicSignaling?publicOptions:`{relayUrls:[${JSON.stringify(relayUrl)}]}`});`);
     const friendInvite=await a.webContents.executeJavaScript('socialTest.createFriend()');
     await b.webContents.executeJavaScript(`socialTest.add(${JSON.stringify(friendInvite)})`);
     await waitFor(async()=>await a.webContents.executeJavaScript('socialTest.snapshot()[0].status=== "Online"')&&await b.webContents.executeJavaScript('socialTest.snapshot()[0].status=== "Online"'),'Real WebRTC friend presence did not connect');
@@ -150,13 +151,15 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     await waitFor(()=>a.webContents.executeJavaScript('socialTest.friends[0].messages[0].direction=== "delivered"'),'Chat delivery receipt did not arrive');
     await a.webContents.executeJavaScript('socialTest.stop()');await b.webContents.executeJavaScript('socialTest.stop()');
     result.tests.push(`Two hidden renderers pair friends, show live presence and exchange text plus delivery receipt over real WebRTC (${publicSignaling?'public':'local'} signaling; same PC, not a two-network test)`);
-    const joinOptions = publicSignaling ? '{}' : `{joinRoom: testJoinRoom, relayUrls: [${JSON.stringify(relayUrl)}]}`;
-    result.signaling = publicSignaling ? 'Public default Trystero Nostr relays; same-PC peers' : 'Local WebSocket relay; same-PC peers';
+    const joinOptions = publicSignaling ? publicOptions : `{joinRoom: testJoinRoom, relayUrls: [${JSON.stringify(relayUrl)}]}`;
+    result.signaling = publicSignaling ? 'Configured public Trystero Nostr relays; same-PC peers' : 'Local WebSocket relay; same-PC peers';
+    const connectionStarted=performance.now();
     const invite = await a.webContents.executeJavaScript(`testLobby.host(${JSON.stringify(createInvite())}, 'Host', ${joinOptions})`);
     await b.webContents.executeJavaScript(`testLobby.join(${JSON.stringify(invite)}, 'Friend', ${joinOptions})`);
     await waitFor(async () => (await a.webContents.executeJavaScript('testLobby.players.size')) === 2 && (await b.webContents.executeJavaScript('testLobby.players.size')) === 2, 'Two independent renderers did not connect');
     result.tests.push('Two independent Chromium contexts join a private Trystero lobby over real WebRTC');
     assert.equal(await b.webContents.executeJavaScript('!!testLobby.hostId'), true);
+    result.authenticatedLobbyMs=Math.round(performance.now()-connectionStarted);
     result.tests.push('Guest verifies the host signature and receives the two-player roster');
     await assert.rejects(a.webContents.executeJavaScript('testLobby.startGame()'), /import their game files/);
     await a.webContents.executeJavaScript('testLobby.setReady(true)');

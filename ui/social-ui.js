@@ -50,7 +50,7 @@ export function setupFriends({ state, call, notice, join }) {
   $('friend-retry').onclick = () => social.retry(selected);
   $('friend-remove').onclick = () => { social.remove(selected); selected = null; render(); };
   $('friend-join').onclick = async () => { try { const f = social.snapshot().find(f => f.room === selected); if (f?.invite) await join(await call(window.desktop.parseInvite(f.invite))); } catch (e) { notice(e.message); } };
-  social.start(state.settings.name, { iceServers: state.config.iceServers }); render();
+  social.start(state.settings.name, { iceServers: state.config.iceServers,relayUrls:state.config.signalingRelayUrls }); render();
   window.addEventListener('pagehide', () => social.stop(), { once: true });
   return social;
 }
