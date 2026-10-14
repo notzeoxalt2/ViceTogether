@@ -1,0 +1,58 @@
+// A separate unreliable SCTP stream for replaceable snapshots. Trystero retains
+// its reliable stream for authentication, lobby state, damage and other events.
+const LABEL='vt-snapshots-v1',DEFAULT_KINDS=['movement','players','ambient','driver'];
+export class RealtimeTransport {
+  constructor({NativePeer=globalThis.RTCPeerConnection,receive,now=()=>performance.now(),kinds=DEFAULT_KINDS}={}) {
+    if(!Array.isArray(kinds)||!kinds.length||kinds.length>8||kinds.some(k=>typeof k!=='string'||!/^[-a-z0-9]{1,24}$/.test(k)||['probe','echo'].includes(k)))throw new Error('Invalid snapshot kinds');this.kinds=new Set(kinds);
+    this.receive=receive;this.now=now;this.peers=new Map();this.waiting=new WeakMap();const owner=this;
+    this.Peer=class extends NativePeer {
+      constructor(...args){super(...args);this.addEventListener('datachannel',event=>{
+        if(event.channel.label!==LABEL)return;
+        event.stopImmediatePropagation();const entry=[...owner.peers.values()].find(e=>e.pc===this);
+        if(entry)owner.bind(entry,event.channel);else owner.waiting.set(this,event.channel);
+      });}
+    };
+  }
+  attach(id,pc){if(!pc)return;let entry=this.peers.get(id);if(!entry){entry={id,pc,sequence:0,seen:new Map(),sent:0,received:0,dropped:0,probeSequence:0,samples:[],probeLost:0};this.peers.set(id,entry);}const pending=this.waiting.get(pc);if(pending){this.waiting.delete(pc);this.bind(entry,pending);}return entry;}
+  initiate(id,pc){const entry=this.attach(id,pc);if(!entry||entry.channel)return;this.bind(entry,pc.createDataChannel(LABEL,{ordered:false,maxRetransmits:0}));}
+  bind(entry,channel){if(entry.channel&&entry.channel!==channel){channel.close();return;}entry.channel=channel;
+    channel.addEventListener('close',()=>{if(entry.channel===channel){entry.channel=null;entry.seen.clear();entry.probe=null;entry.samples=[];}});
+    channel.addEventListener('message',event=>{
+      const bucket=Math.floor(Date.now()/1000);if(entry.bucket!==bucket){entry.bucket=bucket;entry.count=0;}if(++entry.count>120)return;
+      if(typeof event.data!=='string'||event.data.length>32768)return;let packet;try{packet=JSON.parse(event.data);}catch{return;}
+      if(packet?.v!==1||!Number.isSafeInteger(packet.seq)||packet.seq<1)return;
+      if(packet.kind==='probe'){
+        const now=this.now();if(now-(entry.lastEcho??-Infinity)<500||channel.readyState!=='open'||channel.bufferedAmount>4096)return;
+        entry.lastEcho=now;try{channel.send(JSON.stringify({v:1,kind:'echo',seq:packet.seq}));}catch{}return;
+      }
+      if(packet.kind==='echo'){
+        const pending=entry.probe;if(!pending||packet.seq!==pending.seq)return;
+        entry.probe=null;const rtt=this.now()-pending.at;if(rtt<0||rtt>2000){entry.probeLost++;return;}
+        entry.samples.push(rtt);if(entry.samples.length>20)entry.samples.shift();entry.measuredAt=this.now();return;
+      }
+      if(!this.kinds.has(packet.kind)||packet.seq<=(entry.seen.get(packet.kind)||0))return;
+      entry.seen.set(packet.kind,packet.seq);entry.received++;this.receive?.(packet.kind,packet.data,entry.id);
+    });
+  }
+  probe(id){const entry=this.peers.get(id),channel=entry?.channel,now=this.now();
+    if(!channel||channel.readyState!=='open'||channel.bufferedAmount>4096||now-(entry.lastProbe??-Infinity)<1000)return false;
+    if(entry.probe){if(now-entry.probe.at<=2000)return false;entry.probeLost++;}
+    entry.lastProbe=now;entry.probe={seq:++entry.probeSequence,at:now};
+    try{channel.send(JSON.stringify({v:1,kind:'probe',seq:entry.probe.seq}));return true;}catch{entry.probe=null;return false;}
+  }
+  latency(id){const e=this.peers.get(id);if(!e?.samples.length||this.now()-e.measuredAt>10000)return {rttMs:null,p50Ms:null,p95Ms:null,jitterMs:null};
+    const values=[...e.samples].sort((a,b)=>a-b),round=n=>Math.round(n*10)/10;
+    const diffs=e.samples.slice(1).map((v,i)=>Math.abs(v-e.samples[i]));
+    return {rttMs:round(e.samples.at(-1)),p50Ms:round(values[Math.floor((values.length-1)*0.5)]),p95Ms:round(values[Math.ceil((values.length-1)*0.95)]),jitterMs:round(diffs.length?diffs.reduce((a,b)=>a+b,0)/diffs.length:0)};
+  }
+  seen(id,kind){return !!this.peers.get(id)?.seen.has(kind);}
+  send(id,kind,data){const entry=this.peers.get(id),channel=entry?.channel;if(!channel||channel.readyState!=='open'||!this.kinds.has(kind))return false;
+    const packet=JSON.stringify({v:1,kind,seq:++entry.sequence,data});
+    if(packet.length>30000)return false;
+    if(channel.bufferedAmount>32768){entry.dropped++;return true;}
+    try{channel.send(packet);entry.sent++;return true;}catch{return false;}
+  }
+  report(){return [...this.peers.values()].map(e=>({state:e.channel?.readyState||'waiting',ordered:e.channel?.ordered,retransmits:e.channel?.maxRetransmits,sent:e.sent,received:e.received,dropped:e.dropped,buffered:e.channel?.bufferedAmount||0,...this.latency(e.id),probeSamples:e.samples.length,probeLost:e.probeLost}));}
+  remove(id){const entry=this.peers.get(id);entry?.channel?.close();this.peers.delete(id);}
+  close(){for(const id of [...this.peers.keys()])this.remove(id);}
+}

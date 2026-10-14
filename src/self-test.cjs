@@ -176,6 +176,26 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     await waitFor(async()=>await a.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.sent>0&&c.received>0)')&&await b.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.sent>0&&c.received>0)'),'Unreliable snapshot channel did not carry two-way movement');
     result.snapshotChannels=await a.webContents.executeJavaScript('testLobby.fast.report()');
     assert.ok(result.snapshotChannels.every(c=>c.ordered===false&&c.retransmits===0),'Snapshot channel unexpectedly uses ordered retransmission');
+    await a.webContents.executeJavaScript('testLobby.fast.probe([...testLobby.players.keys()].find(id=>id!==testLobby.hostId))');
+    await waitFor(()=>a.webContents.executeJavaScript('testLobby.fast.report().some(c=>Number.isFinite(c.rttMs))'),'Movement-channel echo did not return');
+    result.movementChannelLatency=await a.webContents.executeJavaScript('testLobby.fast.report().map(c=>({rttMs:c.rttMs,p50Ms:c.p50Ms,p95Ms:c.p95Ms,jitterMs:c.jitterMs,probeLost:c.probeLost}))');
+    // Sender uses its own clock for both ends of the turnaround measurement.
+    // Synthetic guest input must be validated by the host and returned as a frame.
+    const measureTurnaround=()=>b.webContents.executeJavaScript(`(async()=>{
+      const samples=[];for(let i=0;i<20;i++){
+        const marker=5+Math.random()*0.01,at=performance.now();
+        await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>{testLobby.removeEventListener('frame',onFrame);reject(new Error('Synthetic turnaround timed out'));},3000);
+          const onFrame=e=>{if(e.detail.some(p=>p.self&&p.state[0]===marker)){clearTimeout(timeout);testLobby.removeEventListener('frame',onFrame);samples.push(performance.now()-at);resolve();}};
+          testLobby.addEventListener('frame',onFrame);testLobby.sendState([marker,0,5,0,0,0,0,2,100,0]);});
+        await new Promise(resolve=>setTimeout(resolve,7));
+      }samples.sort((a,b)=>a-b);return {samples:samples.length,p50Ms:Math.round(samples[9]*10)/10,p95Ms:Math.round(samples[18]*10)/10,maxMs:Math.round(samples[19]*10)/10};
+    })()`);
+    // Reproduce the old 50ms fixed-phase gate in this hidden test only.
+    await a.webContents.executeJavaScript('window.originalFrameRequest=testLobby.frameDispatch.request;window.baselinePending=false;testLobby.frameDispatch.request=()=>{baselinePending=true};window.baselineGate=setInterval(()=>{if(baselinePending){baselinePending=false;originalFrameRequest.call(testLobby.frameDispatch);}},50)');
+    result.syntheticTurnaroundBaseline=await measureTurnaround();
+    await a.webContents.executeJavaScript('clearInterval(baselineGate);testLobby.frameDispatch.request=originalFrameRequest;testLobby.frameDispatch.request()');
+    result.syntheticTurnaroundImmediate=await measureTurnaround();
+    result.tests.push('Movement-channel RTT echo and synthetic guest-to-host-to-guest turnaround measured; same PC, no game/ISP latency claim');
     result.tests.push('Two-way snapshots use a separate unordered WebRTC stream without retransmission; lobby and gameplay events remain on Trystero');
     await a.webContents.executeJavaScript('testLobby.startGame()');
     await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='launch')"), 'Launch broadcast did not reach the guest');

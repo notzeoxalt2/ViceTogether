@@ -4,6 +4,7 @@ import { connectionDiagnostics } from './connection-diagnostics.mjs';
 import { SnapshotSender } from './snapshot-sender.mjs';
 import { RealtimeTransport } from './realtime-transport.mjs';
 import {lobbyConnection} from './lobby-connection.mjs';
+import {FrameDispatch} from './frame-dispatch.mjs';
 export class Friends extends Social { constructor(options) { super({ ...options, joinRoom: options.joinRoom || joinRoom, diagnosticsFactory: options.diagnosticsFactory || (() => connectionDiagnostics({relaySockets:getRelaySockets})) }); } }
 import { validState } from '../engine/sync.js';
 import { SessionCombat } from '../engine/combat.js';
@@ -38,7 +39,7 @@ export class PrivateLobby extends EventTarget {
   }
   async join(invite, name, options = {}) { await this.leave(); this.start(invite, name, false, options); }
   start(invite, name, isHost, options) {
-    this.snapshotSenders=new Map();
+    this.snapshotSenders=new Map();this.pingBusy=false;
     this.connectionStartedAt=performance.now();this.connectAttempt=options.connectAttempt||0;this.networkDiagnostics=connectionDiagnostics({relaySockets:getRelaySockets});
     this.fast=new RealtimeTransport({NativePeer:this.networkDiagnostics.Peer,receive:(kind,data,peerId)=>({movement:this.movement,players:this.world,ambient:this.ambient,driver:this.vehicleInput})[kind]?.onMessage?.(data,{peerId,realtime:true})});
     this.invite = invite; this.name = cleanName(name); this.isHost = isHost; this.sessionStarted = false;
@@ -122,13 +123,15 @@ export class PrivateLobby extends EventTarget {
       if (peerId !== this.hostId || this.isHost || packet?.v !== 1 || !this.ready || this.sessionStarted) return;
       this.sessionStarted = true; this.emit('launch', {});
     };
-    this.gameTimer = setInterval(() => {
+    this.frameDispatch = new FrameDispatch(() => {
       if (!this.isHost || !this.room) return;
       const now = performance.now();
       const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
       this.sendSnapshot('players',this.world,frame);
       this.emit('frame', frame.map(p => ({ ...p, self: p.id === selfId })));
-    }, 50);
+    });
+    // Heartbeat also expires disconnected/stale actors when no fresh input arrives.
+    this.gameTimer=setInterval(()=>this.frameDispatch.request(),250);
     this.hello.onReceive = ({ byteLength }) => byteLength < 256;
     this.roster.onReceive = ({ byteLength }) => byteLength < 8192;
     this.hello.onMessage = async (data, { peerId }) => {
@@ -197,14 +200,17 @@ export class PrivateLobby extends EventTarget {
     }
     this.timer = setInterval(async () => {
       const room = this.room;
-      if (!room || generation !== this.generation) return;
-      for (const id of this.players.keys()) {
-        if (id === selfId) continue;
+      if (!room || generation !== this.generation || this.pingBusy) return;
+      this.pingBusy=true;
+      await Promise.all([...this.players.keys()].filter(id=>id!==selfId).map(async id=>{
+        this.fast.probe(id);let timeout;
         try {
-          const ping = await Promise.race([room.ping(id), new Promise((_, reject) => setTimeout(() => reject(new Error('Ping timeout')), 2500))]);
+          const ping = await Promise.race([room.ping(id), new Promise((_, reject) => {timeout=setTimeout(() => reject(new Error('Ping timeout')), 2500);})]);
           if (generation === this.generation) this.pings[id] = Math.round(ping);
         } catch { if (generation === this.generation) delete this.pings[id]; }
-      }
+        finally{clearTimeout(timeout);}
+      }));
+      if(generation===this.generation)this.pingBusy=false;
       if (generation === this.generation) this.changed();
     }, 3000);
     this.changed();
@@ -219,7 +225,7 @@ export class PrivateLobby extends EventTarget {
     this.changed();
   }
   changed() {
-    this.emit('change', { selfId, hostId: this.hostId, isHost: this.isHost, connected: !!this.hostId,connection:this.connectionPhase(), players: [...this.players.values()].map(p => ({ ...p, self: p.id === selfId, ping: p.id === selfId ? 0 : this.pings[p.id] ?? null })) });
+    this.emit('change', { selfId, hostId: this.hostId, isHost: this.isHost, connected: !!this.hostId,connection:this.connectionPhase(), players: [...this.players.values()].map(p => ({ ...p, self: p.id === selfId, ping: p.id === selfId ? 0 : this.fast?.latency(p.id).rttMs ?? this.pings[p.id] ?? null })) });
   }
   connectionPhase(){return lobbyConnection({connected:!!this.hostId,host:this.isHost,elapsedMs:performance.now()-(this.connectionStartedAt||performance.now()),diagnostics:this.networkDiagnostics?.snapshot()});}
   acceptState(id, state) {
@@ -231,12 +237,13 @@ export class PrivateLobby extends EventTarget {
     }
     const approved=this.combat.update(id,state,now);
     this.states.set(id, { state:approved.state, time: now, seq: (previous?.seq || 0) + 1 });
+    this.frameDispatch?.request();
   }
   acceptHit(id,event) {
     const hit=this.combat.hit(id,event,performance.now());if(!hit)return;
     const target=this.states.get(hit.target);
     if(target){target.state=[...target.state];target.state[8]=hit.health;target.seq++;}
-    this.emit('combat',hit);
+    this.frameDispatch?.request();this.emit('combat',hit);
   }
   sendHit(hit) {
     if(!this.room || typeof hit?.target!=='string')return;
@@ -249,9 +256,9 @@ export class PrivateLobby extends EventTarget {
     if(!this.isHost || !this.room)return;
     const hit=this.combat.worldDamage(event?.target||selfId,event?.amount,performance.now());if(!hit)return;
     const target=this.states.get(hit.target);if(target){target.state=[...target.state];target.state[8]=hit.health;target.seq++;}
-    this.emit('combat',hit);
+    this.frameDispatch?.request();this.emit('combat',hit);
   }
-  acceptEquipment(id,equipment){const weapon=typeof equipment==='number'?equipment:equipment?.weapon;if(!validWeapon(weapon))return;this.combat.equip(id,weapon);this.weaponVisibility.set(id,typeof equipment?.visible==='boolean'?equipment.visible:weapon!==0);}
+  acceptEquipment(id,equipment){const weapon=typeof equipment==='number'?equipment:equipment?.weapon;if(!validWeapon(weapon))return;this.combat.equip(id,weapon);this.weaponVisibility.set(id,typeof equipment?.visible==='boolean'?equipment.visible:weapon!==0);this.frameDispatch?.request();}
   sendEquipment(equipment) {
     const weapon=typeof equipment==='number'?equipment:equipment?.weapon;
     if(!this.room || !validWeapon(weapon))return;
@@ -288,7 +295,7 @@ export class PrivateLobby extends EventTarget {
       const pair=stats.get(transport?.selectedCandidatePairId);const local=stats.get(pair?.localCandidateId),remote=stats.get(pair?.remoteCandidateId);
       reports.push({state:pc.connectionState,ice:pc.iceConnectionState,route:pair?{localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,rttMs:Number.isFinite(pair.currentRoundTripTime)?Math.round(pair.currentRoundTripTime*1000):null,availableOutgoingKbps:pair.availableOutgoingBitrate===undefined?null:Math.round(pair.availableOutgoingBitrate/1000)}:null});
     }
-    return {phase:this.connectionPhase(),attempt:this.connectAttempt||0,discovery:this.networkDiagnostics?.snapshot(),peers:reports.slice(0,7),snapshotChannels:this.fast?.report()||[],pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
+    return {frameDispatch:this.frameDispatch?.report(),reliablePingMs:Object.values(this.pings),phase:this.connectionPhase(),attempt:this.connectAttempt||0,discovery:this.networkDiagnostics?.snapshot(),peers:reports.slice(0,7),snapshotChannels:this.fast?.report()||[],pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
   }
   sendWorld(frame) {
     if(!this.room || !this.isHost || !validWorldFrame(frame))return;
@@ -316,6 +323,7 @@ export class PrivateLobby extends EventTarget {
     catch(error){this.sessionStarted=false;throw error;}
   }
   async leave() {
+    this.frameDispatch?.close();
     this.fast?.close();
     for(const sender of this.snapshotSenders?.values()||[])sender.close();this.snapshotSenders?.clear();
     clearInterval(this.timer); clearInterval(this.gameTimer); clearTimeout(this.timeout);
