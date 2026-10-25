@@ -482,7 +482,7 @@ index 3e7a26c..bed7dcf 100644
  		}
  		
  		case WM_SIZE:
-@@ -1105,6 +1132,12 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1105,6 +1132,11 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  		case WM_KEYDOWN:
  		{
  			RsKeyCodes ks;
