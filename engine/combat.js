@@ -51,3 +51,16 @@ export class SessionCombat {
   }
   remove(id){this.players.delete(id);this.attacks.delete(id);this.equipment.delete(id);}
 }
+
+const meleeWeapons=new Set([0,1,2,3,4,5,6,7,8,9,10,11]);
+export class NpcMeleeAuthority {
+  constructor(){this.peers=new Map();}
+  accept(id,event,now){
+    if(typeof id!=='string'||!id||!Number.isSafeInteger(event?.targetId)||event.targetId<0||event.targetId>=16777216||!Number.isSafeInteger(event?.seq)||event.seq<1||!meleeWeapons.has(event?.weapon)||!Number.isFinite(event?.damage)||event.damage<1||event.damage>250)return null;
+    const prior=this.peers.get(id);if(prior&&(event.seq<=prior.seq||now-prior.time<180))return null;
+    const recent=(prior?.recent||[]).filter(t=>now-t<1000);if(recent.length>=6)return null;
+    const approved={targetId:event.targetId,weapon:event.weapon,damage:event.damage,seq:event.seq};
+    this.peers.set(id,{seq:event.seq,time:now,recent:[...recent,now]});return approved;
+  }
+  remove(id){this.peers.delete(id);}
+}

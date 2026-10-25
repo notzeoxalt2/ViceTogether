@@ -23,10 +23,11 @@ contextBridge.exposeInMainWorld('desktop', {
   sendNetworkStatus: value=>invoke('network-status',value),
   seatGrant: value=>invoke('seat-grant',value),
   glassRequest: value=>invoke('glass-request',value),
+  applyMeleeRequest: value=>invoke('melee-grant',value),
   checkUpdates: () => invoke('updates'),
   quit: () => invoke('quit'),
   on: (name, callback) => {
-    if (!['invite', 'progress', 'update', 'game-error', 'local-state', 'local-hit', 'local-world-damage', 'local-equipment', 'local-shot','local-world','local-driver-state','local-glass-request','local-seat-state','local-seat-request','detected'].includes(name)) return;
+    if (!['invite', 'progress', 'update', 'game-error', 'local-state', 'local-hit', 'local-world-damage', 'local-equipment', 'local-shot','local-world','local-driver-state','local-glass-request','local-seat-state','local-seat-request','local-melee-request','detected'].includes(name)) return;
     const handler = (_, payload) => callback(payload);
     ipcRenderer.on(name, handler);
     return () => ipcRenderer.removeListener(name, handler);

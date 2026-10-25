@@ -25,6 +25,7 @@
 #include "Frontend.h"
 #include "VisibilityPlugins.h"
 #include "WeaponInfo.h"
+#include "Wanted.h"
 #include "Streaming.h"
 #include "PedModelInfo.h"
 #include "DMAudio.h"
@@ -112,6 +113,7 @@ struct Remote {
     float animation[20];
     float aim[4];
     float health;
+    int wanted;
     int weapon;
     uint32 createdFrame;
     int vehicle,seat,appliedSeat;
@@ -121,6 +123,7 @@ struct Remote {
 Remote peers[7] = {};
 bool enabled = false;
 bool loadoutGiven=false;
+static int localWantedLevel=-1,lastAppliedWantedLevel=-1;
 int localColor=0;
 unsigned int outfitDraws[8]={},outfitTexels[8]={};
 bool finitePosition(float x, float y, float z) {
@@ -203,6 +206,8 @@ void VT_SetRemoteName(int slot, const char* name, int color) {
 void VT_SetLocalColor(int color) { localColor=color>=0?color%8:0; }
 int VT_ReadWeapon(){CPlayerPed* p=FindPlayerPed();return p?int(p->GetWeapon()->m_eWeaponType):0;}
 int VT_ReadWeaponVisible(){CPlayerPed* p=FindPlayerPed();return p && p->m_pWeaponModel?1:0;}
+int VT_ReadWanted(){CPlayerPed* p=FindPlayerPed();if(!p || !p->m_pWanted)return 0;const int current=std::max(0,std::min(6,p->m_pWanted->GetWantedLevel()));if(localWantedLevel<0 || lastAppliedWantedLevel<0 || current!=lastAppliedWantedLevel)localWantedLevel=current;return localWantedLevel;}
+void VT_SetRemoteWanted(int slot,int level){if(slot>=0 && slot<7)peers[slot].wanted=std::max(0,std::min(6,level));}
 void VT_SetRemoteWeapon(int slot,int weapon){if(slot>=0 && slot<7 && weapon>=0 && weapon<WEAPONTYPE_TOTALWEAPONS)peers[slot].weapon=weapon;}
 void VT_SetRemoteWeaponVisible(int slot,int visible){if(slot>=0 && slot<7)peers[slot].weaponVisible=visible!=0;}
 void VT_SetRemoteVehicle(int slot,int vehicle,int seat){if(slot>=0 && slot<7){peers[slot].vehicle=vehicle;peers[slot].seat=seat;}}
@@ -232,14 +237,31 @@ int VT_PlayRemoteShot(int slot,const float* data) {
     // Recast on the host: never trust a guest's claimed NPC or hit location.
     const char* worldRole=getenv("VT_WORLD_HOST");
     if(worldRole && atoi(worldRole)==1 && direction.MagnitudeSqr()>0.001f) {
-        CColPoint impact;CEntity* victim=nil;CEntity* oldIgnore=CWorld::pIgnoreEntity;CWorld::pIgnoreEntity=ped;
+        CColPoint impact={};CEntity* victim=nil;CEntity* oldIgnore=CWorld::pIgnoreEntity;CWorld::pIgnoreEntity=ped;
         const bool hit=CWorld::ProcessLineOfSight(source,end+direction*0.25f,impact,victim,true,true,true,true,true,false);
         CWorld::pIgnoreEntity=oldIgnore;
-        if(hit && victim && victim->IsPed()) {
+        // Interpolation means an NPC may have moved past its last replicated
+        // collision pose. Rewind against the host's short ped history; the host
+        // still chooses the victim and checks the static/vehicle obstruction.
+        CPed* resolvedPed=nil;
+        if(!victim || !victim->IsPed()) {
+            CVector resolvedPoint;
+            if(ViceTogetherWorldResolveShotPed(source,end,ped,&resolvedPed,&resolvedPoint)) {
+                impact.point=resolvedPoint;
+                impact.pieceB=PEDPIECE_TORSO;
+            }
+        }
+        if(resolvedPed) {
+            victim=resolvedPed;
+        }
+        if((hit || resolvedPed) && victim && victim->IsPed()) {
             CPed* npc=(CPed*)victim;
             if(!npc->IsPlayer() && !ViceTogetherIsRemote(npc) && !npc->DyingOrDead()) {
                 const int piece=int(impact.pieceB);
-                if(npc->InflictDamage(ped,eWeaponType(weapon),float(CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_nDamage),piece>=PEDPIECE_TORSO && piece<=PEDPIECE_HEAD?(ePedPieceTypes)piece:PEDPIECE_TORSO,0))VT_ReportWorldHit(0,npc->m_fHealth);
+                const float before=npc->m_fHealth;
+                npc->ReactToAttack(ped);
+                npc->InflictDamage(ped,eWeaponType(weapon),float(CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_nDamage),piece>=PEDPIECE_TORSO && piece<=PEDPIECE_HEAD?(ePedPieceTypes)piece:PEDPIECE_TORSO,0);
+                if(npc->m_fHealth<before){const int id=CPools::GetPedRef(npc);if(id>=0)ViceTogetherWorldPrioritizePed(unsigned(id));VT_ReportWorldHit(0,npc->m_fHealth);}
             }
         } else if(hit && victim && victim->IsVehicle()) {((CVehicle*)victim)->InflictDamage(ped,eWeaponType(weapon),float(CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_nDamage));VT_ReportWorldHit(1,((CVehicle*)victim)->m_fHealth);}
     }
@@ -355,9 +377,25 @@ bool ViceTogetherIsRemote(const CPed* ped) {
 }
 void ViceTogetherWeaponRendered(CPed* ped){for(auto& peer:peers)if(peer.ped==ped)peer.weaponDraws++;}
 extern "C" void VT_SendWorldDamage(int slot,float amount);
+extern "C" void VT_SendWorldMelee(unsigned target,int weapon,float amount);
+extern "C" void VT_ApplyWorldMelee(unsigned slot,const float* state);
+extern "C" void VT_ReportWorldMeleeValidation(unsigned slot,float stage,unsigned target,float distance,float health);
 void ViceTogetherReportHealthLoss(CPed* victim,float before){const char* role=getenv("VT_WORLD_HOST");if(enabled && role && atoi(role)==1 && victim==FindPlayerPed() && before>victim->m_fHealth)VT_SendWorldDamage(7,before-victim->m_fHealth);}
 bool ViceTogetherReportDamage(CPed* victim,CEntity* attacker,int weapon,float amount) {
     if(!enabled)return false;
+    if(attacker==FindPlayerPed() && ViceTogetherWorldPed(victim)) {
+        const char* role=getenv("VT_WORLD_HOST");
+        const int target=ViceTogetherWorldPedId(victim);
+        if(target>=0 && role && atoi(role)==0) {
+            if(weapon>=WEAPONTYPE_UNARMED && weapon<=WEAPONTYPE_CHAINSAW && std::isfinite(amount) && amount>0) {
+                VT_SendWorldMelee(unsigned(target),weapon,amount);
+                CPlayerPed* player=FindPlayerPed();if(player && player->m_pWanted && player->m_pWanted->GetWantedLevel()<1)player->SetWantedLevelNoDrop(1);
+            }
+            // The host owns this NPC's health, reaction and death animation.
+            // Instant-hit weapons arrive through the separately checked shot path.
+            return true;
+        }
+    }
     for(int i=0;i<7;i++)if(peers[i].ped==victim) {
         if(attacker==FindPlayerPed() && (weapon==WEAPONTYPE_UNARMED || weapon==WEAPONTYPE_COLT45) && peers[i].health>0)VT_SendHit(i,weapon);
         else {const char* role=getenv("VT_WORLD_HOST");if(role && atoi(role)==1 && (!attacker || !attacker->IsPed() || !ViceTogetherIsRemote((CPed*)attacker)) && (attacker!=FindPlayerPed() || weapon==WEAPONTYPE_EXPLOSION) && peers[i].health>0 && std::isfinite(amount) && amount>0)VT_SendWorldDamage(i,amount*0.33f);}
@@ -365,9 +403,41 @@ bool ViceTogetherReportDamage(CPed* victim,CEntity* attacker,int weapon,float am
     }
     return false;
 }
+extern "C" void VT_ApplyWorldMelee(unsigned slot,const float* state) {
+    const char* role=getenv("VT_WORLD_HOST");
+    if(!enabled || !role || atoi(role)!=1 || slot>=7 || !state)return;
+    for(int i=0;i<3;i++)if(!std::isfinite(state[i]))return;
+    if(state[0]<0 || state[0]>=16777216 || state[0]!=floorf(state[0]) || state[1]<WEAPONTYPE_UNARMED || state[1]>WEAPONTYPE_CHAINSAW || state[1]!=floorf(state[1]) || state[2]<=0 || state[2]>250)return;
+    const unsigned targetId=unsigned(state[0]);const int weapon=int(state[1]);
+    VT_ReportWorldMeleeValidation(slot,1,targetId,0,state[2]);
+    static uint32 lastMelee[7]={};const uint32 now=CTimer::GetTimeInMilliseconds();
+    if(lastMelee[slot] && now-lastMelee[slot]<180)return;
+    CPed* attacker=peers[slot].ped;CPed* target=nil;
+    if(!attacker || peers[slot].health<=0 || attacker->DyingOrDead() || attacker->bInVehicle || !ViceTogetherWorldHostPed(targetId,&target)){VT_ReportWorldMeleeValidation(slot,2,targetId,-1,attacker?peers[slot].health:0);return;}
+    const CVector origin=attacker->GetPosition(),position=target->GetPosition();
+    // Remote replicas are interpolated from 50 ms player frames and 100 ms world frames.
+    // The bounded 3.3 m contact envelope absorbs that display delay while LOS remains authoritative.
+    const float distance=(origin-position).Magnitude();if(distance>3.3f){VT_ReportWorldMeleeValidation(slot,2,targetId,distance,peers[slot].health);return;}
+    CColPoint obstructionPoint={};CEntity* obstruction=nil;CEntity* oldIgnore=CWorld::pIgnoreEntity;CWorld::pIgnoreEntity=attacker;
+    const bool blocked=CWorld::ProcessLineOfSight(origin+CVector(0,0,0.8f),position+CVector(0,0,0.8f),obstructionPoint,obstruction,true,true,false,true,true,false);
+    CWorld::pIgnoreEntity=oldIgnore;
+    if(blocked && obstruction && obstruction!=target && (obstructionPoint.point-origin).MagnitudeSqr()+0.12f<(position-origin).MagnitudeSqr()){VT_ReportWorldMeleeValidation(slot,3,targetId,distance,float(obstruction->GetModelIndex()));return;}
+    lastMelee[slot]=now;
+    target->ReactToAttack(attacker);
+    const float damage=std::max(1.0f,std::min(80.0f,float(CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_nDamage)));
+    CVector2D direction(attacker->GetPosition()-target->GetPosition());const int localDirection=target->GetLocalDirection(direction);
+    const float before=target->m_fHealth;
+    VT_ReportWorldMeleeValidation(slot,3,targetId,distance,before);
+    target->InflictDamage(attacker,eWeaponType(weapon),damage,PEDPIECE_TORSO,uint8(std::max(0,std::min(3,localDirection))));
+    if(target->m_fHealth<before)ViceTogetherWorldPrioritizePed(targetId);
+    VT_ReportWorldMeleeValidation(slot,target->m_fHealth<before?4:5,targetId,distance,target->m_fHealth);
+    if(target->m_fHealth<before)VT_ReportWorldHit(0,target->m_fHealth);
+}
 extern "C" void VT_SendShot(int weapon,const CVector& source,const CVector& end,bool hit,const CVector& normal,int hitKind);
 void ViceTogetherReportShot(CEntity* shooter,int weapon,const CVector& source,const CVector& end,bool hit,const CVector& normal,int hitKind) {
-    if(enabled && shooter==FindPlayerPed() && weapon>=0 && weapon<WEAPONTYPE_TOTALWEAPONS && CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_eWeaponFire==WEAPON_FIRE_INSTANT_HIT)VT_SendShot(weapon,source,end,hit,normal,hitKind);
+    if(!enabled || shooter!=FindPlayerPed() || weapon<0 || weapon>=WEAPONTYPE_TOTALWEAPONS || CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_eWeaponFire!=WEAPON_FIRE_INSTANT_HIT)return;
+    CPlayerPed* player=FindPlayerPed();if(hit && hitKind==1 && player && player->m_pWanted && player->m_pWanted->GetWantedLevel()<1)player->SetWantedLevelNoDrop(1);
+    VT_SendShot(weapon,source,end,hit,normal,hitKind);
 }
 namespace {
 struct Outfit { RwTexture* original; RwTexture* texture; int color; };
@@ -468,6 +538,7 @@ void ViceTogetherTick() {
     if(getenv("VT_FOLLOW_PLAYER") || getenv("VT_MUTE")){DMAudio.SetEffectsMasterVolume(0);DMAudio.SetMusicMasterVolume(0);}
     CPlayerPed* player = FindPlayerPed();
     if (!player || !player->m_rwObject) return;
+    if(player->m_pWanted){const int current=std::max(0,std::min(6,player->m_pWanted->GetWantedLevel()));if(localWantedLevel<0 || lastAppliedWantedLevel<0 || current!=lastAppliedWantedLevel)localWantedLevel=current;int shared=localWantedLevel;if(enabled)for(const Remote& peer:peers)if(peer.active)shared=std::max(shared,peer.wanted);if(shared!=current)player->SetWantedLevel(shared);lastAppliedWantedLevel=shared;}
     if(enabled && !loadoutGiven && (!getenv("VT_TEST_COMBAT") || getenv("VT_TEST_GUN"))) {
         const int model=CWeaponInfo::GetWeaponInfo(WEAPONTYPE_COLT45)->m_nModelId;
         CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);

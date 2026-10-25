@@ -1,11 +1,17 @@
-# ViceTogether alpha.14 - experimental
+# ViceTogether alpha.15 — experimental
 
-Accepted player state, health and equipment changes now request immediate host forwarding instead of waiting for a fixed 50 ms timer. Bursts coalesce to the latest state at up to 30 Hz; a slower heartbeat expires stale actors. This reduces dispatch wait without changing host validation or promising lower ISP RTT. Burst bandwidth may differ from alpha.13; slow-uplink and two-network validation remain necessary.
+This update improves guest interaction with host-owned NPCs and reduces empty-world gaps when players are apart.
 
-The movement channel now measures its own matched-echo round trip, rolling p50/p95 and jitter, with bounded probes and stale-sample expiry. Lobby and in-game ping prefer the most recent measured movement-channel RTT when available, falling back to reliable-message RTT on older peers. Diagnostics retain reliable-message RTT, transport RTT, packet drops, buffer depth and dispatch wait separately. No synthetic ping reduction, hidden smoothing or remote-clock subtraction is used. Peer health checks run concurrently with bounded timeouts.
+- The host gives recently hit NPCs priority in the next shared snapshot so their health and reaction state are less likely to disappear when the snapshot reaches its NPC limit.
+- The host selects nearby entities around each connected player, with a 350 m capture radius, a maximum of 48 pedestrians and 32 vehicles per world frame.
+- Guests keep local Vice City pedestrians and traffic outside the 110 m shared-population overlap instead of deleting ambient actors throughout the host's full capture radius.
+- Guest melee requests are validated and applied by the host. Host-validated guest gun hits trigger the NPC's attack reaction and return the resulting state. Guest hits on pedestrians raise the guest's wanted level, which uses the existing shared wanted-level path.
+- Lobby reset clears NPC hit history and priority state to avoid stale entity handles after reconnecting.
 
-Hidden public-discovery tests connected an authenticated same-PC lobby in 780 ms. Twenty synthetic guest-input/host-return samples per mode measured 39.2 ms median / 54.6 ms p95 with the old fixed gate versus 25.9 ms / 26.9 ms with immediate/coalesced forwarding. This burst fixture is not a two-network or full gameplay latency benchmark. A separate 20-second hidden two-engine walking test passed with approximately 143 median rendering FPS; it does not prove visual smoothness or complete synchronization. All 41 unit checks pass.
+## Verified on one PC
 
-The reusable MIT networking module is now under networking/, with configurable snapshot kinds, no Vice City engine dependency, API guidance and measurement limitations. Other games still need their own authentication, authority, synchronization and signaling integration. No automatic alternate-route selector, VPN or relay was added. Direct connectivity remains dependent on NAT/firewalls; no TURN fallback or metered infrastructure is configured. 10-20 ms internet latency is not guaranteed. NPC/world/combat parity and fresh Windows validation remain unfinished.
+Two hidden native game instances using the tester's own Vice City installation verified melee damage reaching the guest snapshot (100 to 89.6 health), a guest gun hit reaching the host and guest snapshots (100 to 67.5), and local guest population still enabled when players were 658 m apart. The melee run measured about 143 FPS on both instances at the 144 FPS setting. Unit tests pass.
 
-Installed launchers download updates from GitHub; finish playing and close/reopen the launcher to apply them. Both players should use the same version. Portable users replace their executable manually. Your imported game files, profiles and saves remain local. Public installers contain no original GTA game assets or proprietary Radmin components.
+These checks use two processes on the same PC. They do not verify public internet or cross-NAT connectivity, or demonstrate identical NPC populations at distant locations. A guest far from the host gets its own local ambient population; those distant NPCs are not yet shared as the same entities. Full NPC AI ownership and police pursuit behavior remain unfinished. Fifteen game modes are deferred. This release is an experimental prototype, not a finished 1:1 multiplayer conversion.
+
+The installer and portable build contain the launcher and native engine only. Each player must import their own legally obtained GTA Vice City installation. No original game files are included.

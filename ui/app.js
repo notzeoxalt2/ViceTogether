@@ -104,6 +104,8 @@ lobby.addEventListener('driver-state',event=>window.desktop.sendDriverState(even
 let lastSeat=-1;
 window.desktop.on('local-seat-state',seat=>{if(lobby.isHost){if(seat.seat===-1)lobby.sendSeat({driver:true,car:seat});else lobby.sendSeat({id:seat.id});}else if(seat.id<0 && lastSeat>=0)lobby.sendSeat({release:true});lastSeat=seat.id;});
 window.desktop.on('local-seat-request',request=>lobby.sendSeat(request));
+lobby.addEventListener('npc-melee',event=>window.desktop.applyMeleeRequest(event.detail));
+window.desktop.on('local-melee-request',request=>lobby.sendNpcMeleeRequest(request));
 lobby.addEventListener('seat-grant',event=>window.desktop.seatGrant(event.detail));
 lobby.addEventListener('change', event => {
   lobbyInfo = event.detail;
@@ -163,7 +165,7 @@ try {
   page('library');
   if(state.selfTest) {
     window.testLobby=lobby;window.testEvents=[];
-    for(const name of ['frame','change','launch','notice','shot','ambient','seat-grant'])lobby.addEventListener(name,e=>{window.testEvents.push({name,detail:e.detail});if(window.testEvents.length>500)window.testEvents.shift();});
+    for(const name of ['frame','change','launch','notice','shot','ambient','seat-grant','npc-melee'])lobby.addEventListener(name,e=>{window.testEvents.push({name,detail:e.detail});if(window.testEvents.length>500)window.testEvents.shift();});
   }
   $('mouse-sensitivity').value=String(state.settings.mouseSensitivity??1.5);
   $('name').value = state.settings.name; $('fps').value = String(state.settings.fps); $('fullscreen').checked = state.settings.fullscreen;

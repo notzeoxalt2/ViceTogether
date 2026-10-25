@@ -5,9 +5,10 @@ import { SnapshotSender } from './snapshot-sender.mjs';
 import { RealtimeTransport } from './realtime-transport.mjs';
 import {lobbyConnection} from './lobby-connection.mjs';
 import {FrameDispatch} from './frame-dispatch.mjs';
+import {lobbyHandshake} from './lobby-handshake.mjs';
 export class Friends extends Social { constructor(options) { super({ ...options, joinRoom: options.joinRoom || joinRoom, diagnosticsFactory: options.diagnosticsFactory || (() => connectionDiagnostics({relaySockets:getRelaySockets})) }); } }
 import { validState } from '../engine/sync.js';
-import { SessionCombat } from '../engine/combat.js';
+import { SessionCombat,NpcMeleeAuthority } from '../engine/combat.js';
 import { ShotAuthority,validShot } from '../engine/shots.js';
 import { validWorldFrame } from '../engine/world.cjs';
 import { SeatAuthority } from '../engine/seats.cjs';
@@ -21,7 +22,7 @@ const cleanName = name => String(name || 'Player').replace(/[\u0000-\u001f\u007f
 
 export class PrivateLobby extends EventTarget {
   constructor() { super(); this.reset(); }
-  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map(); this.combat=new SessionCombat();this.hitSequence=0; this.generation = (this.generation || 0) + 1; }
+  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map();this.wantedLevels=new Map(); this.combat=new SessionCombat();this.npcMeleeAuthority=new NpcMeleeAuthority();this.npcMeleeSequence=0;this.hitSequence=0; this.generation = (this.generation || 0) + 1; }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   setReady(ready) {
     this.ready = ready === true;
@@ -39,7 +40,7 @@ export class PrivateLobby extends EventTarget {
   }
   async join(invite, name, options = {}) { await this.leave(); this.start(invite, name, false, options); }
   start(invite, name, isHost, options) {
-    this.snapshotSenders=new Map();this.pingBusy=false;
+    this.snapshotSenders=new Map();this.pingBusy=false;this.handshakeProfiles=new Map();this.setupTiming={};
     this.connectionStartedAt=performance.now();this.connectAttempt=options.connectAttempt||0;this.networkDiagnostics=connectionDiagnostics({relaySockets:getRelaySockets});
     this.fast=new RealtimeTransport({NativePeer:this.networkDiagnostics.Peer,receive:(kind,data,peerId)=>({movement:this.movement,players:this.world,ambient:this.ambient,driver:this.vehicleInput})[kind]?.onMessage?.(data,{peerId,realtime:true})});
     this.invite = invite; this.name = cleanName(name); this.isHost = isHost; this.sessionStarted = false;
@@ -54,9 +55,11 @@ export class PrivateLobby extends EventTarget {
       onPeerHandshake: async (id, send, receive, initiator) => {
         if (this.isHost && this.players.size + this.pending.size >= 8) throw new Error('Lobby full');
         this.pending.add(id);
+        this.setupTiming.peerChannelMs??=performance.now()-this.connectionStartedAt;
         try {
-          if (initiator) { await send({ version: 1 }); const { data } = await receive(); if (data?.version !== 1) throw new Error('Version mismatch'); }
-          else { const { data } = await receive(); if (data?.version !== 1) throw new Error('Version mismatch'); await send({ version: 1 }); }
+          const profile=await lobbyHandshake({send,receive,initiator,name:this.name,ready:this.ready,legacy:options.legacyHandshake===true});
+          if(generation!==this.generation)throw new Error('Lobby closed');
+          if(profile){this.handshakeProfiles.set(id,profile);this.setupTiming.profileExchanges=(this.setupTiming.profileExchanges||0)+1;}
         } catch (error) { this.pending.delete(id); throw error; }
       }
     });
@@ -81,6 +84,13 @@ export class PrivateLobby extends EventTarget {
     this.launch = this.room.makeAction('launch');
     this.readiness = this.room.makeAction('ready');
     this.hits=this.room.makeAction('hit');
+    this.npcMeleeInput=this.room.makeAction('npc-melee-input');
+    this.npcMeleeInput.onReceive=({byteLength})=>byteLength<256;
+    this.npcMeleeInput.onMessage=(request,{peerId})=>{
+      if(!this.isHost || !this.players.has(peerId))return;
+      const approved=this.npcMeleeAuthority.accept(peerId,request,performance.now());
+      if(approved)this.emit('npc-melee',{...approved,playerId:peerId});
+    };
     this.equipmentAction=this.room.makeAction('equipment');
     this.glassInput=this.room.makeAction('glass-input');this.glassAuthority=new GlassAuthority();this.glassSequence=0;
     this.glassInput.onReceive=({byteLength})=>byteLength<2048;
@@ -126,7 +136,7 @@ export class PrivateLobby extends EventTarget {
     this.frameDispatch = new FrameDispatch(() => {
       if (!this.isHost || !this.room) return;
       const now = performance.now();
-      const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
+      const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true,wanted:this.wantedLevels.get(id)||0, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
       this.sendSnapshot('players',this.world,frame);
       this.emit('frame', frame.map(p => ({ ...p, self: p.id === selfId })));
     });
@@ -137,6 +147,7 @@ export class PrivateLobby extends EventTarget {
     this.hello.onMessage = async (data, { peerId }) => {
       if (!this.isHost || generation !== this.generation || data?.v !== 1 || typeof data.name !== 'string') return;
       if (this.players.size >= 8 && !this.players.has(peerId)) { this.pending.delete(peerId); return; }
+      if(this.players.get(peerId)?.name===cleanName(data.name)&&this.players.get(peerId)?.ready===(data.ready===true))return;
       this.players.set(peerId, { id: peerId, name: cleanName(data.name), host: false, ready: data.ready === true });
       if(data.fast===1)this.fast.initiate(peerId,this.room.getPeers()[peerId]);
       this.pending.delete(peerId);
@@ -157,6 +168,7 @@ export class PrivateLobby extends EventTarget {
         this.lastSequence = body.seq;
         this.trustedHost=hostFingerprint;
         this.hostId = peerId;
+        this.setupTiming.lobbyAuthenticatedMs??=performance.now()-this.connectionStartedAt;
         this.players = new Map(body.players.map(p => [p.id, p]));
         clearTimeout(this.timeout);
         this.changed();
@@ -168,16 +180,25 @@ export class PrivateLobby extends EventTarget {
     };
     this.room.onPeerJoin = id => {
       if (generation !== this.generation) return;
+      this.setupTiming.peerAuthenticatedMs??=performance.now()-this.connectionStartedAt;
       this.fast.attach(id,this.room.getPeers()[id]);
+      const hasProfile=this.handshakeProfiles.has(id),profile=this.handshakeProfiles.get(id);this.handshakeProfiles.delete(id);
+      if(this.isHost&&profile&&(this.players.size<8||this.players.has(id))){
+        this.players.set(id,{id,name:cleanName(profile.name),host:false,ready:profile.ready});
+        if(profile.fast)this.fast.initiate(id,this.room.getPeers()[id]);
+      }
       this.pending.delete(id);
-      this.hello.send({ v: 1, name: this.name, ready: this.ready === true,fast:1 }, { target: id }).catch(() => {});
+      // New peers already exchanged a profile during the channel handshake.
+      // Keep the hello action only for older peers using the version-only exchange.
+      if(!hasProfile){this.setupTiming.legacyHelloFallbacks=(this.setupTiming.legacyHelloFallbacks||0)+1;this.hello.send({ v: 1, name: this.name, ready: this.ready === true,fast:1 }, { target: id }).catch(() => {});}
       if (this.isHost) this.broadcastRoster().catch(() => {});
     };
     this.room.onPeerLeave = id => {
       if (generation !== this.generation) return;
       this.fast.remove(id);
+      this.handshakeProfiles.delete(id);
       for(const kind of ['movement','players','ambient','driver']){const key=kind+':'+id;this.snapshotSenders.get(key)?.close();this.snapshotSenders.delete(key);}
-      this.pending.delete(id); this.players.delete(id); this.combat.remove(id);this.seats.release(id); delete this.pings[id];
+      this.pending.delete(id); this.players.delete(id);this.wantedLevels.delete(id); this.combat.remove(id);this.npcMeleeAuthority.remove(id);this.seats.release(id); delete this.pings[id];
       if (this.isHost) this.broadcastRoster().catch(() => {});
       else if (id === this.hostId) {
         this.hostId = null;
@@ -258,7 +279,7 @@ export class PrivateLobby extends EventTarget {
     const target=this.states.get(hit.target);if(target){target.state=[...target.state];target.state[8]=hit.health;target.seq++;}
     this.frameDispatch?.request();this.emit('combat',hit);
   }
-  acceptEquipment(id,equipment){const weapon=typeof equipment==='number'?equipment:equipment?.weapon;if(!validWeapon(weapon))return;this.combat.equip(id,weapon);this.weaponVisibility.set(id,typeof equipment?.visible==='boolean'?equipment.visible:weapon!==0);this.frameDispatch?.request();}
+  acceptEquipment(id,equipment){const weapon=typeof equipment==='number'?equipment:equipment?.weapon;if(!validWeapon(weapon))return;const wanted=Number.isInteger(equipment?.wanted)&&equipment.wanted>=0&&equipment.wanted<=6?equipment.wanted:this.wantedLevels.get(id)||0,visible=typeof equipment?.visible==='boolean'?equipment.visible:weapon!==0;if(this.wantedLevels.get(id)===wanted&&this.combat.equipment.get(id)===weapon&&this.weaponVisibility.get(id)===visible)return;this.wantedLevels.set(id,wanted);this.combat.equip(id,weapon);this.weaponVisibility.set(id,visible);this.frameDispatch?.request();}
   sendEquipment(equipment) {
     const weapon=typeof equipment==='number'?equipment:equipment?.weapon;
     if(!this.room || !validWeapon(weapon))return;
@@ -275,6 +296,10 @@ export class PrivateLobby extends EventTarget {
     const event={...shot,seq:++this.shotSequence};
     if(this.isHost)this.acceptShot(selfId,event);
     else if(this.hostId)this.shotInput.send(event,{target:this.hostId}).catch(()=>{});
+  }
+  sendNpcMeleeRequest(request) {
+    if(!this.room || this.isHost || !this.hostId || !Number.isSafeInteger(request?.targetId) || request.targetId<0 || request.targetId>=16777216 || !Number.isInteger(request?.weapon) || request.weapon<0 || request.weapon>11 || !Number.isFinite(request?.damage) || request.damage<=0 || request.damage>250)return false;
+    this.npcMeleeInput.send({targetId:request.targetId,weapon:request.weapon,damage:request.damage,seq:++this.npcMeleeSequence},{target:this.hostId}).catch(()=>{});return true;
   }
   sendState(state) {
     if (!this.room || !validState(state)) return;
@@ -295,7 +320,7 @@ export class PrivateLobby extends EventTarget {
       const pair=stats.get(transport?.selectedCandidatePairId);const local=stats.get(pair?.localCandidateId),remote=stats.get(pair?.remoteCandidateId);
       reports.push({state:pc.connectionState,ice:pc.iceConnectionState,route:pair?{localType:local?.candidateType,remoteType:remote?.candidateType,protocol:local?.protocol,rttMs:Number.isFinite(pair.currentRoundTripTime)?Math.round(pair.currentRoundTripTime*1000):null,availableOutgoingKbps:pair.availableOutgoingBitrate===undefined?null:Math.round(pair.availableOutgoingBitrate/1000)}:null});
     }
-    return {frameDispatch:this.frameDispatch?.report(),reliablePingMs:Object.values(this.pings),phase:this.connectionPhase(),attempt:this.connectAttempt||0,discovery:this.networkDiagnostics?.snapshot(),peers:reports.slice(0,7),snapshotChannels:this.fast?.report()||[],pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
+    return {setupTiming:{...this.setupTiming},frameDispatch:this.frameDispatch?.report(),reliablePingMs:Object.values(this.pings),phase:this.connectionPhase(),attempt:this.connectAttempt||0,discovery:this.networkDiagnostics?.snapshot(),peers:reports.slice(0,7),snapshotChannels:this.fast?.report()||[],pendingSnapshots:[...this.snapshotSenders?.values()||[]].filter(s=>s.pending!==null).length};
   }
   sendWorld(frame) {
     if(!this.room || !this.isHost || !validWorldFrame(frame))return;

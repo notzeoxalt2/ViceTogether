@@ -55,3 +55,14 @@ test('pistol hits require equipped weapon and obey range, fire rate and shared h
   assert.equal(c.hit('a',{...hit,weapon:33,seq:4},1000),null,'equipment visibility does not silently enable unsupported damage');
   assert.equal(c.equip('a',37),false,'damage-only pseudo-weapons cannot enter the inventory');
 });
+test('guest NPC melee requests are sequenced, rate-limited and bounded by the host lobby',async()=>{
+  const {NpcMeleeAuthority}=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(require.resolve('../engine/combat.js'),'utf8')).toString('base64'));
+  const authority=new NpcMeleeAuthority(),event={targetId:1234,weapon:0,damage:12,seq:1};
+  assert.deepEqual(authority.accept('friend',event,1000),event);
+  assert.equal(authority.accept('friend',{...event,seq:2},1100),null,'rapid repeated melee is rate limited');
+  assert.deepEqual(authority.accept('friend',{...event,seq:2},1200),{...event,seq:2});
+  for(const invalid of [{...event,targetId:-1},{...event,targetId:16777216},{...event,weapon:17},{...event,damage:251},{...event,damage:NaN},{...event,seq:1}])
+    assert.equal(authority.accept('friend',invalid,1500),null);
+  assert.equal(authority.accept('',event,2000),null);
+  authority.remove('friend');assert.deepEqual(authority.accept('friend',event,2200),event,'rejoined peer starts a fresh sequence window');
+});

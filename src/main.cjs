@@ -118,6 +118,7 @@ async function start() {
   nativeEngine.on('glass-request',state=>win?.webContents.send('local-glass-request',state));
   nativeEngine.on('seat-state',seat=>win?.webContents.send('local-seat-state',seat));
   nativeEngine.on('seat-request',request=>win?.webContents.send('local-seat-request',request));
+  nativeEngine.on('melee-request',request=>win?.webContents.send('local-melee-request',request));
   nativeEngine.on('problem', message => win?.webContents.send('game-error', message));
   nativeEngine.on('ended', ({ code }) => { if(code) win?.webContents.send('game-error', 'The game stopped unexpectedly. Your imported files are kept. Try Check & repair.'); });
   settings = await readJSON(settingsFile(), { name: 'Player', fps: 144, fullscreen: true });
@@ -212,6 +213,7 @@ async function start() {
   ipc('network-status',status=>nativeEngine.networkStatus(status));
   ipc('seat-grant',claim=>nativeEngine.seatGrant(claim));
   ipc('glass-request',state=>nativeEngine.glassRequest(state));
+  ipc('melee-grant',request=>nativeEngine.meleeGrant(request));
   ipcMain.on('local-state', (event, state) => {
     if (event.sender === gameWindow?.webContents && Array.isArray(state) && state.length === 10 && state.every(Number.isFinite)) win?.webContents.send('local-state', state);
   });

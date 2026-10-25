@@ -10,6 +10,7 @@
 #include "Vehicle.h"
 #include "World.h"
 #include "Camera.h"
+#include "PathFind.h"
 #include <cstdlib>
 #include <cmath>
 #include <cstring>
@@ -26,6 +27,7 @@ void VT_SetRemoteName(int slot,const char* name,int color);
 void VT_SetLocalColor(int color);
 void VT_SetRemoteAnimation(int slot,const float* a,const float* b,float t,float ahead);
 void VT_SetRemoteHealth(int slot,float health);
+void VT_SetRemoteWanted(int slot,int level);
 void VT_ApplyLocalHealth(float health);
 int VT_ReadRemote(int slot,float* out);
 int VT_ReadRemoteSkeleton(int slot,float* out);
@@ -33,6 +35,7 @@ int VT_ReadLocalSkeleton(float* out);
 void VT_ReadWindow(float* out);
 int VT_ReadWeapon();
 int VT_ReadWeaponVisible();
+int VT_ReadWanted();
 void VT_SetRemoteWeapon(int slot,int weapon);
 void VT_SetRemoteWeaponVisible(int slot,int visible);
 void VT_SetRemoteVehicle(int slot,int vehicle,int seat);
@@ -112,11 +115,22 @@ extern "C" void VT_SendShot(int weapon,const CVector& source,const CVector& end,
 extern "C" void VT_SendSeatRequest(unsigned id){float state[34]={};sendWorld(30,id,state);}
 extern "C" void VT_SendDriverRequest(unsigned id){float state[34]={};state[0]=-1;sendWorld(30,id,state);}
 extern "C" void VT_SendWorldDamage(int slot,float amount){if(bridge==INVALID_SOCKET || slot<0 || slot>7 || !std::isfinite(amount) || amount<=0)return;float state[34]={};state[0]=std::min(100.0f,amount);sendWorld(36,unsigned(slot),state);}
+extern "C" void VT_SendWorldMelee(unsigned target,int weapon,float amount){if(bridge==INVALID_SOCKET || target>=16777216 || weapon<WEAPONTYPE_UNARMED || weapon>WEAPONTYPE_CHAINSAW || !std::isfinite(amount) || amount<=0 || amount>250)return;float state[34]={};state[0]=float(weapon);state[1]=amount;sendWorld(47,target,state);}
+extern "C" void VT_ReportWorldMeleeValidation(unsigned slot,float stage,unsigned target,float distance,float health){if(bridge==INVALID_SOCKET || !getenv("VT_TEST_GUEST_NPC_MELEE"))return;float state[34]={};state[0]=stage;state[1]=float(target);state[2]=distance;state[3]=health;sendWorld(51,slot,state);}
+extern "C" void VT_ApplyWorldMelee(unsigned slot,const float* state);
 extern "C" void VT_SendGlassRequest(const float* state){if(bridge!=INVALID_SOCKET)sendWorld(40,0,state);}
 extern "C" void VT_ReportWorldHit(int kind,float health){float state[34]={};state[0]=health;if(bridge!=INVALID_SOCKET)sendWorld(45,unsigned(kind),state);}
 void ViceTogetherFlushShots(){const DWORD now=clockMs();for(auto it=delayedShots.begin();it!=delayedShots.end();){if(int(now-it->due)<0){++it;continue;}if(VT_PlayRemoteShot(it->wire.slot,it->wire.state)){Wire played=it->wire;played.type=16;sendto(bridge,(const char*)&played,sizeof(played),0,(sockaddr*)&launcher,sizeof(launcher));}it=delayedShots.erase(it);}}
 void ViceTogetherBeforeWorld() {
+    if(getenv("VT_TEST_GUEST_FAR_WORLD") && !getenv("VT_TEST_FAR_WORLD_DONE") && getenv("VT_WORLD_HOST") && atoi(getenv("VT_WORLD_HOST"))==0){
+        static bool movedFar=false;float host[20]={};CPlayerPed* player=FindPlayerPed();
+        if(!movedFar && player && VT_ReadRemote(0,host)){
+            const CVector base(host[0],host[1],host[2]);const CVector offsets[]={CVector(600,0,0),CVector(-600,0,0),CVector(0,600,0),CVector(0,-600,0)};
+            for(const CVector& offset:offsets){const CVector target=base+offset;const int node=ThePaths.FindNodeClosestToCoors(target,PATH_CAR,150.0f);if(node<0)continue;const CVector road=ThePaths.m_pathNodes[node].GetPosition();if((road-base).Magnitude()<400.0f)continue;player->Teleport(road+CVector(0,0,1));movedFar=true;break;}
+        }
+    }
     if(getenv("VT_INPUT_DISABLED")){CPad::GetPad(0)->NewState.Clear();return;}
+    if(getenv("VT_TEST_GUEST_NPC_MELEE")){CPad::GetPad(0)->NewState.Clear();return;}
     if(getenv("VT_FOLLOW_PLAYER")) {
         CPad* pad=CPad::GetPad(0);pad->NewState.Clear();
         CPlayerPed* player=FindPlayerPed();float leader[20]={};
@@ -202,6 +216,7 @@ void ViceTogetherNetworkTick() {
         if(size<0)break;
         if(size!=sizeof(wire)||wire.magic!=MAGIC||source.sin_addr.s_addr!=launcher.sin_addr.s_addr||source.sin_port!=launcher.sin_port)continue;
         if((wire.type>=19 && wire.type<=22) || wire.type==35 || wire.type==37 || wire.type==42){ViceTogetherWorldPacket(wire.type,wire.slot,wire.state);continue;}
+        if(wire.type==48){VT_ReportWorldMeleeValidation(wire.slot,0,unsigned(std::max(0.0f,wire.state[0])),0,wire.state[2]);VT_ApplyWorldMelee(wire.slot,wire.state);continue;}
         if(wire.type==44){ViceTogetherApplyDriver(wire.slot,wire.state);continue;}
         if(wire.type==49){ViceTogetherNetworkStatus(wire.state);continue;}
         if(wire.type==54){for(int slot=0;slot<7;slot++){history[slot]={};VT_RemoveRemote(slot);}delayedShots.clear();ViceTogetherWorldReset();continue;}
@@ -214,7 +229,7 @@ void ViceTogetherNetworkTick() {
         if(wire.type==5){char name[25]={};std::memcpy(name,wire.state,24);VT_SetRemoteName(wire.slot,name,((unsigned char*)wire.state)[24]%8);continue;}
         if(wire.type==7){if(std::isfinite(wire.state[0]) && wire.state[0]>=0 && wire.state[0]<8)VT_SetLocalColor(int(wire.state[0]));continue;}
         if(wire.type==10){VT_ApplyLocalHealth(wire.state[0]);continue;}
-        if(wire.type==13){if(std::isfinite(wire.state[0]) && wire.state[0]>=0 && wire.state[0]<WEAPONTYPE_TOTALWEAPONS && wire.state[0]==floorf(wire.state[0])){VT_SetRemoteWeapon(wire.slot,int(wire.state[0]));VT_SetRemoteWeaponVisible(wire.slot,wire.state[1]!=0);}continue;}
+        if(wire.type==13){if(std::isfinite(wire.state[0]) && wire.state[0]>=0 && wire.state[0]<WEAPONTYPE_TOTALWEAPONS && wire.state[0]==floorf(wire.state[0])){VT_SetRemoteWeapon(wire.slot,int(wire.state[0]));VT_SetRemoteWeaponVisible(wire.slot,wire.state[1]!=0);if(std::isfinite(wire.state[2]) && wire.state[2]>=0 && wire.state[2]<=6 && wire.state[2]==floorf(wire.state[2]))VT_SetRemoteWanted(wire.slot,int(wire.state[2]));}continue;}
         if(wire.type==15){if(delayedShots.size()<64)delayedShots.push_back({wire,now+100});continue;}
         if(wire.type!=2)continue;
         bool valid=true;for(int i=0;i<34;i++)if(!std::isfinite(wire.state[i]))valid=false;
@@ -269,6 +284,7 @@ void ViceTogetherNetworkTick() {
             sendto(bridge,(const char*)&local,sizeof(local),0,(sockaddr*)&launcher,sizeof(launcher));lastSent=now-(now-lastSent)%50;
             Wire equipment={};equipment.magic=MAGIC;equipment.type=12;equipment.state[0]=float(VT_ReadWeapon());
             equipment.state[1]=float(VT_ReadWeaponVisible());
+            equipment.state[2]=float(VT_ReadWanted());
             sendto(bridge,(const char*)&equipment,sizeof(equipment),0,(sockaddr*)&launcher,sizeof(launcher));
             if(getenv("VT_TEST_WALK")) {
                 Wire bones={};bones.magic=MAGIC;bones.type=18;if(VT_ReadLocalSkeleton(bones.state))sendto(bridge,(const char*)&bones,sizeof(bones),0,(sockaddr*)&launcher,sizeof(launcher));
