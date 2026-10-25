@@ -1,6 +1,8 @@
 // A separate unreliable SCTP stream for replaceable snapshots. Trystero retains
 // its reliable stream for authentication, lobby state, damage and other events.
 const LABEL='vt-snapshots-v1',DEFAULT_KINDS=['movement','players','ambient','driver'];
+const MAX_MESSAGES_PER_SECOND=240;
+const SNAPSHOT_LIMITS={movement:90,players:90,ambient:24,driver:90};
 export class RealtimeTransport {
   constructor({NativePeer=globalThis.RTCPeerConnection,receive,now=()=>performance.now(),kinds=DEFAULT_KINDS}={}) {
     if(!Array.isArray(kinds)||!kinds.length||kinds.length>8||kinds.some(k=>typeof k!=='string'||!/^[-a-z0-9]{1,24}$/.test(k)||['probe','echo'].includes(k)))throw new Error('Invalid snapshot kinds');this.kinds=new Set(kinds);
@@ -13,12 +15,12 @@ export class RealtimeTransport {
       });}
     };
   }
-  attach(id,pc){if(!pc)return;let entry=this.peers.get(id);if(!entry){entry={id,pc,sequence:0,seen:new Map(),sent:0,received:0,dropped:0,probeSequence:0,samples:[],probeLost:0};this.peers.set(id,entry);}const pending=this.waiting.get(pc);if(pending){this.waiting.delete(pc);this.bind(entry,pending);}return entry;}
+  attach(id,pc){if(!pc)return;let entry=this.peers.get(id);if(!entry){entry={id,pc,sequence:0,seen:new Map(),sent:0,received:0,receivedByKind:new Map(),dropped:0,rateLimited:0,probeSequence:0,samples:[],probeLost:0};this.peers.set(id,entry);}const pending=this.waiting.get(pc);if(pending){this.waiting.delete(pc);this.bind(entry,pending);}return entry;}
   initiate(id,pc){const entry=this.attach(id,pc);if(!entry||entry.channel)return;this.bind(entry,pc.createDataChannel(LABEL,{ordered:false,maxRetransmits:0}));}
   bind(entry,channel){if(entry.channel&&entry.channel!==channel){channel.close();return;}entry.channel=channel;
     channel.addEventListener('close',()=>{if(entry.channel===channel){entry.channel=null;entry.seen.clear();entry.probe=null;entry.samples=[];}});
     channel.addEventListener('message',event=>{
-      const bucket=Math.floor(Date.now()/1000);if(entry.bucket!==bucket){entry.bucket=bucket;entry.count=0;}if(++entry.count>120)return;
+      const bucket=Math.floor(this.now()/1000);if(entry.bucket!==bucket){entry.bucket=bucket;entry.count=0;entry.kindCounts=new Map();}if(++entry.count>MAX_MESSAGES_PER_SECOND){entry.rateLimited++;return;}
       if(typeof event.data!=='string'||event.data.length>32768)return;let packet;try{packet=JSON.parse(event.data);}catch{return;}
       if(packet?.v!==1||!Number.isSafeInteger(packet.seq)||packet.seq<1)return;
       if(packet.kind==='probe'){
@@ -31,7 +33,9 @@ export class RealtimeTransport {
         entry.samples.push(rtt);if(entry.samples.length>20)entry.samples.shift();entry.measuredAt=this.now();return;
       }
       if(!this.kinds.has(packet.kind)||packet.seq<=(entry.seen.get(packet.kind)||0))return;
-      entry.seen.set(packet.kind,packet.seq);entry.received++;this.receive?.(packet.kind,packet.data,entry.id);
+      const kindCount=(entry.kindCounts.get(packet.kind)||0)+1;entry.kindCounts.set(packet.kind,kindCount);
+      if(kindCount>(SNAPSHOT_LIMITS[packet.kind]||1)){entry.rateLimited++;return;}
+      entry.seen.set(packet.kind,packet.seq);entry.received++;entry.receivedByKind.set(packet.kind,(entry.receivedByKind.get(packet.kind)||0)+1);this.receive?.(packet.kind,packet.data,entry.id);
     });
   }
   probe(id){const entry=this.peers.get(id),channel=entry?.channel,now=this.now();
@@ -53,7 +57,7 @@ export class RealtimeTransport {
     if(channel.bufferedAmount>32768){entry.dropped++;return true;}
     try{channel.send(packet);entry.sent++;return true;}catch{return false;}
   }
-  report(){return [...this.peers.values()].map(e=>({peerId:e.id,state:e.channel?.readyState||'waiting',ordered:e.channel?.ordered,retransmits:e.channel?.maxRetransmits,sent:e.sent,received:e.received,dropped:e.dropped,buffered:e.channel?.bufferedAmount||0,...this.latency(e.id),probeSamples:e.samples.length,probeLost:e.probeLost}));}
+  report(){return [...this.peers.values()].map(e=>({peerId:e.id,state:e.channel?.readyState||'waiting',ordered:e.channel?.ordered,retransmits:e.channel?.maxRetransmits,sent:e.sent,received:e.received,receivedByKind:Object.fromEntries(e.receivedByKind||[]),dropped:e.dropped,rateLimited:e.rateLimited,buffered:e.channel?.bufferedAmount||0,...this.latency(e.id),probeSamples:e.samples.length,probeLost:e.probeLost}));}
   remove(id){const entry=this.peers.get(id);entry?.channel?.close();this.peers.delete(id);}
   close(){for(const id of [...this.peers.keys()])this.remove(id);}
 }

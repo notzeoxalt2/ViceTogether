@@ -9,3 +9,12 @@ test('replaceable state stream drops congestion and reordered snapshots, while u
  channel.close();assert.equal(t.seen('peer','movement'),false);assert.equal(t.send('peer','movement',[]),false);t.close();
  const p=new t.Peer();let unrelated=0;p.addEventListener('datachannel',()=>unrelated++);const event=new Event('datachannel');event.channel={label:'trystero'};p.dispatchEvent(event);assert.equal(unrelated,1);
 });
+test('60 Hz vehicle snapshots remain deliverable alongside normal movement and world traffic',async()=>{
+ const {RealtimeTransport}=await import('../networking/realtime-transport.mjs');let now=100;const received=[];
+ class Peer extends EventTarget{createDataChannel(label,config){const channel=new EventTarget();Object.assign(channel,{label,readyState:'open',bufferedAmount:0,...config,send(){},close(){channel.readyState='closed';channel.dispatchEvent(new Event('close'));}});return channel;}}
+ const transport=new RealtimeTransport({NativePeer:Peer,now:()=>now,receive:(kind,data)=>received.push(kind)});transport.initiate('peer',new transport.Peer());const channel=transport.peers.get('peer').channel;let seq=0;
+ const send=(kind)=>channel.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({v:1,kind,seq:++seq,data:[seq]})}));
+ for(let i=0;i<60;i++)send('driver');for(let i=0;i<80;i++)send('movement');for(let i=0;i<16;i++)send('ambient');
+ assert.equal(received.filter(kind=>kind==='driver').length,60);assert.equal(received.filter(kind=>kind==='movement').length,80);assert.equal(received.filter(kind=>kind==='ambient').length,16);assert.equal(transport.report()[0].rateLimited,0);
+ now=1100;for(let i=0;i<100;i++)send('driver');assert.equal(received.filter(kind=>kind==='driver').length,150);assert.equal(transport.report()[0].rateLimited,10);transport.close();
+});
