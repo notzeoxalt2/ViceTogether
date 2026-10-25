@@ -23,7 +23,7 @@ function validWorldFrame(frame) {
       if(++peds>48 || !Number.isInteger(d[1]) || d[1]<0 || d[1]>22 || Math.abs(d[5])>=100 || d[6]<-1000 || d[6]>10000 || !Number.isInteger(d[7]) || d[7]<0 || d[7]>5 || !Number.isInteger(d[8]) || d[8]<-1 || !Number.isInteger(d[9]) || d[9]<-1 || d[9]>7 || !Number.isInteger(d[33]) || d[33]<0 || d[33]>36)return false;
       for(const i of [10,15,20,25])if(!Number.isInteger(d[i]) || d[i]<0 || d[i]>1000 || !Number.isInteger(d[i+1]) || d[i+1]<0 || d[i+1]>1000 || d[i+2]<0 || d[i+2]>1000 || d[i+3]<0 || d[i+3]>10 || d[i+4]<0 || d[i+4]>1.01)return false;
     } else {
-      if(++cars>32 || ![0,1,2,3,4].includes(d[1]) || d[17]<-1000 || d[17]>10000 || ![18,19].every(i=>Number.isInteger(d[i]) && d[i]>=0 && d[i]<=255) || ![20,21].every(i=>d[i]===0 || d[i]===1))return false;
+      if(++cars>32 || ![0,1,2,3,4].includes(d[1]) || d[17]<-1000 || d[17]>10000 || d.slice(23,26).some(v=>Math.abs(v)>5) || ![18,19].every(i=>Number.isInteger(d[i]) && d[i]>=0 && d[i]<=255) || ![20,21].every(i=>d[i]===0 || d[i]===1))return false;
       const axes=[d.slice(5,8),d.slice(8,11),d.slice(11,14)];
       if(axes.some(a=>Math.abs(Math.hypot(...a)-1)>0.15))return false;
       for(let i=0;i<3;i++)for(let j=i+1;j<3;j++)if(Math.abs(axes[i].reduce((sum,v,k)=>sum+v*axes[j][k],0))>0.2)return false;

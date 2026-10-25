@@ -31,6 +31,7 @@ test('world frames reject duplicate identities, malformed vehicle bases and exce
   const entity=vehicle();assert.ok(validWorldFrame({seq:1,entities:[entity]}));
   assert.equal(validWorldFrame({seq:1,entities:[entity,entity]}),false);
   const invalid=vehicle();invalid.state[5]=0;assert.equal(validWorldFrame({seq:1,entities:[invalid]}),false);
+  const excessiveSpin=vehicle();excessiveSpin.state[23]=5.1;assert.equal(validWorldFrame({seq:1,entities:[excessiveSpin]}),false);
   assert.equal(validWorldFrame({seq:1,entities:Array.from({length:33},(_,i)=>vehicle(i))}),false);
   assert.equal(validWorldFrame({seq:Infinity,entities:[]}),false);
 });
