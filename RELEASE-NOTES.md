@@ -1,3 +1,13 @@
+# ViceTogether alpha.32 — centered player labels
+
+Remote player names and health lines now share one head-projected center. The text uses the engine's centered text layout, and its drop shadow is removed so the tag stays clean with no backing panel. The native two-client test now records the name/health center offset and the health line's gap from the animated head.
+
+Validation on the Windows CI-built engine: all 69 repository tests passed; two native clients launched through the actual launcher lobby and moved for 30 seconds. Instrumented name/health center offset was 0 px p95, animated-head spacing error was 0.16 m and 0.21 m p95 across the two views, and median frame rates were 141.6 and 142.1 FPS. This was a same-PC test, not a public internet or fresh-Windows test, and it does not establish perfect gameplay synchronization.
+
+Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.31 — smoother vehicle snapshots
 
 Guest-driven car, bike, boat, and aircraft motion now sends native driver snapshots near 60 Hz instead of 20 Hz. The host accepts those replaceable snapshots at the matching rate while continuing to reject invalid ownership, teleports, and malformed vehicle state. The two-game guest-drive test now checks the measured arrival cadence as well as car motion, orientation, seats, exits, and frame rate.
