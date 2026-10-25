@@ -327,7 +327,7 @@ void ViceTogetherApplyDriverVisual(unsigned id,const float* v){
 }
 extern "C" int VT_ReadRemoteVehicle(int slot);
 extern "C" int VT_ReadRemote(int slot,float* out);
-void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)return;CPad* pad=CPad::GetPad(0);memset(&pad->NewState,0,sizeof(pad->NewState));
+void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)return;CPad* pad=CPad::GetPad(0);pad->NewState.Clear();
     if(getenv("VT_TEST_GUEST_DRIVE")) {
         static int warmup=0;if(++warmup<500 || !player->m_rwObject)return;
         const int model=getenv("VT_TEST_VEHICLE")?atoi(getenv("VT_TEST_VEHICLE")):130;
@@ -351,7 +351,7 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
             if(getenv("VT_TEST_CAR_BLAST") && now-started>12000 && testCar->GetStatus()!=STATUS_WRECKED)testCar->BlowUpCar(player);
             return;
         }
-        if(player->bInVehicle){if(!guestBoardedAt)guestBoardedAt=now;if(!guestExitSent&&now-guestBoardedAt>5000)pad->NewState.Cross=255;pad->NewState.LeftStickX=0;if(!guestExitSent&&now-guestBoardedAt>18000){guestExitSent=true;guestExitAt=now;}if(guestExitSent&&now-guestExitAt<250){pad->NewState.Cross=0;pad->NewState.Triangle=255;}}
+        if(player->bInVehicle){if(!guestBoardedAt)guestBoardedAt=now;const bool guestDriving=player->m_pMyVehicle&&player->m_pMyVehicle->pDriver==player;if(guestDriving){pad->NewState.Cross=255;if(model==217||model==190){const uint32 flightTime=now-guestBoardedAt;CPad::NewKeyState.UP=flightTime<1500;CPad::NewKeyState.DOWN=flightTime>=3500&&flightTime<4500;}else if(model==191){pad->NewState.LeftStickX=((now/4000)%2)?24:-24;}else if(model==130&&!getenv("VT_TEST_VEHICLE_COLLISION")){pad->NewState.LeftStickX=((now/5000)%2)?20:-20;}}if(!guestExitSent&&now-guestBoardedAt>5000)pad->NewState.Cross=255;if(!guestExitSent&&now-guestBoardedAt>18000){guestExitSent=true;guestExitAt=now;}if(guestExitSent&&now-guestExitAt<250){pad->NewState.Cross=0;pad->NewState.Triangle=255;}}
         else if(guestExitSent){if(now-guestExitAt>2500)guestExited=true;}
         else if(!guestExited&&now-last>500){
             float hostState[20]={};const bool haveHost=VT_ReadRemote(0,hostState);
