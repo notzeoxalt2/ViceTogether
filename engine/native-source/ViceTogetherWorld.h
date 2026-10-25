@@ -31,6 +31,7 @@ bool ViceTogetherRequestVehicleExit();
 bool ViceTogetherGuestOnFoot();
 void ViceTogetherCaptureDriver(VTWorldSender send);
 void ViceTogetherApplyDriver(unsigned id,const float* state);
+void ViceTogetherApplyDriverVisual(unsigned id,const float* state);
 void ViceTogetherWorldTestDrive();
 bool ViceTogetherWorldApplyEnvironment();
 void ViceTogetherWorldGlass(CEntity* entity,float amount,const CVector& speed,const CVector& point,bool explosion,bool broken);

@@ -211,8 +211,12 @@ void ViceTogetherNetworkTick() {
     if(!attempted)init();if(bridge==INVALID_SOCKET)return;
     const DWORD now=clockMs();
     reportPerformance(now);
-    static DWORD lastWorld=0;
-    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);ViceTogetherCaptureDriver(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);lastWorld=now;}
+    static DWORD lastWorld=0,lastDriver=0;
+    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);lastWorld=now;}
+    // Driver ownership is a small, replaceable state packet. Send it twice as
+    // often as the full ambient-world snapshot so passengers see a steady car
+    // instead of the old 10 Hz transform cadence.
+    if(now-lastDriver>=50){ViceTogetherCaptureDriver(sendWorld);lastDriver=now;}
     for(int count=0;count<512;count++) {
         Wire wire;sockaddr_in source={};int sourceSize=sizeof(source);
         const int size=recvfrom(bridge,(char*)&wire,sizeof(wire),0,(sockaddr*)&source,&sourceSize);
@@ -221,6 +225,7 @@ void ViceTogetherNetworkTick() {
         if((wire.type>=19 && wire.type<=22) || wire.type==35 || wire.type==37 || wire.type==42){ViceTogetherWorldPacket(wire.type,wire.slot,wire.state);continue;}
         if(wire.type==48){VT_ReportWorldMeleeValidation(wire.slot,0,unsigned(std::max(0.0f,wire.state[0])),0,wire.state[2]);VT_ApplyWorldMelee(wire.slot,wire.state);continue;}
         if(wire.type==44){ViceTogetherApplyDriver(wire.slot,wire.state);continue;}
+        if(wire.type==61){ViceTogetherApplyDriverVisual(wire.slot,wire.state);continue;}
         if(wire.type==56){if(std::isfinite(wire.state[0])&&std::isfinite(wire.state[1])&&std::isfinite(wire.state[2])&&std::isfinite(wire.state[3])&&std::isfinite(wire.state[4])&&wire.state[0]>=0&&wire.state[0]<6500&&wire.state[0]==floorf(wire.state[0]))ViceTogetherWorldSpawnVehicle(int(wire.state[0]),wire.state[1],wire.state[2],wire.state[3],wire.state[4]);continue;}
         if(wire.type==58){if(wire.state[0]==1)ViceTogetherWorldToggleFlyCheat();else if(wire.state[0]==2&&std::isfinite(wire.state[1])&&std::isfinite(wire.state[2])&&std::isfinite(wire.state[3]))ViceTogetherWorldNearbyBigBang(wire.state[1],wire.state[2],wire.state[3]);continue;}
         if(wire.type==49){ViceTogetherNetworkStatus(wire.state);continue;}

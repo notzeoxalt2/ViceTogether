@@ -2,6 +2,8 @@
 const {validGlass,validExplosion}=require('./glass.cjs');
 // reVC ePedType ordering: PLAYER1..4, CIVMALE, CIVFEMALE, COP.
 const POLICE_PED_TYPE=6;
+function validVehicleVisual(v){return Array.isArray(v)&&v.length===34&&v.every(Number.isFinite)&&!v.slice(0,25).some(n=>Math.abs(n)>1000000)&&[25,26,27,28,29,30,31,32,33].every(i=>Number.isInteger(v[i])&&v[i]>=0)&&v[25]<=255&&v[26]<=4095&&v[27]<=65535&&v[28]<=65535&&v[29]<=65535&&v[30]<=255&&v[31]<=255&&v[32]<=1&&v[33]<=1;}
+function validDriverVehicleVisual(v){return validVehicleVisual(v)&&v[31]<=5;}
 function validWorldFrame(frame) {
   if(!frame || !Number.isSafeInteger(frame.seq) || frame.seq<1 || frame.seq>16777215 || !Array.isArray(frame.entities) || frame.entities.length>80)return false;
   if(frame.glass!==undefined && (!Array.isArray(frame.glass)||frame.glass.length>128||!frame.glass.every(validGlass)))return false;
@@ -26,7 +28,7 @@ function validWorldFrame(frame) {
       if(axes.some(a=>Math.abs(Math.hypot(...a)-1)>0.15))return false;
       for(let i=0;i<3;i++)for(let j=i+1;j<3;j++)if(Math.abs(axes[i].reduce((sum,v,k)=>sum+v*axes[j][k],0))>0.2)return false;
       if(d.slice(14,17).some(v=>Math.abs(v)>100))return false;
-      if(entity.visual){const v=entity.visual;if(!Array.isArray(v) || v.length!==34 || !v.every(Number.isFinite) || v.slice(0,25).some(n=>Math.abs(n)>1000000) || ![25,26,27,28,29,30,31,32].every(i=>Number.isInteger(v[i]) && v[i]>=0) || v[25]>255 || v[26]>4095 || v[27]>65535 || v[28]>65535 || v[29]>65535 || v[30]>255 || v[31]>255 || v[32]>1)return false;}
+      if(entity.visual&&!validVehicleVisual(entity.visual))return false;
     }
   }
   return true;
@@ -43,4 +45,4 @@ function retainSupportedWorldPeds(frame) {
   }
   return {frame:{...frame,entities},droppedPeds};
 }
-module.exports={POLICE_PED_TYPE,validWorldFrame,retainSupportedWorldPeds};
+module.exports={POLICE_PED_TYPE,validWorldFrame,validVehicleVisual,validDriverVehicleVisual,retainSupportedWorldPeds};

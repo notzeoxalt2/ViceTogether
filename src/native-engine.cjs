@@ -4,7 +4,7 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const MAGIC = 0x31545656;
-const {validWorldFrame,retainSupportedWorldPeds}=require('../engine/world.cjs');
+const {validWorldFrame,validVehicleVisual,validDriverVehicleVisual,retainSupportedWorldPeds}=require('../engine/world.cjs');
 const {validWeapon,instantWeapon,shotRange}=require('../engine/weapons.cjs');
 const {validGlass}=require('../engine/glass.cjs');
 const {VEHICLE_MODELS}=require('../engine/vehicle-spawn.cjs');
@@ -21,7 +21,7 @@ function packet(type, slot, state = Array(10).fill(0)) {
   state.forEach((v, i) => b.writeFloatLE(v, 12 + i * 4)); return b;
 }
 class NativeEngine extends EventEmitter {
-  constructor(executable) { super(); this.executable = executable; this.slots = new Map(); this.received = new Map(); this.worldFrameStats={started:0,accepted:0,rejected:0,droppedUnsupportedPeds:0,lastReject:null}; }
+  constructor(executable) { super(); this.executable = executable; this.slots = new Map(); this.received = new Map(); this.driverVisuals=new Map(); this.worldFrameStats={started:0,accepted:0,rejected:0,droppedUnsupportedPeds:0,lastReject:null}; }
   async start(gameRoot, { multiplayer = false, authoritativeWorld = false, inputDisabled = false, testWalk = false, testCombat = false, followPlayer = false, muted = false, name = 'Player', fps = 144, fullscreen = true, mouseSensitivity = 1.5, windowBounds, spawnOffset = Math.random() * 6, userDir = path.join(gameRoot, 'userfiles') } = {}) {
     if (this.child && this.child.exitCode === null) {
       if(this.multiplayer !== multiplayer) throw new Error('Close the current game before switching between singleplayer and multiplayer.');
@@ -30,7 +30,7 @@ class NativeEngine extends EventEmitter {
       return;
     }
     await fs.access(this.executable);
-    this.worldPending=null;this.worldReceived=0;this.shotSequences=new Map();this.authoritativeWorld=authoritativeWorld;
+    this.worldPending=null;this.worldReceived=0;this.shotSequences=new Map();this.driverVisuals.clear();this.authoritativeWorld=authoritativeWorld;
     this.selfSequence=-1;
     this.packetCounts={};this.lastPerformance=null;this.lastWorldStatus=null;this.worldHitCounts={npc:0,vehicle:0};
     await fs.access(path.join(gameRoot, 'Mss32.dll')).catch(() => { throw new Error('Vice City’s Mss32.dll is missing. Import your original game folder again.'); });
@@ -72,7 +72,8 @@ class NativeEngine extends EventEmitter {
         else if(type===30)this.emit('seat-request',{id:slot,driver:state[0]===-1});
         else if(type===55&&!this.authoritativeWorld&&Number.isInteger(state[0])&&VEHICLE_MODELS.includes(state[0]))this.emit('vehicle-spawn-request',state[0]);
         else if(type===57&&!this.authoritativeWorld&&Number.isInteger(state[0])&&SHARED_CHEATS.includes(state[0]))this.emit('shared-cheat-request',state[0]);
-        else if(type===43&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&state.every(Number.isFinite))this.emit('driver-state',{id:slot,state});
+        else if(type===60&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&slot>=0&&slot<=16777215&&validDriverVehicleVisual(state))this.driverVisuals.set(slot,state);
+        else if(type===43&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&slot>=0&&slot<=16777215&&state.every(Number.isFinite))this.emit('driver-state',{id:slot,state,visual:this.driverVisuals.get(slot)?.slice()});
         else if(type===40 && !this.authoritativeWorld && validGlass(state))this.emit('glass-request',state);
         else if(type===36 && this.authoritativeWorld && slot<=7 && Number.isFinite(state[0]) && state[0]>0 && state[0]<=100){const target=slot===7?null:[...this.slots].find(([,s])=>s===slot)?.[0];if(slot===7 || target)this.emit('world-damage',{target,amount:state[0]});}
         else if (testWalk && type === 4 && slot < 7 && state.every(Number.isFinite)) this.emit('remote-observed', { slot, state });
@@ -159,11 +160,11 @@ class NativeEngine extends EventEmitter {
   }
   glassRequest(state){if(this.authoritativeWorld && validGlass(state))this.send(41,0,state);}
   meleeGrant(request){if(!this.authoritativeWorld||!this.socket||!this.endpoint||!Number.isSafeInteger(request?.targetId)||request.targetId<0||request.targetId>=16777216||!Number.isInteger(request.weapon)||request.weapon<0||request.weapon>11||!Number.isFinite(request.damage)||request.damage<=0||request.damage>250||typeof request.playerId!=='string')return false;const slot=this.slots.get(request.playerId);if(slot===undefined)return false;this.send(48,slot,[request.targetId,request.weapon,request.damage]);return true;}
-  closeSocket() { if (this.socket) { try { this.socket.close(); } catch {} this.socket = null; } this.endpoint = null; this.slots.clear(); }
+  closeSocket() { if (this.socket) { try { this.socket.close(); } catch {} this.socket = null; } this.endpoint = null; this.slots.clear();this.driverVisuals.clear(); }
   seatGrant(claim){if(Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=-1 && claim.seat<8)this.send(32,0,[claim.id,claim.seat]);}
   spawnVehicle(request){if(!this.authoritativeWorld||!this.socket||!this.endpoint||!VEHICLE_MODELS.includes(request?.model)||!Array.isArray(request?.position)||request.position.length!==3||!request.position.every(Number.isFinite)||!Number.isFinite(request.heading)||request.position.some((v,i)=>Math.abs(v)>[10000,10000,3000][i])||Math.abs(request.heading)>Math.PI*100)return false;this.send(56,0,[request.model,...request.position,request.heading]);return true;}
   toggleSharedCheat(cheatId,position){if(!this.authoritativeWorld||!this.socket||!this.endpoint||!SHARED_CHEATS.includes(cheatId))return false;if(cheatId===2&&(!Array.isArray(position)||position.length!==3||!position.every(Number.isFinite)||position.some((v,i)=>Math.abs(v)>[10000,10000,3000][i])))return false;this.send(58,0,[cheatId,...(cheatId===2?position:[0,0,0])]);return true;}
-  driverState(update){if(this.authoritativeWorld&&Number.isSafeInteger(update?.id)&&update.id>=0&&Array.isArray(update.state)&&update.state.length===34&&update.state.every(Number.isFinite))this.send(44,update.id,update.state);}
+  driverState(update){if(!this.authoritativeWorld||!Number.isSafeInteger(update?.id)||update.id<0||!Array.isArray(update.state)||update.state.length!==34||!update.state.every(Number.isFinite))return;this.send(44,update.id,update.state);if(validDriverVehicleVisual(update.visual))this.send(61,update.id,update.visual);}
   remoteShot(shot) {
     if(shot?.self || typeof shot?.id!=='string' || !instantWeapon(shot.weapon) || !Number.isSafeInteger(shot.seq))return;
     const slot=this.slots.get(shot.id);if(slot===undefined)return;
@@ -174,7 +175,7 @@ class NativeEngine extends EventEmitter {
     this.send(15,slot,[shot.weapon,...shot.source,...shot.end,shot.hit?1:0,...shot.normal,[0,1,2].includes(shot.hitKind)?shot.hitKind:0]);
   }
   stop() { this.child?.kill(); this.closeSocket(); }
-  resetSession(){this.selfSequence=-1;this.worldReceived=0;this.worldPending=null;this.received.clear();this.slots.clear();this.shotSequences?.clear();this.send(54,0,[]);}
+  resetSession(){this.selfSequence=-1;this.worldReceived=0;this.worldPending=null;this.received.clear();this.slots.clear();this.driverVisuals.clear();this.shotSequences?.clear();this.send(54,0,[]);}
   diagnostics(){return {running:!!this.child&&this.child.exitCode===null,host:this.authoritativeWorld===true,remotePlayers:this.slots.size,worldSequence:this.worldReceived||0,worldFrames:{...this.worldFrameStats},packets:this.packetCounts||{},performance:this.lastPerformance,lastMeleeTargetId:this.lastMeleeTargetId??null,lastMeleeRequestAt:this.lastMeleeRequestAt??null,appliedGuestHits:this.worldHitCounts||{npc:0,vehicle:0}};}
   networkStatus(status){if(!status||![status.ping,status.transportPing,status.peers].every(Number.isFinite)||status.ping< -1||status.ping>10000||status.transportPing< -1||status.transportPing>10000||!Number.isInteger(status.peers)||status.peers<0||status.peers>7)return;this.send(49,0,[status.ping,status.transportPing,status.peers]);}
 }

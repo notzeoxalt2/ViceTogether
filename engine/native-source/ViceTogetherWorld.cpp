@@ -66,6 +66,7 @@ bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehi
 CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return new CHeli(model,MISSION_VEHICLE);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
 int testMeleeStage=0,testMeleeTarget=-1;float testMeleeLocalDistance=-1,testMeleeRemoteDistance=-1;
 void doorMatrices(CAutomobile* car){const int nodes[]={CAR_BONNET,CAR_BOOT,CAR_DOOR_LF,CAR_DOOR_RF,CAR_DOOR_LR,CAR_DOOR_RR};for(int i=0;i<6;i++){RwFrame* frame=car->m_aCarNodes[nodes[i]];if(!frame || car->Doors[i].m_nAxis<0 || car->Doors[i].m_nAxis>2)continue;CMatrix matrix(RwFrameGetMatrix(frame));const CVector position=matrix.GetPosition();float axes[3]={};axes[car->Doors[i].m_nAxis]=car->Doors[i].m_fAngle;matrix.SetRotate(axes[0],axes[1],axes[2]);matrix.Translate(position);matrix.UpdateRW();}}
+void captureVehicleVisual(CVehicle* car,float* v){v[0]=car->m_fSteerAngle;v[1]=car->m_fGasPedal;v[2]=car->m_fBrakePedal;v[31]=float(car->GetStatus());v[32]=car->bLightsOn;v[33]=car->m_bSirenOrAlarm;if(car->IsCar()){CAutomobile* a=(CAutomobile*)car;for(int j=0;j<4;j++){v[3+j]=a->m_aWheelRotation[j];v[7+j]=a->m_aWheelPosition[j];v[11+j]=a->m_aWheelSpeed[j];v[15+j]=a->m_aSuspensionSpringRatio[j];v[25]+=float(a->Damage.m_wheelStatus[j]<<(j*2));}for(int j=0;j<6;j++){v[19+j]=a->Doors[j].m_fAngle;v[26]+=float(a->Damage.m_doorStatus[j]<<(j*2));}v[27]=float(a->Damage.m_panelStatus&65535);v[28]=float(a->Damage.m_panelStatus>>16);v[29]=float(a->Damage.m_lightStatus);v[30]=float(a->Damage.m_engineStatus);}else if(car->IsBike()){CBike* a=(CBike*)car;for(int j=0;j<2;j++){v[3+j]=a->m_aWheelRotation[j];v[7+j]=a->m_aWheelPosition[j];v[11+j]=a->m_aWheelSpeed[j];v[25]+=float(a->m_wheelStatus[j]<<(j*2));}for(int j=0;j<4;j++)v[15+j]=a->m_aSuspensionSpringRatio[j];v[19]=a->m_fLeanLRAngle;v[20]=a->m_fLeanLRAngle2;}}
 void pose(CPed* ped,const float* data) {
     CAnimBlendAssociation* selected[4]={};float full=0,partial=0;
     for(int i=0;i<4;i++) {
@@ -259,8 +260,35 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
     // selects an available passenger seat and runs the game's entry sequence.
     player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);
 }
-void ViceTogetherCaptureDriver(VTWorldSender send){if(!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->bInVehicle||!p->m_pMyVehicle||p->m_pMyVehicle->pDriver!=p)return;CVehicle* car=p->m_pMyVehicle;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;float d[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);send(43,unsigned(id),d);}
-void ViceTogetherApplyDriver(unsigned id,const float* d){if(!host())return;CVehicle* car=ViceTogetherWorldFindVehicle(id);if(!car||car->GetModelIndex()!=int(d[0])||car->GetStatus()==STATUS_WRECKED||car->pDriver && car->pDriver->IsPlayer())return;for(int i=0;i<17;i++)if(!std::isfinite(d[i]))return;CWorld::Remove(car);car->SetPosition(d[2],d[3],d[4]);CMatrix& m=car->GetMatrix();m.GetRight()=CVector(d[5],d[6],d[7]);m.GetForward()=CVector(d[8],d[9],d[10]);m.GetUp()=CVector(d[11],d[12],d[13]);car->SetMoveSpeed(d[14],d[15],d[16]);car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;CWorld::Add(car);if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;m.UpdateRW();car->UpdateRwFrame();delegatedVehicles[id]=CTimer::GetTimeInMilliseconds();}
+void ViceTogetherCaptureDriver(VTWorldSender send){if(!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->bInVehicle||!p->m_pMyVehicle||p->m_pMyVehicle->pDriver!=p)return;CVehicle* car=p->m_pMyVehicle;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;float d[34]={},visual[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}d[17]=car->m_fHealth;d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);captureVehicleVisual(car,visual);send(60,unsigned(id),visual);send(43,unsigned(id),d);}
+void ViceTogetherApplyDriver(unsigned id,const float* d){if(!host())return;CVehicle* car=ViceTogetherWorldFindVehicle(id);if(!car||car->GetModelIndex()!=int(d[0])||!car->pDriver||!ViceTogetherIsRemote(car->pDriver))return;for(int i=0;i<20;i++)if(!std::isfinite(d[i]))return;if(d[17]<0||d[17]>1000||d[19]<0||d[19]>5||floorf(d[19])!=d[19])return;if(car->GetStatus()==STATUS_WRECKED)return;CWorld::Remove(car);car->SetPosition(d[2],d[3],d[4]);CMatrix& m=car->GetMatrix();m.GetRight()=CVector(d[5],d[6],d[7]);m.GetForward()=CVector(d[8],d[9],d[10]);m.GetUp()=CVector(d[11],d[12],d[13]);car->SetMoveSpeed(d[14],d[15],d[16]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;CWorld::Add(car);if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;m.UpdateRW();car->UpdateRwFrame();delegatedVehicles[id]=CTimer::GetTimeInMilliseconds();}
+void ViceTogetherApplyDriverVisual(unsigned id,const float* v){
+    if(!host())return;
+    CVehicle* car=ViceTogetherWorldFindVehicle(id);
+    if(!car||!car->pDriver||!ViceTogetherIsRemote(car->pDriver))return;
+    for(int i=0;i<34;i++)if(!std::isfinite(v[i]))return;
+    if(v[25]<0||v[25]>255||floorf(v[25])!=v[25]||v[26]<0||v[26]>4095||floorf(v[26])!=v[26]||v[27]<0||v[27]>65535||floorf(v[27])!=v[27]||v[28]<0||v[28]>65535||floorf(v[28])!=v[28]||v[29]<0||v[29]>65535||floorf(v[29])!=v[29]||v[30]<0||v[30]>255||floorf(v[30])!=v[30]||v[31]<0||v[31]>STATUS_WRECKED||floorf(v[31])!=v[31]||(v[32]!=0&&v[32]!=1)||(v[33]!=0&&v[33]!=1))return;
+    // Once either motion or visual state reports a wreck, the cosmetic packet
+    // must not restore STATUS_PHYSICS after the stock explosion was applied.
+    const bool wrecked=car->GetStatus()==STATUS_WRECKED||car->m_fHealth<=0||v[31]==STATUS_WRECKED;
+    car->m_fSteerAngle=v[0];car->m_fGasPedal=v[1];car->m_fBrakePedal=v[2];car->bLightsOn=v[32]!=0;car->m_bSirenOrAlarm=v[33]!=0;
+    if(car->IsCar()){
+        CAutomobile* a=(CAutomobile*)car;
+        for(int j=0;j<4;j++){a->m_aWheelRotation[j]=v[3+j];a->m_aWheelPosition[j]=v[7+j];a->m_aWheelSpeed[j]=v[11+j];a->m_aSuspensionSpringRatio[j]=v[15+j];a->Damage.m_wheelStatus[j]=(unsigned(v[25])>>(j*2))&3;}
+        for(int j=0;j<6;j++){a->Doors[j].m_fAngle=v[19+j];const uint8 damage=(unsigned(v[26])>>(j*2))&3;if(a->Damage.m_doorStatus[j]!=damage){a->Damage.m_doorStatus[j]=damage;const int nodes[]={CAR_BONNET,CAR_BOOT,CAR_DOOR_LF,CAR_DOOR_RF,CAR_DOOR_LR,CAR_DOOR_RR};a->SetDoorDamage(nodes[j],(eDoors)j,true);}}
+        a->Damage.m_lightStatus=unsigned(v[29]);a->Damage.m_engineStatus=uint8(v[30]);const unsigned panels=unsigned(v[27])|(unsigned(v[28])<<16);
+        if(a->Damage.m_panelStatus!=panels){a->Damage.m_panelStatus=panels;const int nodes[]={CAR_WING_LF,CAR_WING_RF,CAR_WING_LR,CAR_WING_RR,CAR_WINDSCREEN,CAR_BUMP_FRONT,CAR_BUMP_REAR};for(int j=0;j<7;j++)a->SetPanelDamage(nodes[j],(ePanels)j,true);}
+        doorMatrices(a);
+    }else if(car->IsBike()){
+        CBike* a=(CBike*)car;
+        for(int j=0;j<2;j++){a->m_aWheelRotation[j]=v[3+j];a->m_aWheelPosition[j]=v[7+j];a->m_aWheelSpeed[j]=v[11+j];a->m_wheelStatus[j]=(unsigned(v[25])>>(j*2))&3;}
+        for(int j=0;j<4;j++)a->m_aSuspensionSpringRatio[j]=v[15+j];
+        a->m_fLeanLRAngle=v[19];a->m_fLeanLRAngle2=v[20];a->bLeanMatrixClean=false;
+    }
+    if(wrecked){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;}
+    else car->SetStatus(unsigned(v[31]));
+    car->GetMatrix().UpdateRW();car->UpdateRwFrame();
+}
 extern "C" int VT_ReadRemoteVehicle(int slot);
 extern "C" int VT_ReadRemote(int slot,float* out);
 void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)return;CPad* pad=CPad::GetPad(0);memset(&pad->NewState,0,sizeof(pad->NewState));
@@ -400,9 +428,7 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
         for(int j=0;j<4;j++){e.data[5+j*3]=basis[j].x;e.data[6+j*3]=basis[j].y;e.data[7+j*3]=basis[j].z;}
         e.data[17]=car->m_fHealth;e.data[18]=car->m_currentColour1;e.data[19]=car->m_currentColour2;e.data[20]=car->bEngineOn;e.data[21]=car->m_bSirenOrAlarm;
         e.data[22]=car->m_nNumMaxPassengers;
-        e.hasVisual=true;e.visual[0]=car->m_fSteerAngle;e.visual[1]=car->m_fGasPedal;e.visual[2]=car->m_fBrakePedal;e.visual[31]=float(car->GetStatus());e.visual[32]=car->bLightsOn;
-        if(car->IsCar()){CAutomobile* a=(CAutomobile*)car;for(int j=0;j<4;j++){e.visual[3+j]=a->m_aWheelRotation[j];e.visual[7+j]=a->m_aWheelPosition[j];e.visual[11+j]=a->m_aWheelSpeed[j];e.visual[15+j]=a->m_aSuspensionSpringRatio[j];e.visual[25]+=float(a->Damage.m_wheelStatus[j]<<(j*2));}for(int j=0;j<6;j++){e.visual[19+j]=a->Doors[j].m_fAngle;e.visual[26]+=float(a->Damage.m_doorStatus[j]<<(j*2));}e.visual[27]=float(a->Damage.m_panelStatus&65535);e.visual[28]=float(a->Damage.m_panelStatus>>16);e.visual[29]=float(a->Damage.m_lightStatus);e.visual[30]=float(a->Damage.m_engineStatus);}
-        if(car->IsBike()){CBike* a=(CBike*)car;for(int j=0;j<2;j++){e.visual[3+j]=a->m_aWheelRotation[j];e.visual[7+j]=a->m_aWheelPosition[j];e.visual[11+j]=a->m_aWheelSpeed[j];e.visual[25]+=float(a->m_wheelStatus[j]<<(j*2));}for(int j=0;j<4;j++)e.visual[15+j]=a->m_aSuspensionSpringRatio[j];e.visual[19]=a->m_fLeanLRAngle;e.visual[20]=a->m_fLeanLRAngle2;}
+        e.hasVisual=true;captureVehicleVisual(car,e.visual);
         frame.push_back(e);
     }
     float header[34]={};header[0]=float(++seq);header[1]=float(frame.size());
