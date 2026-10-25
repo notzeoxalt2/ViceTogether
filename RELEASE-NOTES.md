@@ -2,7 +2,7 @@
 
 Multiplayer vehicle construction now checks the game's handling flags, so Maverick/Hunter helicopters and the Skimmer are created with their aircraft classes instead of falling through the generic model category. Boat test setup searches farther for open water. Guest seat occupants send bounded door-angle changes during stock enter/exit tasks; the host validates the current seat claim and replays them with the native `OpenDoor` animation path.
 
-The native paired test now records door animation samples and checks the model's constructed vehicle class while testing a guest driver and host passenger. Car, bike, boat, and helicopter runs must pass against the Windows CI-built engine before this alpha is published. Collision-impact behavior, passenger pose/audio fidelity, public-network routes, and a clean Windows VM still need separate validation. This remains an experimental prototype, not 1:1 synchronization.
+The native paired test now records door animation samples, checks the model's constructed vehicle class, and can drive a car into a controlled barrier to verify damage replication while testing a guest driver and host passenger. Car, bike, boat, and helicopter runs must pass against the Windows CI-built engine before this alpha is published. Broader collision cases, passenger pose/audio fidelity, public-network routes, and a clean Windows VM still need separate validation. This remains an experimental prototype, not 1:1 synchronization.
 
 Each player imports their own legally obtained Vice City installation; no game files are included.
 

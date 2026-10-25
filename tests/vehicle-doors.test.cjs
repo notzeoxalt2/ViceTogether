@@ -30,9 +30,12 @@ test('native car door sync uses stock OpenDoor and vehicle construction follows 
   assert.match(world,/HANDLING_IS_BOAT/);
   assert.match(world,/HANDLING_IS_BIKE/);
   assert.match(world,/send\(62,unsigned\(id\),doors\)/);
+  assert.match(world,/VT_TEST_VEHICLE_COLLISION/);
+  assert.match(world,/SetPosition\(testCar->GetPosition\(\)\+forward\*45\.0f\)/);
   assert.match(world,/car->OpenDoor\(nodes\[i\],\(eDoors\)i,ratio\)/);
   assert.match(network,/wire\.type==63/);
   assert.match(native,/type===62&&!this\.authoritativeWorld/);
   assert.match(native,/this\.send\(63,update\.id,state\)/);
+  assert.match(native,/VT_TEST_VEHICLE_COLLISION/);
   assert.match(ui,/acceptVehicleDoors\(peerId,update\)/);
 });
