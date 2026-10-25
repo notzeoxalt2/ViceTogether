@@ -222,7 +222,7 @@ void ViceTogetherNetworkTick() {
         const int size=recvfrom(bridge,(char*)&wire,sizeof(wire),0,(sockaddr*)&source,&sourceSize);
         if(size<0)break;
         if(size!=sizeof(wire)||wire.magic!=MAGIC||source.sin_addr.s_addr!=launcher.sin_addr.s_addr||source.sin_port!=launcher.sin_port)continue;
-        if((wire.type>=19 && wire.type<=22) || wire.type==35 || wire.type==37 || wire.type==42){ViceTogetherWorldPacket(wire.type,wire.slot,wire.state);continue;}
+        if((wire.type>=19 && wire.type<=22) || wire.type==35 || wire.type==37 || wire.type==42 || wire.type==63){ViceTogetherWorldPacket(wire.type,wire.slot,wire.state);continue;}
         if(wire.type==48){VT_ReportWorldMeleeValidation(wire.slot,0,unsigned(std::max(0.0f,wire.state[0])),0,wire.state[2]);VT_ApplyWorldMelee(wire.slot,wire.state);continue;}
         if(wire.type==44){ViceTogetherApplyDriver(wire.slot,wire.state);continue;}
         if(wire.type==61){ViceTogetherApplyDriverVisual(wire.slot,wire.state);continue;}

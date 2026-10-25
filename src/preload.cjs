@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('desktop', {
   sendShot: value => invoke('remote-shot',value),
   sendWorld: value => invoke('remote-world',value),
   sendDriverState: value=>invoke('remote-driver-state',value),
+  sendVehicleDoors: value=>invoke('remote-vehicle-doors',value),
   sendNetworkStatus: value=>invoke('network-status',value),
   seatGrant: value=>invoke('seat-grant',value),
   spawnVehicle: value=>invoke('vehicle-spawn',value),
@@ -29,7 +30,7 @@ contextBridge.exposeInMainWorld('desktop', {
   checkUpdates: () => invoke('updates'),
   quit: () => invoke('quit'),
   on: (name, callback) => {
-    if (!['invite', 'progress', 'update', 'game-error', 'local-state', 'local-hit', 'local-world-damage', 'local-equipment', 'local-shot','local-world','local-driver-state','local-glass-request','local-seat-state','local-seat-request','local-melee-request','local-vehicle-spawn-request','local-shared-cheat-request','detected'].includes(name)) return;
+    if (!['invite', 'progress', 'update', 'game-error', 'local-state', 'local-hit', 'local-world-damage', 'local-equipment', 'local-shot','local-world','local-driver-state','local-vehicle-doors','local-glass-request','local-seat-state','local-seat-request','local-melee-request','local-vehicle-spawn-request','local-shared-cheat-request','detected'].includes(name)) return;
     const handler = (_, payload) => callback(payload);
     ipcRenderer.on(name, handler);
     return () => ipcRenderer.removeListener(name, handler);

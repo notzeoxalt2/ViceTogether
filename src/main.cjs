@@ -24,6 +24,7 @@ const launchGate=new (require('./launch-gate.cjs').LaunchGate)();
 const testWindows=new Set();
 const testLaunchers=new Map();
 const testDriverStateHandlers=new Map();
+const testVehicleDoorHandlers=new Map();
 const testLaunchGates=new WeakMap();
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function handleInvite(argv) {
@@ -116,6 +117,7 @@ async function start() {
   nativeEngine.on('shot',shot=>win?.webContents.send('local-shot',shot));
   nativeEngine.on('world',frame=>win?.webContents.send('local-world',frame));
   nativeEngine.on('driver-state',update=>win?.webContents.send('local-driver-state',update));
+  nativeEngine.on('vehicle-doors',update=>win?.webContents.send('local-vehicle-doors',update));
   nativeEngine.on('glass-request',state=>win?.webContents.send('local-glass-request',state));
   nativeEngine.on('seat-state',seat=>win?.webContents.send('local-seat-state',seat));
   nativeEngine.on('seat-request',request=>win?.webContents.send('local-seat-request',request));
@@ -217,6 +219,11 @@ async function start() {
     if(selfTest&&testHandler)return testHandler(update);
     return nativeEngine.driverState(update);
   });
+  ipc('remote-vehicle-doors',function(update){
+    const testHandler=testVehicleDoorHandlers.get(this.sender);
+    if(selfTest&&testHandler)return testHandler(update);
+    return nativeEngine.driverDoors(update);
+  });
   ipc('network-status',status=>nativeEngine.networkStatus(status));
   ipc('seat-grant',claim=>nativeEngine.seatGrant(claim));
   ipc('vehicle-spawn',request=>nativeEngine.spawnVehicle(request));
@@ -247,7 +254,7 @@ async function start() {
   if (!selfTest) {
     if (app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR) app.setAsDefaultProtocolClient('vicetogether');
     setTimeout(() => checkUpdates().catch(() => {}), 15000).unref();
-  } else await require('./self-test.cjs').run({ app, win, assets, BrowserWindow, lockdown,registerTestWindow:w=>testWindows.add(w.webContents),registerTestLauncher:(w,launch,driverState)=>{testLaunchers.set(w.webContents,launch);if(driverState)testDriverStateHandlers.set(w.webContents,driverState);}, nativeExecutable: nativeExecutable() });
+  } else await require('./self-test.cjs').run({ app, win, assets, BrowserWindow, lockdown,registerTestWindow:w=>testWindows.add(w.webContents),registerTestLauncher:(w,launch,driverState,vehicleDoors)=>{testLaunchers.set(w.webContents,launch);if(driverState)testDriverStateHandlers.set(w.webContents,driverState);if(vehicleDoors)testVehicleDoorHandlers.set(w.webContents,vehicleDoors);}, nativeExecutable: nativeExecutable() });
 }
 async function checkUpdates() {
   if (!config.updateFeedUrl) return { message: 'Updates are not published yet. This alpha has no update feed configured.' };

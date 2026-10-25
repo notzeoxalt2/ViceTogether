@@ -18,6 +18,7 @@ class SeatAuthority {
     const last=this.motion?.get(id);if(last&&now-last.time<12)return null;const elapsed=last?Math.min(1500,now-last.time):100;const position=last?.position||car.slice(2,5);if(Math.hypot(...d.slice(2,5).map((v,k)=>v-position[k]))>4+elapsed*0.09)return null;
     const health=Math.min(car[17],d[17]),result=[...car],accepted=[...d];for(let i=2;i<=16;i++)result[i]=d[i];result[17]=health;accepted[17]=health;this.motion??=new Map();this.motion.set(id,{time:now,position:d.slice(2,5)});this.cars.set(claim.id,result);if(d[19]===5||health<=0){this.wrecks.add(claim.id);this.release(id);}return {id:claim.id,state:accepted,visual:update.visual?.slice(),wrecked:d[19]===5||health<=0};
   }
+  acceptVehicleDoors(id,update){const claim=this.claims.get(id);if(!claim||claim.id!==update?.id||!this.cars.has(claim.id)||this.wrecks.has(claim.id)||!Array.isArray(update.doors)||update.doors.length!==6||!update.doors.every(v=>Number.isFinite(v)&&Math.abs(v)<=2.4))return null;return {id:claim.id,doors:update.doors.slice()};}
   validOccupant(id,state){if(state[9]===0)return true;const claim=this.claims.get(id),car=claim&&this.cars.get(claim.id);return !!car && Math.hypot(...state.slice(0,3).map((v,k)=>v-car[k+2]))<10;}
 }
 module.exports={SeatAuthority,passengerCapacity};

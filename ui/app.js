@@ -103,6 +103,8 @@ lobby.addEventListener('glass-request',event=>window.desktop.glassRequest(event.
 lobby.addEventListener('ambient',event=>window.desktop.sendWorld(event.detail));
 window.desktop.on('local-driver-state',update=>lobby.sendVehicle(update));
 lobby.addEventListener('driver-state',event=>window.desktop.sendDriverState(event.detail));
+window.desktop.on('local-vehicle-doors',update=>lobby.sendVehicleDoors(update));
+lobby.addEventListener('vehicle-doors',event=>window.desktop.sendVehicleDoors(event.detail));
 let lastSeat=-1,lastSeatIndex=-1;
 window.desktop.on('local-seat-state',seat=>{
   if(seat.id!==lastSeat || seat.seat!==lastSeatIndex){
