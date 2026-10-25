@@ -259,6 +259,10 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       assert.ok(positionErrors.length > 50, 'Missing comparable remote ped positions');
       const p95 = positionErrors[Math.floor(positionErrors.length * 0.95)];
       assert.ok(p95 < 1, `Engine ${i} ${authoritativeCarPassenger?'passenger seat distance from authoritative driver':'replication error'} exceeded one metre: ${p95}`);
+      const interpolationBufferSamples=remote[i].map(sample=>sample.state[19]).filter(value=>Number.isFinite(value)&&value>0).sort((a,b)=>a-b);
+      assert.ok(interpolationBufferSamples.length>50,`Engine ${i} did not report its active interpolation buffer`);
+      const interpolationBufferP95Ms=interpolationBufferSamples[Math.floor(interpolationBufferSamples.length*0.95)];
+      assert.ok(interpolationBufferP95Ms<90,`Engine ${i} interpolation buffer remained too high: p95 ${interpolationBufferP95Ms} ms`);
       const gaps = settled.slice(1).map((s,j) => s.time-settled[j].time).sort((a,b)=>a-b);
       const gaitSamples=remote[i].filter(s=>s.state[14]>0.05 && s.state[12]>0);
       if(process.env.VT_TEST_CAR!=='1')assert.ok(gaitSamples.length>30,`Engine ${i} did not animate the actual remote ped`);
@@ -278,6 +282,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         coloredRemoteDraws:Math.max(0,...upright.map(s=>s.state[7])),recoloredTexturePixels:Math.max(0,...upright.map(s=>s.state[8])),
         replicatedGunAimSamples:gunAimSamples.length,
         replicatedJumpSamples:jumpSamples.length,
+        interpolationBufferP95Ms,
         closestRecentSourceSkeletonErrorP95Metres:shapeErrors[Math.floor(shapeErrors.length*.95)],
         ...(authoritativeCarPassenger?{passengerToAuthoritativeDriverDistanceP95Metres:p95}:{closestRecentPositionErrorP95Metres:p95}), statePacketGapP95Ms: gaps[Math.floor(gaps.length * .95)] };
     });

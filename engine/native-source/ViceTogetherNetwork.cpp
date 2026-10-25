@@ -241,8 +241,11 @@ void ViceTogetherNetworkTick() {
         for(int i=10;i<30;i+=5)if(wire.state[i]<0 || wire.state[i]>1000 || wire.state[i+1]<0 || wire.state[i+1]>1000 || wire.state[i+2]<0 || wire.state[i+2]>1000 || wire.state[i+3]<0 || wire.state[i+3]>10 || wire.state[i+4]<0 || wire.state[i+4]>1.01f)valid=false;
         if((wire.state[30]!=0 && wire.state[30]!=1) || fabsf(wire.state[31])>=100 || fabsf(wire.state[32])>=4 || (wire.state[33]!=0 && wire.state[33]!=1))valid=false;
         if(!valid||std::fabs(wire.state[0])>=10000||std::fabs(wire.state[1])>=10000||std::fabs(wire.state[2])>=3000||(wire.state[9]!=0 && wire.state[9]!=1))continue;
-        if(!s.live){s.count=0;s.jitter=0;s.delay=100;s.playback=0;}
-        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-50.0f)*0.1f;s.delay=s.delay*0.9f+std::min(220.0f,100.0f+1.5f*s.jitter)*0.1f;}}
+        // Keep just one 50 ms snapshot in the interpolation buffer. The old
+        // 100 ms floor made every remote player visibly trail even on a clean
+        // route. Increase the buffer only when packet arrival jitter calls for it.
+        if(!s.live){s.count=0;s.jitter=0;s.delay=50;s.playback=0;}
+        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-50.0f)*0.1f;const float targetDelay=std::min(180.0f,50.0f+1.5f*s.jitter);s.delay=s.delay*0.9f+targetDelay*0.1f;}}
         if(s.count==8) {
             std::memmove(s.times,s.times+1,7*sizeof(DWORD));
             std::memmove(s.states,s.states+1,7*sizeof(s.states[0]));s.count=7;
@@ -296,7 +299,7 @@ void ViceTogetherNetworkTick() {
             }
             if(getenv("VT_TEST_WALK") || getenv("VT_OBSERVE")) for(int slot=0;slot<7;slot++) {
                 Wire debug={};debug.magic=MAGIC;debug.type=4;debug.slot=slot;
-                if(VT_ReadRemote(slot,debug.state)) sendto(bridge,(const char*)&debug,sizeof(debug),0,(sockaddr*)&launcher,sizeof(launcher));
+                if(VT_ReadRemote(slot,debug.state)){debug.state[19]=history[slot].delay;sendto(bridge,(const char*)&debug,sizeof(debug),0,(sockaddr*)&launcher,sizeof(launcher));}
                 Wire skeleton={};skeleton.magic=MAGIC;skeleton.type=11;skeleton.slot=slot;
                 if(VT_ReadRemoteSkeleton(slot,skeleton.state))sendto(bridge,(const char*)&skeleton,sizeof(skeleton),0,(sockaddr*)&launcher,sizeof(launcher));
             }
