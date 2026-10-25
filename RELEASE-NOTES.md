@@ -1,3 +1,13 @@
+# ViceTogether alpha.20 — startup repair
+
+Fixes a packaging mistake in alpha.19 that made the launcher fail at startup for everyone. The installer now includes the vehicle-spawn validator required by the native launcher, and a regression test checks that native launcher engine dependencies stay in the packaged-file allowlist.
+
+**If alpha.19 is installed and shows “Cannot find module '../engine/vehicle-spawn.cjs', download and run the alpha.20 installer below.** That crash happens before automatic updates can start. Your launcher settings and imported game files are stored outside the application folder and are not bundled into the installer.
+
+The alpha.19 police-only synchronization changes are included. Police behavior still needs live two-player gameplay verification.
+
+---
+
 # ViceTogether alpha.19 — experimental
 
 This update narrows shared ambient-pedestrian replication to police only. Civilians stay local and are rejected by the shared-world validator. Police state remains host-authoritative; full guest-targeted police AI and pursuits are still experimental and have not been verified in a live two-game session. It also fixes a native linker error in the shared Come Fly With Me toggle.
