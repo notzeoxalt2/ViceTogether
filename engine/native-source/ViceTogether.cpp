@@ -133,7 +133,6 @@ struct Remote {
 Remote peers[7] = {};
 bool enabled = false;
 extern "C" void VT_SendSharedCheatRequest(int cheatId);
-bool ViceTogetherInterceptFlyCheat(){if(!enabled)return false;if(menuHost()){if(!getenv("VT_PORT"))return false;ViceTogetherWorldToggleFlyCheat();return true;}VT_SendSharedCheatRequest(1);return true;}
 bool loadoutGiven=false;
 static int localWantedLevel=-1,lastAppliedWantedLevel=-1;
 int localColor=0;
@@ -149,6 +148,11 @@ bool registeredAnimation(int group, int id) {
         && id-animations.firstAnimId<animations.numAssociations;
 }
 }
+
+// This hook is called by the patched game cheat function from another
+// translation unit, so it must have external linkage (outside the anonymous
+// namespace above).
+bool ViceTogetherInterceptFlyCheat(){if(!enabled)return false;if(menuHost()){if(!getenv("VT_PORT"))return false;ViceTogetherWorldToggleFlyCheat();return true;}VT_SendSharedCheatRequest(1);return true;}
 
 extern "C" {
 EMSCRIPTEN_KEEPALIVE int VT_Version() { return 1; }

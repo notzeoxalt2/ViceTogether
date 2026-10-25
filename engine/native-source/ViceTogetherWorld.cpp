@@ -328,7 +328,9 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
     std::vector<std::pair<float,CPed*>> nearbyPeds;
     std::vector<std::vector<std::pair<float,CPed*>>> pedsByCenter(centers.size());
     for(int i=0;i<peds->GetSize();i++){
-        CPed* p=peds->GetSlot(i);if(!p || p->IsPlayer() || ViceTogetherIsRemote(p) || !p->m_rwObject)continue;
+        // Police are the only ambient pedestrians replicated in the current
+        // prototype. Civilians retain each game's local stock behavior.
+        CPed* p=peds->GetSlot(i);if(!p || p->IsPlayer() || ViceTogetherIsRemote(p) || p->m_nPedType!=PEDTYPE_COP || !p->m_rwObject)continue;
         float nearest=worldCaptureRadiusSqr+1.0f;const CVector position=p->GetPosition();
         for(size_t zone=0;zone<centers.size();zone++){const float distance=(position-centers[zone]).MagnitudeSqr();if(distance<=worldCaptureRadiusSqr){pedsByCenter[zone].emplace_back(distance,p);nearest=std::min(nearest,distance);}}
         if(nearest<=worldCaptureRadiusSqr)nearbyPeds.emplace_back(nearest,p);
@@ -407,7 +409,7 @@ void ViceTogetherWorldPacket(unsigned type,unsigned id,const float* state) {
     if(type==37){if(pendingGlass.size()<expectedGlass){GlassState pane={};std::memcpy(pane.data,state,sizeof(pane.data));pendingGlass.push_back(pane);}return;}
     if(type==42){if(pendingExplosions.size()<expectedExplosions && state[0]>0 && state[1]>=0 && state[1]<12 && state[5]>=0 && state[5]<=10000){ExplosionState event={};std::memcpy(event.data,state,sizeof(event.data));pendingExplosions.push_back(event);}return;}
     if(type==20){if(unsigned(state[0])==pendingSequence && pending.size()==expected && pendingGlass.size()==expectedGlass && pendingExplosions.size()==expectedExplosions)commit();receiving=false;return;}
-    if((type!=21 && type!=22) || pending.size()>=expected || state[0]<0 || state[0]>=6500 || fabsf(state[2])>=10000 || fabsf(state[3])>=10000 || fabsf(state[4])>=3000)return;
+    if((type!=21 && type!=22) || (type==21 && state[1]!=float(PEDTYPE_COP)) || pending.size()>=expected || state[0]<0 || state[0]>=6500 || fabsf(state[2])>=10000 || fabsf(state[3])>=10000 || fabsf(state[4])>=3000)return;
     const auto* model=CModelInfo::GetModelInfo(int(state[0]));if(!model || model->GetModelType()!=(type==21?MITYPE_PED:MITYPE_VEHICLE))return;
     for(const auto& existing:pending)if(existing.id==id && existing.type==type)return;
     EntityState e={};e.id=id;e.type=type;std::memcpy(e.data,state,sizeof(e.data));pending.push_back(e);

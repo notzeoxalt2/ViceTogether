@@ -1,14 +1,22 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {validWorldFrame}=require('../engine/world.cjs');
+const fs=require('node:fs');
+const path=require('node:path');
+const {POLICE_PED_TYPE,validWorldFrame}=require('../engine/world.cjs');
 const {NativeEngine}=require('../src/native-engine.cjs');
 function vehicle(id=42){const state=Array(34).fill(0);state[0]=130;state[5]=state[9]=state[13]=1;state[17]=1000;return {id,type:22,state};}
-test('NPC injury state reaches the replica while invalid bone indices are rejected',()=>{
-  const state=Array(34).fill(0);state[0]=7;state[1]=4;state[8]=state[9]=-1;state[30]=180;state[31]=3|32|128;
+test('police injury state reaches the replica while civilian replicas and invalid bone indices are rejected',()=>{
+  const state=Array(34).fill(0);state[0]=7;state[1]=POLICE_PED_TYPE;state[8]=state[9]=-1;state[30]=180;state[31]=3|32|128;
   const frame={seq:3,entities:[{type:21,id:123,state}]};assert.ok(validWorldFrame(frame));
   const engine=new NativeEngine('unused'),packets=[];engine.socket={send:p=>packets.push(p)};engine.endpoint=1234;assert.ok(engine.remoteWorld(frame));
   const npc=packets.find(p=>p.readUInt32LE(4)===21);assert.equal(npc.readFloatLE(12+30*4),180);assert.equal(npc.readFloatLE(12+31*4),163);
   state[31]=31|32|128;assert.equal(validWorldFrame(frame),false);
+  state[31]=3|32|128;state[1]=4;assert.equal(validWorldFrame(frame),false,'civilian NPCs are not part of the shared police stream');
+});
+test('native world capture and packet intake are restricted to police pedestrians',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../engine/native-source/ViceTogetherWorld.cpp'),'utf8');
+  assert.match(source,/p->m_nPedType!=PEDTYPE_COP/);
+  assert.match(source,/type==21 && state\[1\]!=float\(PEDTYPE_COP\)/);
 });
 test('world frames reject duplicate identities, malformed vehicle bases and excess population',()=>{
   const entity=vehicle();assert.ok(validWorldFrame({seq:1,entities:[entity]}));

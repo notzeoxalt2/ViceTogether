@@ -1,5 +1,7 @@
 // Host-owned nearby ambient snapshots. Player vehicle ownership is not implied.
 const {validGlass,validExplosion}=require('./glass.cjs');
+// reVC ePedType ordering: PLAYER1..4, CIVMALE, CIVFEMALE, COP.
+const POLICE_PED_TYPE=6;
 function validWorldFrame(frame) {
   if(!frame || !Number.isSafeInteger(frame.seq) || frame.seq<1 || frame.seq>16777215 || !Array.isArray(frame.entities) || frame.entities.length>80)return false;
   if(frame.glass!==undefined && (!Array.isArray(frame.glass)||frame.glass.length>128||!frame.glass.every(validGlass)))return false;
@@ -12,6 +14,9 @@ function validWorldFrame(frame) {
     const d=entity.state;
     if(!Array.isArray(d) || d.length!==34 || !d.every(Number.isFinite) || !Number.isInteger(d[0]) || d[0]<0 || d[0]>=6500 || Math.abs(d[2])>=10000 || Math.abs(d[3])>=10000 || Math.abs(d[4])>=3000)return false;
     if(entity.type===21) {
+      // The current shared-world scope is police only. Do not accept or
+      // replicate ordinary ambient pedestrians until their AI is supported.
+      if(d[1]!==POLICE_PED_TYPE)return false;
       if(![30,31].every(i=>Number.isInteger(d[i]) && d[i]>=0 && d[i]<=255) || (d[31]&31)>18 || ![0,1].includes(d[32]))return false;
       if(++peds>48 || !Number.isInteger(d[1]) || d[1]<0 || d[1]>22 || Math.abs(d[5])>=100 || d[6]<-1000 || d[6]>10000 || !Number.isInteger(d[7]) || d[7]<0 || d[7]>5 || !Number.isInteger(d[8]) || d[8]<-1 || !Number.isInteger(d[9]) || d[9]<-1 || d[9]>7 || !Number.isInteger(d[33]) || d[33]<0 || d[33]>36)return false;
       for(const i of [10,15,20,25])if(!Number.isInteger(d[i]) || d[i]<0 || d[i]>1000 || !Number.isInteger(d[i+1]) || d[i+1]<0 || d[i+1]>1000 || d[i+2]<0 || d[i+2]>1000 || d[i+3]<0 || d[i+3]>10 || d[i+4]<0 || d[i+4]>1.01)return false;
@@ -26,4 +31,4 @@ function validWorldFrame(frame) {
   }
   return true;
 }
-module.exports={validWorldFrame};
+module.exports={POLICE_PED_TYPE,validWorldFrame};

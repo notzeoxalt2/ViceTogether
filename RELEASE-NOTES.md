@@ -1,4 +1,17 @@
-# ViceTogether alpha.18 — experimental
+# ViceTogether alpha.19 — experimental
+
+This update narrows shared ambient-pedestrian replication to police only. Civilians stay local and are rejected by the shared-world validator. Police state remains host-authoritative; full guest-targeted police AI and pursuits are still experimental and have not been verified in a live two-game session. It also fixes a native linker error in the shared Come Fly With Me toggle.
+
+- The existing police nearby the host are included in world snapshots; short snapshot gaps retain police replicas for up to two seconds.
+- A guest's wanted level continues through the existing shared wanted-level path, so the host's police simulation sees the session's highest wanted level. This does not yet make police select and pursue each remote player independently.
+- The Windows native build and installer must pass CI before this update is released. No game windows were launched for this update.
+- Alpha.18 changes are included: guest vehicle requests, rejoin-last-lobby, smoothed ping display, and the shared Come Fly With Me on/off state.
+
+Police replication is still a prototype, not perfect 1:1 AI synchronization. Each player must supply their own legally obtained Vice City files; the launcher includes no game assets.
+
+---
+
+## Previous update: alpha.18
 
 This update builds on alpha.17's host-authoritative guest vehicle requests, helicopter/plane replication, and rejoin control. It stabilizes the displayed ping, reduces brief pop-out of shared vehicles and police, and makes Come Fly With Me a shared on/off toggle.
 
