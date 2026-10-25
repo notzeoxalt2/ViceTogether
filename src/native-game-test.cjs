@@ -20,7 +20,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const engines = [new NativeEngine(executable), new NativeEngine(executable)];
   const windows = [a, b];
   for(const window of windows)await window.webContents.executeJavaScript("window.testNpcMeleeEvents=[];testLobby.addEventListener('npc-melee',event=>window.testNpcMeleeEvents.push(event.detail))");
-  const durationSeconds = Math.max(10, Math.min(180, Number(process.env.VT_TEST_DURATION) || 30));
+  const durationSeconds = Math.max(10, Math.min(180, Number(process.env.VT_TEST_DURATION) || (process.env.VT_TEST_GUEST_DRIVE==='1'?55:30)));
   const interactive=process.env.VT_MANUAL_FOLLOW==='1';
   const autoFollow=interactive && process.env.VT_MANUAL_BOTH!=='1';
   const combatTest=process.env.VT_TEST_COMBAT==='1',hits=[0,0];
@@ -190,13 +190,14 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       assert.equal(errors.length,0,errors.join('; '));
       const guestDriver=localSeats[1].filter(s=>s.id>=0&&s.seat===-1),hostPassenger=localSeats[0].filter(s=>s.id>=0&&s.seat>=0);
       assert.ok(guestDriver.length>100,'Guest did not become the native driver');assert.ok(hostPassenger.length>100,'Host did not become the native passenger');assert.equal(guestDriver.at(-1).id,hostPassenger.at(-1).id,'Players occupied different cars');
-      const distance=local.map(samples=>{const first=samples.find(s=>s.state[9]===1),last=samples.at(-1);return first&&last?Math.hypot(...last.state.slice(0,3).map((v,k)=>v-first.state[k])):0;});
+      const distance=local.map(samples=>{const occupied=samples.filter(s=>s.state[9]===1);assert.ok(occupied.length>30,'Player did not remain in the vehicle long enough to test motion');return Math.hypot(...occupied.at(-1).state.slice(0,3).map((v,k)=>v-occupied[0].state[k]));});
       if(process.env.VT_TEST_CAR_BLAST==='1'){
         assert.ok(worldStatusHistory.every(history=>history.some(world=>world.wreckedVehicles>=1)),'Shared wreck did not become wrecked in both engines');const respawns=local.map(samples=>{const dead=samples.find(sample=>sample.state[8]<=0),alive=dead&&samples.find(sample=>sample.time>dead.time+1000&&sample.state[8]>0);assert.ok(dead&&alive,'Both occupants must die and respawn after the shared car explosion');const distance=Math.hypot(...alive.state.slice(0,3).map((v,k)=>v-dead.state[k]));assert.ok(distance<110,'Respawn was not near the death location');return {distance,delayMs:alive.time-dead.time};});return {success:true,scenario:'Guest-driven car explosion, shared wreck and near-death respawn',worldObserved,maximumWrecks:worldStatusHistory.map(history=>Math.max(...history.map(world=>world.wreckedVehicles))),respawns,samePC:true,internetTested:false};
       }
       assert.ok(distance.every(d=>d>20),'Guest-driven car did not move both players at least twenty metres');
       const model=Number(process.env.VT_TEST_VEHICLE||130);assert.ok(driverSamples.filter(s=>Math.hypot(...s.slice(14,model===217?17:16))>0.1).length>10,'Guest vehicle did not maintain real driving / flight speed');
-      return {success:true,scenario:'Guest driver with host passenger',vehicleModel:model,distance,guestDriverSamples:guestDriver.length,hostPassengerSamples:hostPassenger.length,sharedVehicleId:guestDriver.at(-1).id,samePC:true,internetTested:false};
+      const exits=localSeats.map((seats,i)=>{const entered=seats.findIndex(s=>s.id>=0);const exit=seats.findIndex((s,n)=>n>entered&&s.id<0);assert.ok(entered>=0&&exit>entered,`${i?'Guest':'Host'} did not exit the shared vehicle normally`);assert.ok(seats.slice(exit).every(s=>s.id<0),`${i?'Guest':'Host'} was silently re-seated after exiting`);return {enteredSamples:entered,exitSamples:exit};});
+      return {success:true,scenario:'Guest driver and host passenger walk into a shared car, drive, and exit through stock controls',vehicleModel:model,distance,guestDriverSamples:guestDriver.length,hostPassengerSamples:hostPassenger.length,sharedVehicleId:guestDriver.at(-1).id,exits,samePC:true,internetTested:false};
     }
     if(process.env.VT_TEST_CAR_BLAST==='1'){
       assert.equal(errors.length,0,errors.join('; '));

@@ -26,3 +26,13 @@ test('native multiplayer seat grants use Vice City enter tasks instead of telepo
   const code=grant.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g,'');
   assert.doesNotMatch(code,/WarpPedIntoCar|pPassengers\s*\[[^\]]+\]\s*=|SetDriver\s*\(|AddPassenger\s*\(/);
 });
+
+test('hidden two-game guest-driving test actually runs and checks native exit transitions',()=>{
+  const network=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherNetwork.cpp'),'utf8');
+  const world=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
+  const harness=fs.readFileSync(path.join(__dirname,'..','src','native-game-test.cjs'),'utf8');
+  assert.match(network,/if\(getenv\("VT_TEST_GUEST_DRIVE"\)\)\{ViceTogetherWorldTestDrive\(\);return;\}/);
+  assert.match(world,/pad->NewState\.Triangle=255/);
+  assert.match(harness,/did not exit the shared vehicle normally/);
+  assert.match(harness,/silently re-seated after exiting/);
+});

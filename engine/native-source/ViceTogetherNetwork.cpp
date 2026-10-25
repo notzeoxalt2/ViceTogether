@@ -152,6 +152,7 @@ void ViceTogetherBeforeWorld() {
     if(!getenv("VT_TEST_WALK"))return;
     if(getenv("VT_TEST_MENU")){CPad::GetPad(0)->NewState.Clear();float status[34]={};if(ViceTogetherMenuTest(status))sendWorld(52,0,status);return;}
     if(getenv("VT_TEST_WORLD_EFFECTS")){CPad::GetPad(0)->NewState.Clear();ViceTogetherWorldTestEffects();return;}
+    if(getenv("VT_TEST_GUEST_DRIVE")){ViceTogetherWorldTestDrive();return;}
     if(getenv("VT_TEST_CAR")){ViceTogetherWorldTestDrive();return;}
     if(getenv("VT_TEST_GUN_WALK")) {
         CPad* pad=CPad::GetPad(0);pad->NewState.Clear();
