@@ -1,8 +1,8 @@
-# ViceTogether alpha.26 — guest-driven vehicle replication
+# ViceTogether alpha.27 — guest-driven vehicle replication
 
-This build addresses the car mismatch in the paired-game screenshots. Guest driver updates now include the car’s health and visual state, and the guest sends driver motion at 20 Hz instead of 10 Hz. The host accepts motion only for the car occupied by that remote driver, relays the shared car state, and keeps wreck status from being reset by a later cosmetic update.
+Guest driver updates include the car’s health and visual state, and the guest sends driver motion at 20 Hz instead of 10 Hz. The host accepts motion only after the lobby validates an exclusive driver claim. The native bridge now tolerates the short interval where Vice City has granted that claim but its stock seat task has not attached the remote player to `pDriver`; it still refuses to overwrite a locally driven car or an unrelated driver. Wreck status stays authoritative across later cosmetic updates.
 
-The Windows native build and the two-game guest-drive test must pass before this is published as an update. Expected verification: both players enter the same car through normal game tasks, the guest drives while the host rides as passenger, the cars agree on position/orientation and damage state, both players exit, and both game instances stay above 100 FPS. Same-PC results do not establish smooth internet driving, cross-NAT connectivity, or pixel-perfect 1:1 game synchronization.
+The Windows native build and two-game guest-drive test must pass before this is published as an update. The test compares the two car transforms directly (passenger ped coordinates are car-local), checks both cars travel, confirms the host receives driver visuals, and records FPS during the drive. Same-PC results do not establish smooth internet driving, cross-NAT connectivity, or pixel-perfect 1:1 game synchronization.
 
 ViceTogether remains an experimental prototype. Each player must import their own legally obtained Vice City installation; no game files are included.
 

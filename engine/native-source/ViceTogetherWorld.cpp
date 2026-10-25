@@ -261,11 +261,24 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
     player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);
 }
 void ViceTogetherCaptureDriver(VTWorldSender send){if(!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->bInVehicle||!p->m_pMyVehicle||p->m_pMyVehicle->pDriver!=p)return;CVehicle* car=p->m_pMyVehicle;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;float d[34]={},visual[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}d[17]=car->m_fHealth;d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);captureVehicleVisual(car,visual);send(60,unsigned(id),visual);send(43,unsigned(id),d);}
-void ViceTogetherApplyDriver(unsigned id,const float* d){if(!host())return;CVehicle* car=ViceTogetherWorldFindVehicle(id);if(!car||car->GetModelIndex()!=int(d[0])||!car->pDriver||!ViceTogetherIsRemote(car->pDriver))return;for(int i=0;i<20;i++)if(!std::isfinite(d[i]))return;if(d[17]<0||d[17]>1000||d[19]<0||d[19]>5||floorf(d[19])!=d[19])return;if(car->GetStatus()==STATUS_WRECKED)return;CWorld::Remove(car);car->SetPosition(d[2],d[3],d[4]);CMatrix& m=car->GetMatrix();m.GetRight()=CVector(d[5],d[6],d[7]);m.GetForward()=CVector(d[8],d[9],d[10]);m.GetUp()=CVector(d[11],d[12],d[13]);car->SetMoveSpeed(d[14],d[15],d[16]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;CWorld::Add(car);if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;m.UpdateRW();car->UpdateRwFrame();delegatedVehicles[id]=CTimer::GetTimeInMilliseconds();}
+void ViceTogetherApplyDriver(unsigned id,const float* d){
+    if(!host())return;
+    CVehicle* car=ViceTogetherWorldFindVehicle(id);
+    if(!car||car->GetModelIndex()!=int(d[0]))return;
+    // The JS host has already checked the exclusive driver claim and movement
+    // bounds. During stock enter/exit tasks the remote ped can briefly be
+    // detached from pDriver, so a null driver is valid here. Never overwrite
+    // a locally driven car or one driven by an unrelated occupant.
+    if(car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver)))return;
+    for(int i=0;i<21;i++)if(!std::isfinite(d[i]))return;
+    if(d[20]!=1||d[17]<0||d[17]>1000||d[19]<0||d[19]>5||floorf(d[19])!=d[19])return;
+    if(car->GetStatus()==STATUS_WRECKED)return;
+    CWorld::Remove(car);car->SetPosition(d[2],d[3],d[4]);CMatrix& m=car->GetMatrix();m.GetRight()=CVector(d[5],d[6],d[7]);m.GetForward()=CVector(d[8],d[9],d[10]);m.GetUp()=CVector(d[11],d[12],d[13]);car->SetMoveSpeed(d[14],d[15],d[16]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;CWorld::Add(car);if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;m.UpdateRW();car->UpdateRwFrame();delegatedVehicles[id]=CTimer::GetTimeInMilliseconds();
+}
 void ViceTogetherApplyDriverVisual(unsigned id,const float* v){
     if(!host())return;
     CVehicle* car=ViceTogetherWorldFindVehicle(id);
-    if(!car||!car->pDriver||!ViceTogetherIsRemote(car->pDriver))return;
+    if(!car||(car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver))))return;
     for(int i=0;i<34;i++)if(!std::isfinite(v[i]))return;
     if(v[25]<0||v[25]>255||floorf(v[25])!=v[25]||v[26]<0||v[26]>4095||floorf(v[26])!=v[26]||v[27]<0||v[27]>65535||floorf(v[27])!=v[27]||v[28]<0||v[28]>65535||floorf(v[28])!=v[28]||v[29]<0||v[29]>65535||floorf(v[29])!=v[29]||v[30]<0||v[30]>255||floorf(v[30])!=v[30]||v[31]<0||v[31]>STATUS_WRECKED||floorf(v[31])!=v[31]||(v[32]!=0&&v[32]!=1)||(v[33]!=0&&v[33]!=1))return;
     // Once either motion or visual state reports a wreck, the cosmetic packet

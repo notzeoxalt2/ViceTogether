@@ -19,7 +19,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const testId=`${process.pid}-${Date.now().toString(36)}`;
   const engines = [new NativeEngine(executable), new NativeEngine(executable)];
   const windows = [a, b];
-  for(const window of windows)await window.webContents.executeJavaScript("window.testNpcMeleeEvents=[];testLobby.addEventListener('npc-melee',event=>window.testNpcMeleeEvents.push(event.detail))");
+  for(const window of windows)await window.webContents.executeJavaScript("window.testNpcMeleeEvents=[];window.testAcceptedDriverStates=[];testLobby.addEventListener('npc-melee',event=>window.testNpcMeleeEvents.push(event.detail));testLobby.addEventListener('driver-state',event=>{window.testAcceptedDriverStates.push({time:Date.now(),...event.detail});if(window.testAcceptedDriverStates.length>2000)window.testAcceptedDriverStates.shift()})");
   const durationSeconds = Math.max(10, Math.min(180, Number(process.env.VT_TEST_DURATION) || (process.env.VT_TEST_GUEST_DRIVE==='1'?55:30)));
   const interactive=process.env.VT_MANUAL_FOLLOW==='1';
   const autoFollow=interactive && process.env.VT_MANUAL_BOTH!=='1';
@@ -185,24 +185,31 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const result={success:true,scenario:'Both players open the menu and use permitted cheats; host controls shared world state',menuObserved,vehicleModels:vehicleModels.map(models=>[...models]),samePC:true,internetTested:false};await fs.writeFile(path.join(out,'native-gameplay.json'),JSON.stringify(result,null,2));return result;
     }
     if(process.env.VT_TEST_GUEST_DRIVE==='1'){
-      const authority=await windows[0].webContents.executeJavaScript("({claims:[...testLobby.seats.claims.values()],motion:[...testLobby.seats.motion?.values()||[]],cars:[...testLobby.seats.cars.values()],approved:testEvents.filter(e=>e.name==='driver-state').length})");
+      const authority=await windows[0].webContents.executeJavaScript("({claims:[...testLobby.seats.claims.values()],motion:[...testLobby.seats.motion?.values()||[]],cars:[...testLobby.seats.cars.values()],accepted:window.testAcceptedDriverStates.length,lastAccepted:window.testAcceptedDriverStates.slice(-3)})");
       const seatTrace=localSeats.map(seats=>seats.filter((sample,index)=>index===0||sample.id!==seats[index-1].id||sample.seat!==seats[index-1].seat));
       const driverVehicleCounts=Object.entries(driverSamples.reduce((counts,sample)=>(counts[sample.id]=(counts[sample.id]||0)+1,counts),{}));
       await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify({errors,authority,firstDriverSamples:driverSamples.slice(0,20),driverSamples:driverSamples.slice(-20),driverVehicleCounts,hostVehicleSamples:hostVehicleSamples.slice(-100),local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),seatTrace,worldObserved},null,2));
       assert.equal(errors.length,0,errors.join('; '));
       const guestDriver=localSeats[1].filter(s=>s.id>=0&&s.seat===-1),hostPassenger=localSeats[0].filter(s=>s.id>=0&&s.seat>=0);
       assert.ok(guestDriver.length>100,'Guest did not become the native driver');assert.ok(hostPassenger.length>100,'Host did not become the native passenger');assert.equal(guestDriver.at(-1).id,hostPassenger.at(-1).id,'Players occupied different cars');
-      const acceptedDriverSamples=driverSamples.filter(sample=>sample.state?.[17]>0);
-      assert.ok(acceptedDriverSamples.length>100,'Guest driver did not report a live vehicle health value to the host');
+      const acceptedDriverSamples=await windows[0].webContents.executeJavaScript('window.testAcceptedDriverStates');
+      assert.ok(acceptedDriverSamples.length>100,'Host did not accept the guest’s authorized car state');
       assert.ok(acceptedDriverSamples.some(sample=>sample.visual?.length===34),'Guest driver wheel, door and damage visuals did not reach the host');
-      const distance=local.map(samples=>{const occupied=samples.filter(s=>s.state[9]===1);assert.ok(occupied.length>30,'Player did not remain in the vehicle long enough to test motion');return Math.hypot(...occupied.at(-1).state.slice(0,3).map((v,k)=>v-occupied[0].state[k]));});
       if(process.env.VT_TEST_CAR_BLAST==='1'){
         assert.ok(worldStatusHistory.every(history=>history.some(world=>world.wreckedVehicles>=1)),'Shared wreck did not become wrecked in both engines');const respawns=local.map(samples=>{const dead=samples.find(sample=>sample.state[8]<=0),alive=dead&&samples.find(sample=>sample.time>dead.time+1000&&sample.state[8]>0);assert.ok(dead&&alive,'Both occupants must die and respawn after the shared car explosion');const distance=Math.hypot(...alive.state.slice(0,3).map((v,k)=>v-dead.state[k]));assert.ok(distance<110,'Respawn was not near the death location');return {distance,delayMs:alive.time-dead.time};});return {success:true,scenario:'Guest-driven car explosion, shared wreck and near-death respawn',worldObserved,maximumWrecks:worldStatusHistory.map(history=>Math.max(...history.map(world=>world.wreckedVehicles))),respawns,samePC:true,internetTested:false};
       }
-      assert.ok(distance.every(d=>d>20),'Guest-driven car did not move both players at least twenty metres');
-      const model=Number(process.env.VT_TEST_VEHICLE||130);assert.ok(driverSamples.filter(s=>Math.hypot(...s.state.slice(14,model===217?17:16))>0.1).length>10,'Guest vehicle did not maintain real driving / flight speed');
+      const model=Number(process.env.VT_TEST_VEHICLE||130),vehicleId=guestDriver.at(-1).id;
+      const movingDriverSamples=driverSamples.filter(sample=>sample.id===vehicleId&&sample.state?.[17]>0);
+      assert.ok(movingDriverSamples.length>100,'Guest did not stream enough live driver snapshots for the shared car');
+      const guestCarTravel=Math.hypot(...movingDriverSamples.at(-1).state.slice(2,5).map((v,k)=>v-movingDriverSamples[0].state[k+2]));
+      assert.ok(guestCarTravel>20,`Guest-driven car only moved ${guestCarTravel.toFixed(1)} m`);
+      assert.ok(movingDriverSamples.filter(s=>Math.hypot(...s.state.slice(14,model===217?17:16))>0.1).length>10,'Guest vehicle did not maintain real driving / flight speed');
+      const hostCarSamples=hostVehicleSamples.filter(sample=>sample.id===vehicleId);
+      assert.ok(hostCarSamples.length>10,'Host did not capture the same car during the drive');
+      const hostCarTravel=Math.hypot(...hostCarSamples.at(-1).state.slice(2,5).map((v,k)=>v-hostCarSamples[0].state[k+2]));
+      assert.ok(hostCarTravel>20,`Host’s copy of the shared car only moved ${hostCarTravel.toFixed(1)} m`);
       const exits=localSeats.map((seats,i)=>{const entered=seats.findIndex(s=>s.id>=0);const exit=seats.findIndex((s,n)=>n>entered&&s.id<0);assert.ok(entered>=0&&exit>entered,`${i?'Guest':'Host'} did not exit the shared vehicle normally`);assert.ok(seats.slice(exit).every(s=>s.id<0),`${i?'Guest':'Host'} was silently re-seated after exiting`);return {enteredSamples:entered,exitSamples:exit};});
-      const carStart=Math.min(guestDriver[0].time,hostPassenger[0].time),carEnd=Math.max(guestDriver.at(-1).time,hostPassenger.at(-1).time);
+      const carStart=guestDriver[0].time,carEnd=guestDriver.at(-1).time;
       const matchedCarSamples=driverSamples.filter(sample=>sample.time>=carStart+1000&&sample.time<=carEnd-1000).map(sample=>{const host=hostVehicleSamples.filter(candidate=>candidate.id===sample.id).sort((a,b)=>Math.abs(a.time-sample.time)-Math.abs(b.time-sample.time))[0];if(!host||Math.abs(host.time-sample.time)>250)return null;const positionError=Math.hypot(...sample.state.slice(2,5).map((v,k)=>v-host.state[k+2]));const basisErrors=[0,3,6].map(offset=>Math.hypot(...sample.state.slice(5+offset,8+offset).map((v,k)=>v-host.state[5+offset+k])));return {id:sample.id,ageMs:host.time-sample.time,positionErrorMetres:positionError,basisError:Math.max(...basisErrors),driverHealth:sample.state[17],hostHealth:host.state[17],driverStatus:sample.state[19],hostStatus:host.visual?.[31]??null};}).filter(Boolean);
       assert.ok(matchedCarSamples.length>10,'Host did not publish enough car samples to compare against the guest driver');
       const positionErrors=matchedCarSamples.map(sample=>sample.positionErrorMetres).sort((a,b)=>a-b),basisErrors=matchedCarSamples.map(sample=>sample.basisError).sort((a,b)=>a-b);
@@ -211,7 +218,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       assert.ok(carReplication.basisErrorP95<0.35,`Host car orientation disagreed with the guest driver by ${carReplication.basisErrorP95.toFixed(3)} at p95`);
       const carPerformance=performance.map((samples,i)=>{const segment=samples.filter(sample=>sample.time>=carStart&&sample.time<=carEnd);assert.ok(segment.length>5,`Engine ${i} did not report performance during the shared-car drive`);const fps=segment.map(sample=>sample.fps).sort((a,b)=>a-b);const p95=segment.map(sample=>sample.frameMsP95).sort((a,b)=>a-b);const result={minFps:fps[0],medianFps:fps[Math.floor(fps.length/2)],frameMsP95P95:p95[Math.floor(p95.length*.95)],samples:segment.length};assert.ok(result.minFps>100,`Engine ${i} dropped below 100 FPS during the shared-car drive: ${result.minFps}`);return result;});
       const hostPedStates=sourceSkeleton[0].filter(sample=>sample.time>=carStart&&sample.time<=carEnd).map(sample=>({pedState:sample.state[4],objective:sample.state[5],inVehicle:sample.state[6],driver:sample.state[8]}));
-      return {success:true,scenario:'Guest driver and host passenger walk into a shared car, drive, and exit through stock controls',vehicleModel:model,distance,guestDriverSamples:guestDriver.length,hostPassengerSamples:hostPassenger.length,sharedVehicleId:guestDriver.at(-1).id,exits,carReplication,carPerformance,hostPedStates:hostPedStates.slice(-20),samePC:true,internetTested:false};
+      return {success:true,scenario:'Guest driver and host passenger walk into a shared car, drive, and exit through stock controls',vehicleModel:model,guestCarTravelMetres:guestCarTravel,hostCarTravelMetres:hostCarTravel,guestDriverSamples:guestDriver.length,hostPassengerSamples:hostPassenger.length,acceptedDriverStates:acceptedDriverSamples.length,sharedVehicleId:vehicleId,exits,carReplication,carPerformance,hostPedStates:hostPedStates.slice(-20),samePC:true,internetTested:false};
     }
     if(process.env.VT_TEST_GUEST_SPAWN==='1'){
       await waitFor(()=>vehicleModels.every(models=>models.has(217)), 'Guest menu helicopter request did not produce a shared helicopter on both native clients',35000);
