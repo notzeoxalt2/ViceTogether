@@ -244,8 +244,8 @@ void ViceTogetherNetworkTick() {
         // Keep just one 50 ms snapshot in the interpolation buffer. The old
         // 100 ms floor made every remote player visibly trail even on a clean
         // route. Increase the buffer only when packet arrival jitter calls for it.
-        if(!s.live){s.count=0;s.jitter=0;s.delay=50;s.playback=0;}
-        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-50.0f)*0.1f;const float targetDelay=std::min(180.0f,50.0f+1.5f*s.jitter);s.delay=s.delay*0.9f+targetDelay*0.1f;}}
+        if(!s.live){s.count=0;s.jitter=0;s.delay=40;s.playback=0;}
+        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-50.0f)*0.1f;const float targetDelay=std::min(160.0f,40.0f+s.jitter);s.delay=s.delay*0.9f+targetDelay*0.1f;}}
         if(s.count==8) {
             std::memmove(s.times,s.times+1,7*sizeof(DWORD));
             std::memmove(s.states,s.states+1,7*sizeof(s.states[0]));s.count=7;

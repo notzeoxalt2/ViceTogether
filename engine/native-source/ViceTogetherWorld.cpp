@@ -285,7 +285,7 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
             if(getenv("VT_TEST_CAR_BLAST") && now-started>12000 && testCar->GetStatus()!=STATUS_WRECKED)testCar->BlowUpCar(player);
             return;
         }
-        if(player->bInVehicle){if(!guestBoardedAt)guestBoardedAt=now;if(!guestExitSent)pad->NewState.Cross=255;pad->NewState.LeftStickX=0;if(!guestExitSent&&now-guestBoardedAt>18000){pad->NewState.Triangle=255;guestExitSent=true;guestExitAt=now;}}
+        if(player->bInVehicle){if(!guestBoardedAt)guestBoardedAt=now;if(!guestExitSent&&now-guestBoardedAt>5000)pad->NewState.Cross=255;pad->NewState.LeftStickX=0;if(!guestExitSent&&now-guestBoardedAt>18000){pad->NewState.Triangle=255;guestExitSent=true;guestExitAt=now;}}
         else if(guestExitSent){if(now-guestExitAt>2500)guestExited=true;}
         else if(!guestExited&&now-last>500){
             float hostState[20]={};const bool haveHost=VT_ReadRemote(0,hostState);
