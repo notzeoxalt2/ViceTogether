@@ -53,9 +53,10 @@ static const MenuItem menuHelis[]={{"Maverick",1217},{"Hunter",1155},{"Back",-10
 static const MenuItem menuBoats[]={{"Dinghy",1203},{"Speeder",1182},{"Squalo",1176},{"Back",-100}};
 static const MenuItem menuAircraft[]={{"Skimmer (water takeoff)",1190},{"Back",-100}};
 static const MenuItem menuAdmin[]={{"Morning",2000},{"Night",2001},{"Sunny weather",2002},{"Rainy weather",2003},{"Clear own wanted level",2004},{"Remove unused spawned vehicles",2005},{"Close",-99}};
+static const MenuItem menuGuestCheats[]={{"Weapon cheats",-1},{"Close",-99}};
 static bool menuHost(){const char* role=getenv("VT_WORLD_HOST");return !getenv("VT_PORT") || (role&&atoi(role)==1);}
 static const MenuItem* menuItems(int& count){
-    switch(modMenuPage){case 1:count=4;return menuWeapons;case 2:count=6;return menuVehicles;case 3:count=6;return menuCars;case 4:count=5;return menuBikes;case 5:count=3;return menuHelis;case 6:count=4;return menuBoats;case 7:count=2;return menuAircraft;case 8:count=7;return menuAdmin;default:count=3;return menuRoot;}
+    switch(modMenuPage){case 1:count=4;return menuWeapons;case 2:count=6;return menuVehicles;case 3:count=6;return menuCars;case 4:count=5;return menuBikes;case 5:count=3;return menuHelis;case 6:count=4;return menuBoats;case 7:count=2;return menuAircraft;case 8:if(menuHost()){count=7;return menuAdmin;}count=2;return menuGuestCheats;default:count=3;return menuRoot;}
 }
 static float hudPing=-1,hudTransportPing=-1;static int hudPeers=0;static uint32 hudNetworkTime=0;
 void ViceTogetherNetworkStatus(const float* status){if(!std::isfinite(status[0])||!std::isfinite(status[1])||!std::isfinite(status[2])||status[0]<-1||status[0]>10000||status[1]<-1||status[1]>10000||status[2]<0||status[2]>7)return;hudPing=status[0];hudTransportPing=status[1];hudPeers=int(status[2]);hudNetworkTime=CTimer::GetTimeInMilliseconds();}
@@ -68,7 +69,7 @@ static void drawNetworkStatus(){
 bool ViceTogetherMenuOpen(){return modMenuOpen;}
 bool ViceTogetherMenuKey(int key,bool control){
     if(key=='O'&&control){modMenuOpen=!modMenuOpen;modMenuPage=modMenuRow=0;return true;}
-    if(key=='I'&&control){if(menuHost()){modMenuOpen=!modMenuOpen || modMenuPage!=8;modMenuPage=8;modMenuRow=0;}return true;}
+    if(key=='I'&&control){modMenuOpen=!modMenuOpen || modMenuPage!=8;modMenuPage=8;modMenuRow=0;return true;}
     if(!modMenuOpen)return false;
     int count;const MenuItem* rows=menuItems(count);
     if(key==38||key=='W')modMenuRow=(modMenuRow+count-1)%count;
@@ -83,16 +84,19 @@ static void drawModMenu(){
     int count;const MenuItem* rows=menuItems(count);const CFontDetails saved=CFont::Details;const float x=SCREEN_SCALE_X(28),y=SCREEN_SCALE_Y(60),w=SCREEN_SCALE_X(270),row=SCREEN_SCALE_Y(26);
     CSprite2d::DrawRect(CRect(x,y,x+w,y+row*(count+3.8f)),CRGBA(19,18,35,235));CSprite2d::DrawRect(CRect(x,y,x+w,y+row*1.5f),CRGBA(192,78,151,255));
     CFont::SetFontStyle(FONT_STANDARD);CFont::SetScale(SCREEN_SCALE_X(0.42f),SCREEN_SCALE_Y(0.78f));CFont::SetCentreOff();CFont::SetRightJustifyOff();CFont::SetJustifyOff();CFont::SetBackgroundOff();CFont::SetPropOn();CFont::SetColor(CRGBA(255,255,255,255));
-    wchar text[96];CFont::SetFontStyle(FONT_HEADING);AsciiToUnicode(modMenuPage==8?"ViceTogether - ADMIN":"ViceTogether",text);CFont::PrintString(x+SCREEN_SCALE_X(12),y+SCREEN_SCALE_Y(10),text);CFont::SetFontStyle(FONT_STANDARD);
+    wchar text[96];CFont::SetFontStyle(FONT_HEADING);AsciiToUnicode(modMenuPage==8?(menuHost()?"ViceTogether - ADMIN":"ViceTogether - CHEATS"):"ViceTogether",text);CFont::PrintString(x+SCREEN_SCALE_X(12),y+SCREEN_SCALE_Y(10),text);CFont::SetFontStyle(FONT_STANDARD);
     for(int i=0;i<count;i++){const float top=y+row*(1.6f+i);if(i==modMenuRow)CSprite2d::DrawRect(CRect(x,top,x+w,top+row),CRGBA(91,174,174,240));CFont::SetColor(CRGBA(255,255,255,255));AsciiToUnicode(rows[i].label,text);CFont::PrintString(x+SCREEN_SCALE_X(12),top+SCREEN_SCALE_Y(5),text);}
-    CFont::SetScale(SCREEN_SCALE_X(0.27f),SCREEN_SCALE_Y(0.55f));AsciiToUnicode(modMenuPage>=3&&modMenuPage<=7&&!menuHost()?"Vehicle spawning: host only":"Arrows / WASD   Enter: use   Backspace: back",text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*(count+2.2f),text);AsciiToUnicode(ViceTogetherWorldMenuStatus(),text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*(count+3.0f),text);CFont::Details=saved;
+    CFont::SetScale(SCREEN_SCALE_X(0.27f),SCREEN_SCALE_Y(0.55f));AsciiToUnicode(modMenuPage==8&&!menuHost()?"Weapon pack cheats are available to all players":"Arrows / WASD   Enter: use   Backspace: back",text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*(count+2.2f),text);AsciiToUnicode(ViceTogetherWorldMenuStatus(),text);CFont::PrintString(x+SCREEN_SCALE_X(9),y+row*(count+3.0f),text);CFont::Details=saved;
 }
 bool ViceTogetherMenuTest(float* state){
     if(!getenv("VT_TEST_WALK")||CTimer::GetFrameCounter()<500||!FindPlayerPed()||!FindPlayerPed()->m_rwObject)return false;
     static int stage=0,flags=0;static uint32 started=0;if(stage==2)return false;
     if(stage==0){started=CTimer::GetTimeInMilliseconds();ViceTogetherMenuKey('O',true);ViceTogetherMenuKey('W',false);if(modMenuRow==2)flags|=1;ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(40,false);ViceTogetherMenuKey(13,false);if(modMenuPage==2)flags|=2;ViceTogetherMenuKey('D',false);if(modMenuPage==3)flags|=4;ViceTogetherMenuKey(13,false);if((menuHost()&&modMenuAction==1141)||(!menuHost()&&modMenuAction==-1))flags|=8;ViceTogetherMenuKey(27,false);stage=1;return false;}
     if(CTimer::GetTimeInMilliseconds()-started<4000)return false;if(menuHost()){FILE* log=fopen("native-menu.log","a");if(log){const CVector position=FindPlayerPed()->GetPosition();fprintf(log,"status=%s position=%f,%f,%f\n",ViceTogetherWorldMenuStatus(),position.x,position.y,position.z);fclose(log);}}ViceTogetherMenuKey('I',true);
-    if(menuHost()){if(modMenuPage==8&&modMenuOpen)flags|=16;ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(13,false);if(modMenuAction==2001)flags|=32;ViceTogetherMenuKey(27,false);}else if(!modMenuOpen)flags|=48;
+    if(modMenuPage==8&&modMenuOpen)flags|=16;
+    if(menuHost()){ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(13,false);if(modMenuAction==2001)flags|=32;}
+    else {ViceTogetherMenuKey(13,false);if(modMenuPage==1)flags|=32;}
+    ViceTogetherMenuKey(27,false);
     state[0]=float(flags);state[1]=menuHost()?1:0;stage=2;return true;
 }
 #ifdef __EMSCRIPTEN__

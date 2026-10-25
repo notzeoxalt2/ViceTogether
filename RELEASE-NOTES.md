@@ -1,4 +1,20 @@
-# ViceTogether alpha.15 — experimental
+# ViceTogether alpha.16 — experimental
+
+This update makes the weapon-cheat menu available to both players in a multiplayer session.
+
+- Ctrl+I opens a player-facing Cheats menu for both the host and guests. Guests can open the weapon-pack submenu and activate the original game's weapon cheats.
+- The host still has the shared-world controls for time, weather, vehicle spawning and cleanup. Those controls stay host-authoritative so guests cannot change only their local copy of the shared world.
+- Ctrl+O and its existing weapon and vehicle menus remain available as before.
+
+This is a menu access change; it does not add new cheat effects or make every world change multiplayer-synchronized.
+
+## Build notes
+
+The Windows installer contains the updated native engine and does not include Vice City assets. Each player needs their own legally obtained game files.
+
+---
+
+## Previous release: alpha.15
 
 This update improves guest interaction with host-owned NPCs and reduces empty-world gaps when players are apart.
 

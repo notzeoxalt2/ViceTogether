@@ -20,4 +20,6 @@ Type 36 carries damage from the host native engine to its local launcher only. T
 
 The upstream proof-of-usage contribution is public in [reVC PR #51](https://github.com/mrxenginner/reVC/pull/51). Its provenance hash is recorded in `THIRD-PARTY-NOTICES.md`; preserve that credit with builds of the native engine.
 
+Alpha 16 lets both host and guests open the Ctrl+I Cheats menu and use the game's weapon-pack cheats. Shared-world time, weather and vehicle controls remain host-only to avoid guest-local changes that would immediately disagree with the authoritative world.
+
 Glass uses persistent model/position records (type 37), guest requests (40), and host grants (41). Late or re-streamed guests apply the retained pane's cracked/broken state through the stock glass implementation. Type 42 carries sequenced recent non-vehicle explosions; vehicle wrecks retain their existing stock explosion path. Host-attributed explosion damage now reaches shared player health. The two-engine native effects fixture verifies invisible, non-colliding glass in both object pools and guest health loss from a host-attributed nearby grenade. This does not verify all glass assets, identical particle randomness, every projectile, or internet play.

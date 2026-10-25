@@ -1,6 +1,7 @@
 name: Build Windows launcher release
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
 permissions:
@@ -14,6 +15,31 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Checkout pinned reVC engine source
+        uses: actions/checkout@v4
+        with:
+          repository: mrxenginner/reVC
+          ref: a26fff4af555a8a425ac9f17d1dd718d00d1f942
+          path: native-engine-source
+          submodules: true
+      - name: Build the updated native engine
+        shell: pwsh
+        run: |
+          $source = Join-Path $PWD 'native-engine-source'
+          $patch = Join-Path $PWD 'engine/native-source/native-engine.patch'
+          git -C $source apply $patch
+          if ($LASTEXITCODE -ne 0) { throw 'Native engine patch did not apply.' }
+          Copy-Item engine/native-source/ViceTogether.cpp,engine/native-source/ViceTogether.h,engine/native-source/ViceTogetherNetwork.cpp,engine/native-source/ViceTogetherWorld.cpp,engine/native-source/ViceTogetherWorld.h -Destination native-engine-source/src/core -Force
+          Copy-Item engine/native-source/vice-together.ico -Destination native-engine-source/src/skel/win/vice-together.ico -Force
+          $build = Join-Path $source 'build'
+          $milesSdk = Join-Path $source 'vendor/milessdk'
+          cmake -S $source -B $build -G "Visual Studio 17 2022" -A Win32 -DLIBRW_PLATFORM=D3D9 -DREVC_AUDIO=MSS "-DMilesSDK_DIR=$milesSdk" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DREVC_WITH_OPUS=OFF -DLIBRW_TOOLS=OFF -DLIBRW_INSTALL=OFF -DREVC_INSTALL=OFF -DCMAKE_SYSTEM_VERSION=10.0.26100.0
+          if ($LASTEXITCODE -ne 0) { throw 'Native engine CMake configuration failed.' }
+          cmake --build $build --config Release --target reVC --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed.' }
+          $engine = Get-ChildItem $build -Filter reVC.exe -Recurse | Select-Object -First 1
+          if (!$engine) { throw 'Native engine executable was not produced.' }
+          Copy-Item -LiteralPath $engine.FullName -Destination engine/native/reVC.exe -Force
       - run: npm ci
       - run: npm test
       - name: Build installer and portable launcher
