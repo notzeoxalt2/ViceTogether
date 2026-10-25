@@ -271,7 +271,7 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
     if(!player || !car || player->bInVehicle || car->m_fHealth<=0 || car->GetStatus()==STATUS_WRECKED || car->bRenderScorched){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=!player?3:!car?4:player->bInVehicle?5:6;return;}
     // A grant can be repeated while a player is still walking to the door.
     // Keep the existing stock entry task instead of restarting it every packet.
-    if((player->m_objective==OBJECTIVE_ENTER_CAR_AS_DRIVER || player->m_objective==OBJECTIVE_ENTER_CAR_AS_PASSENGER) && player->m_carInObjective==car){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=7;return;}
+    if((player->EnteringCar() || player->m_objective==OBJECTIVE_ENTER_CAR_AS_DRIVER || player->m_objective==OBJECTIVE_ENTER_CAR_AS_PASSENGER) && player->m_carInObjective==car){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=7;return;}
     if(seat==-1){
         if(car->pDriver && car->pDriver!=player){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=8;return;}
         if(car->IsBoat()){
@@ -349,22 +349,26 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
         static int warmup=0;if(++warmup<500 || !player->m_rwObject)return;
         const int model=getenv("VT_TEST_VEHICLE")?atoi(getenv("VT_TEST_VEHICLE")):130;
         if(model!=130 && model!=191 && model!=217 && model!=182 && model!=190)return;
-        static CVehicle* testCar=nil;static CVehicle* testBarrier=nil;static uint32 last=0,started=0,guestBoardedAt=0,hostBoardedAt=0,guestExitAt=0,hostExitAt=0;static bool guestPositioned=false,guestExitSent=false,guestExited=false,hostExitSent=false,hostExited=false;const uint32 now=CTimer::GetTimeInMilliseconds();if(!started)started=now;
+        static CVehicle* testCar=nil;static CVehicle* testBarrier=nil;static uint32 last=0,started=0,guestBoardedAt=0,hostBoardedAt=0,guestExitAt=0,hostExitAt=0;static bool guestPositioned=false,guestExitSent=false,guestExited=false,hostExitSent=false,hostExited=false,hostBoatPassengerRequested=false;static CVector boatApproach;static bool boatApproachFound=false;const uint32 now=CTimer::GetTimeInMilliseconds();if(!started)started=now;
         if(host()){
             if(!testCar){
                 CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(model))return;
                 const int road=ThePaths.FindNodeClosestToCoors(player->GetPosition(),PATH_CAR,100.0f);CVector location=player->GetPosition()+CVector(8,0,0);float heading=player->m_fRotationCur;
                 if(CModelInfo::IsBoatModel(model)){
                     bool found=false;for(int radius=20;radius<=800&&!found;radius+=20)for(int angle=0;angle<16;angle++){const float a=angle*6.2831853f/16;CVector candidate=player->GetPosition()+CVector(cosf(a)*radius,sinf(a)*radius,0);float water;bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,100,&groundFound);if(CWaterLevel::GetWaterLevel(candidate.x,candidate.y,candidate.z,&water,true)&&(!groundFound || ground<water+0.1f)){location=CVector(candidate.x,candidate.y,water+0.5f);heading=a;found=true;break;}}if(!found)return;
+                    // A Vice City player cannot walk on open water. Keep the
+                    // automated boat test on the nearest dry shoreline so both
+                    // native clients can use the stock boarding approach.
+                    for(int radius=3;radius<=10&&!boatApproachFound;radius++)for(int angle=0;angle<32;angle++){const float a=angle*6.2831853f/32;const float x=location.x+cosf(a)*radius,y=location.y+sinf(a)*radius;bool dryGroundFound=false;const float dryGround=CWorld::FindGroundZFor3DCoord(x,y,100,&dryGroundFound);float nearbyWater=0;const bool wet=CWaterLevel::GetWaterLevel(x,y,location.z,&nearbyWater,true);if(dryGroundFound&&(!wet||dryGround>nearbyWater+0.65f)){boatApproach=CVector(x,y,dryGround+0.5f);boatApproachFound=true;break;}}if(!boatApproachFound)return;
                     testCar=new CBoat(model,MISSION_VEHICLE);
                 }else{if(road>=0){const CVector roadPosition=ThePaths.m_pathNodes[road].GetPosition();if((roadPosition-player->GetPosition()).MagnitudeSqr()<900.0f){location=roadPosition+CVector(0,0,1);if(ThePaths.m_pathNodes[road].numLinks){const CVector direction=ThePaths.m_pathNodes[ThePaths.ConnectedNode(ThePaths.m_pathNodes[road].firstLink)].GetPosition()-location;heading=atan2f(-direction.x,direction.y);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}testCar=createMultiplayerVehicle(model);if(!testCar)return;}
-                testCar->RegisterReference((CEntity**)&testCar);testCar->m_fHealth=1000.0f;testCar->SetPosition(location);testCar->SetHeading(heading);player->Teleport(location+testCar->GetRight()*3.0f);testCar->SetStatus(STATUS_ABANDONED);testCar->SetMoveSpeed(0,0,0);CWorld::Add(testCar);
+                testCar->RegisterReference((CEntity**)&testCar);testCar->m_fHealth=1000.0f;testCar->SetPosition(location);testCar->SetHeading(heading);player->Teleport(testCar->IsBoat()?boatApproach:location+testCar->GetRight()*3.0f);testCar->SetStatus(STATUS_ABANDONED);testCar->SetMoveSpeed(0,0,0);CWorld::Add(testCar);
             }
             if(getenv("VT_TEST_VEHICLE_COLLISION") && model==130 && !testBarrier){CStreaming::RequestModel(135,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(135))return;testBarrier=createMultiplayerVehicle(135);if(testBarrier){const CVector forward=testCar->GetForward();testBarrier->RegisterReference((CEntity**)&testBarrier);testBarrier->m_fHealth=1000.0f;testBarrier->SetPosition(testCar->GetPosition()+forward*45.0f);testBarrier->SetHeading(atan2f(-forward.x,forward.y));testBarrier->SetStatus(STATUS_ABANDONED);testBarrier->SetMoveSpeed(0,0,0);testBarrier->bEngineOn=false;CWorld::Add(testBarrier);}}
             if(player->bInVehicle){if(!hostBoardedAt)hostBoardedAt=now;if(!hostExitSent&&now-hostBoardedAt>18000){hostExitAt=now;hostExitSent=true;}if(hostExitSent&&now-hostExitAt<250)pad->NewState.Triangle=255;}
             else if(hostExitSent&&hostBoardedAt&&now-hostBoardedAt>22000)hostExited=true;
             const unsigned testCarId=unsigned(CPools::GetVehicleRef(testCar));const auto delegated=delegatedVehicles.find(testCarId);const bool guestDriving=delegated!=delegatedVehicles.end()&&now-delegated->second<1500;
-            if(!hostExited&&!hostExitSent&&(testCar->pDriver || guestDriving || testCar->IsBoat())&&!player->bInVehicle)ViceTogetherGrantPassenger(testCarId,0);
+            if(!hostExited&&!hostExitSent&&(testCar->pDriver || guestDriving || testCar->IsBoat())&&!player->bInVehicle){if(testCar->IsBoat()){if(!hostBoatPassengerRequested){hostBoatPassengerRequested=true;ViceTogetherGrantPassenger(testCarId,0);}}else ViceTogetherGrantPassenger(testCarId,0);}
             if(getenv("VT_TEST_CAR_BLAST") && now-started>12000 && testCar->GetStatus()!=STATUS_WRECKED)testCar->BlowUpCar(player);
             return;
         }
@@ -375,7 +379,7 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
             const CVector target=haveHost?CVector(hostState[0],hostState[1],hostState[2]):player->GetPosition();
             CVehicle* candidate=nil;unsigned candidateId=0;float closest=1000000.0f;
             for(const auto& entry:vehicles)if(entry.second.entity){CVehicle* car=(CVehicle*)entry.second.entity;if(car->GetModelIndex()!=model||car->m_fHealth<=0||car->pDriver)continue;const float distance=(car->GetPosition()-target).MagnitudeSqr();if(distance<closest){closest=distance;candidate=car;candidateId=entry.first;}}
-            if(candidate){if(!guestPositioned){player->Teleport(candidate->GetPosition()+candidate->GetRight()*3.0f);guestPositioned=true;}VT_SendDriverRequest(candidateId);}
+            if(candidate){if(!guestPositioned){if(candidate->IsBoat()&&haveHost)player->Teleport(CVector(hostState[0],hostState[1],hostState[2]));else player->Teleport(candidate->GetPosition()+candidate->GetRight()*3.0f);guestPositioned=true;}VT_SendDriverRequest(candidateId);}
             last=now;
         }return;
     }
