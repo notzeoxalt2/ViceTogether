@@ -5,6 +5,7 @@
 #include "ViceTogetherWorld.h"
 #include "PlayerPed.h"
 #include "Vehicle.h"
+#include "Automobile.h"
 #include "Ped.h"
 #include "World.h"
 #include "PathFind.h"
@@ -379,7 +380,8 @@ int VT_ReadLocalSkeleton(float* out) {
     out[0]=(head-left).Magnitude();out[1]=(head-right).Magnitude();out[2]=(left-right).Magnitude();out[3]=p->m_fHealth;
     out[4]=float(p->m_nPedState);out[5]=float(p->m_objective);out[6]=p->bInVehicle?1:0;
     out[17]=head.x;out[18]=head.y;out[19]=head.z;
-    if(p->m_pMyVehicle){CVehicle* car=p->m_pMyVehicle;out[7]=float(car->GetStatus());out[8]=car->pDriver==p?1:0;out[9]=car->m_fGasPedal;out[10]=car->GetMoveSpeed().Magnitude();}
+    out[11]=float(p->m_vehDoor);out[12]=p->m_pVehicleAnim?float(p->m_pVehicleAnim->animId):-1.0f;out[13]=p->m_pVehicleAnim?p->m_pVehicleAnim->currentTime:-1.0f;out[14]=p->m_pVehicleAnim?p->m_pVehicleAnim->blendAmount:0.0f;
+    if(p->m_pMyVehicle){CVehicle* car=p->m_pMyVehicle;out[7]=float(car->GetStatus());out[8]=car->pDriver==p?1:0;out[9]=car->m_fGasPedal;out[10]=car->GetMoveSpeed().Magnitude();if(car->IsCar())for(int i=0;i<6;i++)out[20+i]=((CAutomobile*)car)->Doors[i].m_fAngle;}
     return 1;
 }
 int VT_ReadRemoteSkeleton(int slot,float* out) {

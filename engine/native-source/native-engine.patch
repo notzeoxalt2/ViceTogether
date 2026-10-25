@@ -490,7 +490,6 @@ index 3e7a26c..bed7dcf 100644
 +            if(!(lParam&(1L<<30)) && ViceTogetherMenuKey(int(wParam),(GetKeyState(VK_CONTROL)&0x8000)!=0))return 0L;
 +            if(ViceTogetherMenuOpen())return 0L;
 +            if(wParam=='G' && getenv("VT_PORT") && !(lParam&(1L<<30)))ViceTogetherRequestPassenger();
-+            if(wParam=='F' && getenv("VT_PORT") && !(lParam&(1L<<30)) && ViceTogetherRequestVehicleExit())return 0L;
 +            if(wParam=='F' && !(lParam&(1L<<30)) && ViceTogetherGuestOnFoot()){ViceTogetherRequestDriver();return 0L;}
  			
  			if ( _InputTranslateKey(&ks, lParam, wParam) )

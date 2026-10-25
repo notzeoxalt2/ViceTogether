@@ -239,7 +239,6 @@ int ViceTogetherWorldVehicleId(CVehicle* vehicle){if(host())return CPools::GetVe
 extern "C" void VT_SendSeatRequest(unsigned id);
 extern "C" void VT_SendDriverRequest(unsigned id);
 bool ViceTogetherGuestOnFoot(){return guest() && FindPlayerPed() && !FindPlayerPed()->bInVehicle;}
-bool ViceTogetherRequestVehicleExit(){CPlayerPed* player=FindPlayerPed();if(!player||!player->bInVehicle||!player->m_pMyVehicle||player->m_pMyVehicle->pDriver==player)return false;player->SetObjective(OBJECTIVE_LEAVE_CAR,player->m_pMyVehicle);return true;}
 void ViceTogetherRequestPassenger(){if((!guest()&&!host()) || !FindPlayerPed() || FindPlayerPed()->bInVehicle)return;float best=64;unsigned id=0;bool found=false;auto* cars=CPools::GetVehiclePool();for(int i=0;i<cars->GetSize();i++){CVehicle* car=cars->GetSlot(i);if(!car)continue;const int carId=ViceTogetherWorldVehicleId(car);if(carId<0)continue;const float distance=(car->GetPosition()-FindPlayerPed()->GetPosition()).MagnitudeSqr();if(distance<best){best=distance;id=unsigned(carId);found=true;}}if(found)VT_SendSeatRequest(id);}
 void ViceTogetherRequestDriver(){if(!guest() || !FindPlayerPed() || FindPlayerPed()->bInVehicle)return;float best=64;unsigned id=0;bool found=false;for(const auto& entry:vehicles)if(entry.second.entity && !((CVehicle*)entry.second.entity)->pDriver){const float distance=(entry.second.entity->GetPosition()-FindPlayerPed()->GetPosition()).MagnitudeSqr();if(distance<best){best=distance;id=entry.first;found=true;}}if(found)VT_SendDriverRequest(id);}
 void ViceTogetherGrantPassenger(unsigned id,int seat){
@@ -317,7 +316,7 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
         static int warmup=0;if(++warmup<500 || !player->m_rwObject)return;
         const int model=getenv("VT_TEST_VEHICLE")?atoi(getenv("VT_TEST_VEHICLE")):130;
         if(model!=130 && model!=191 && model!=217 && model!=182 && model!=190)return;
-        static CVehicle* testCar=nil;static CVehicle* testBarrier=nil;static uint32 last=0,started=0,guestBoardedAt=0,hostBoardedAt=0,guestExitAt=0;static bool guestPositioned=false,guestExitSent=false,guestExited=false,hostExitSent=false,hostExited=false;const uint32 now=CTimer::GetTimeInMilliseconds();if(!started)started=now;
+        static CVehicle* testCar=nil;static CVehicle* testBarrier=nil;static uint32 last=0,started=0,guestBoardedAt=0,hostBoardedAt=0,guestExitAt=0,hostExitAt=0;static bool guestPositioned=false,guestExitSent=false,guestExited=false,hostExitSent=false,hostExited=false;const uint32 now=CTimer::GetTimeInMilliseconds();if(!started)started=now;
         if(host()){
             if(!testCar){
                 CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(model))return;
@@ -329,14 +328,14 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
                 testCar->RegisterReference((CEntity**)&testCar);testCar->m_fHealth=1000.0f;testCar->SetPosition(location);testCar->SetHeading(heading);player->Teleport(location+CVector(6,0,0));testCar->SetStatus(STATUS_ABANDONED);testCar->SetMoveSpeed(0,0,0);CWorld::Add(testCar);
             }
             if(getenv("VT_TEST_VEHICLE_COLLISION") && model==130 && !testBarrier){CStreaming::RequestModel(135,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(135))return;testBarrier=createMultiplayerVehicle(135);if(testBarrier){const CVector forward=testCar->GetForward();testBarrier->RegisterReference((CEntity**)&testBarrier);testBarrier->m_fHealth=1000.0f;testBarrier->SetPosition(testCar->GetPosition()+forward*45.0f);testBarrier->SetHeading(atan2f(-forward.x,forward.y));testBarrier->SetStatus(STATUS_ABANDONED);testBarrier->SetMoveSpeed(0,0,0);testBarrier->bEngineOn=false;CWorld::Add(testBarrier);}}
-            if(player->bInVehicle){if(!hostBoardedAt)hostBoardedAt=now;if(!hostExitSent&&now-hostBoardedAt>18000){if(player->m_pMyVehicle&&player->m_pMyVehicle->pDriver!=player)ViceTogetherRequestVehicleExit();else pad->NewState.Triangle=255;hostExitSent=true;}}
+            if(player->bInVehicle){if(!hostBoardedAt)hostBoardedAt=now;if(!hostExitSent&&now-hostBoardedAt>18000){hostExitAt=now;hostExitSent=true;}if(hostExitSent&&now-hostExitAt<250)pad->NewState.Triangle=255;}
             else if(hostExitSent&&hostBoardedAt&&now-hostBoardedAt>22000)hostExited=true;
             const unsigned testCarId=unsigned(CPools::GetVehicleRef(testCar));const auto delegated=delegatedVehicles.find(testCarId);const bool guestDriving=delegated!=delegatedVehicles.end()&&now-delegated->second<1500;
             if(!hostExited&&!hostExitSent&&(testCar->pDriver || guestDriving || testCar->IsBoat())&&!player->bInVehicle)ViceTogetherGrantPassenger(testCarId,0);
             if(getenv("VT_TEST_CAR_BLAST") && now-started>12000 && testCar->GetStatus()!=STATUS_WRECKED)testCar->BlowUpCar(player);
             return;
         }
-        if(player->bInVehicle){if(!guestBoardedAt)guestBoardedAt=now;if(!guestExitSent&&now-guestBoardedAt>5000)pad->NewState.Cross=255;pad->NewState.LeftStickX=0;if(!guestExitSent&&now-guestBoardedAt>18000){guestExitSent=true;guestExitAt=now;}if(guestExitSent&&now-guestExitAt<250)pad->NewState.Triangle=255;}
+        if(player->bInVehicle){if(!guestBoardedAt)guestBoardedAt=now;if(!guestExitSent&&now-guestBoardedAt>5000)pad->NewState.Cross=255;pad->NewState.LeftStickX=0;if(!guestExitSent&&now-guestBoardedAt>18000){guestExitSent=true;guestExitAt=now;}if(guestExitSent&&now-guestExitAt<250){pad->NewState.Cross=0;pad->NewState.Triangle=255;}}
         else if(guestExitSent){if(now-guestExitAt>2500)guestExited=true;}
         else if(!guestExited&&now-last>500){
             float hostState[20]={};const bool haveHost=VT_ReadRemote(0,hostState);
