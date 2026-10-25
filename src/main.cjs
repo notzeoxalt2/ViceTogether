@@ -18,7 +18,7 @@ const selfTest = process.argv.includes('--self-test');
 if (selfTest) app.setPath('userData', process.env.VT_TEST_PROFILE ? path.resolve(process.env.VT_TEST_PROFILE) : path.resolve(__dirname, '../../../work/desktop-test-profile'));
 let win, gameWindow, assets, settings = {}, detected = [], pendingInvite = null;
 let updateBusy = false;
-const nativeExecutable = () => activeGame.executable({packaged:app.isPackaged,resourcesPath:process.resourcesPath,sourceRoot:path.join(__dirname,'..')});
+const nativeExecutable = () => selfTest && process.env.VT_TEST_NATIVE_ENGINE ? path.resolve(process.env.VT_TEST_NATIVE_ENGINE) : activeGame.executable({packaged:app.isPackaged,resourcesPath:process.resourcesPath,sourceRoot:path.join(__dirname,'..')});
 let nativeEngine;
 const launchGate=new (require('./launch-gate.cjs').LaunchGate)();
 const testWindows=new Set();

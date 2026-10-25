@@ -33,6 +33,8 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   const harness=fs.readFileSync(path.join(__dirname,'..','src','native-game-test.cjs'),'utf8');
   assert.match(network,/if\(getenv\("VT_TEST_GUEST_DRIVE"\)\)\{ViceTogetherWorldTestDrive\(\);return;\}/);
   assert.match(world,/pad->NewState\.Triangle=255/);
+  assert.match(world,/roadPosition-player->GetPosition\(\)\)\.MagnitudeSqr\(\)<900\.0f/);
+  assert.match(world,/testCar->m_fHealth=1000\.0f/);
   assert.match(harness,/did not exit the shared vehicle normally/);
   assert.match(harness,/silently re-seated after exiting/);
 });
