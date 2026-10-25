@@ -11,7 +11,17 @@ test('shared cheat requests are limited to admitted players and rate limited per
  assert.deepEqual(acceptSharedCheatToggle('guest',1,{players,cooldowns,now:1000}),{cheatId:1});
  assert.equal(acceptSharedCheatToggle('guest',1,{players,cooldowns,now:1500}),false);
  assert.deepEqual(acceptSharedCheatToggle('guest',1,{players,cooldowns,now:2000}),{cheatId:1});
- assert.deepEqual(SHARED_CHEATS,[1]);
+ assert.deepEqual(SHARED_CHEATS,[1,2]);
+});
+
+test('nearby Big Bang requires a fresh living guest position and forwards that position',()=>{
+ const players=new Map([['guest',{}]]),cooldowns=new Map(),states=new Map([['guest',{time:1000,state:[5,6,7,0,0,0,0,1,100,0]}]]);
+ assert.deepEqual(acceptSharedCheatToggle('guest',2,{players,states,cooldowns,now:1100}),{cheatId:2,position:[5,6,7]});
+ cooldowns.clear();
+ states.set('guest',{time:100,state:[5,6,7,0,0,0,0,1,100,0]});
+ assert.equal(acceptSharedCheatToggle('guest',2,{players,states,cooldowns,now:2000}),false,'stale position is rejected');
+ states.set('guest',{time:2000,state:[5,6,7,0,0,0,0,1,0,0]});
+ assert.equal(acceptSharedCheatToggle('guest',2,{players,states,cooldowns,now:2000}),false,'dead player cannot trigger the shared blast');
 });
 
 test('Come Fly With Me is requested by guests, host toggled, then replicated as an on/off world state',()=>{
@@ -24,12 +34,14 @@ test('Come Fly With Me is requested by guests, host toggled, then replicated as 
  assert.match(pad,/if \( ViceTogetherInterceptFlyCheat\(\) \)/);
  assert.match(cpp,/ViceTogetherInterceptFlyCheat\(\).*ViceTogetherWorldToggleFlyCheat\(\).*VT_SendSharedCheatRequest\(1\)/);
  assert.match(network,/sendWorld\(57,0,state\)/);
- assert.match(network,/wire\.type==58[^\n]*ViceTogetherWorldToggleFlyCheat/);
+ assert.match(network,/wire\.type==58[^\n]*ViceTogetherWorldNearbyBigBang/);
  assert.match(world,/header\[23\]=CVehicle::bAllDodosCheat\?1\.0f:0\.0f/);
  assert.match(world,/CVehicle::bAllDodosCheat=flyCheat/);
  assert.match(world,/"CHEATOF"/);
  assert.match(lobby,/acceptSharedCheatToggle\(peerId,request\?\.cheatId/);
  assert.match(lobby,/this\.sharedCheatAction\.send\(\{cheatId\}/);
+ assert.match(cpp,/Nearby Big Bang \(35 m\)/);
+ assert.match(world,/constexpr float radius=35\.0f/);
 });
 
 test('transient complete-frame omissions keep vehicle and police replicas briefly, with no extra NPC spawning',()=>{

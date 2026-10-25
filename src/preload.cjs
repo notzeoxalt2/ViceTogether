@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('desktop', {
   sendNetworkStatus: value=>invoke('network-status',value),
   seatGrant: value=>invoke('seat-grant',value),
   spawnVehicle: value=>invoke('vehicle-spawn',value),
-  toggleSharedCheat: cheatId=>invoke('shared-cheat-toggle',cheatId),
+  toggleSharedCheat: (cheatId,position)=>invoke('shared-cheat-toggle',cheatId,position),
   glassRequest: value=>invoke('glass-request',value),
   applyMeleeRequest: value=>invoke('melee-grant',value),
   checkUpdates: () => invoke('updates'),

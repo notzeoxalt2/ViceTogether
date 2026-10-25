@@ -4,10 +4,11 @@ const { spawn } = require('node:child_process');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const MAGIC = 0x31545656;
-const {validWorldFrame}=require('../engine/world.cjs');
+const {validWorldFrame,retainSupportedWorldPeds}=require('../engine/world.cjs');
 const {validWeapon,instantWeapon,shotRange}=require('../engine/weapons.cjs');
 const {validGlass}=require('../engine/glass.cjs');
 const {VEHICLE_MODELS}=require('../engine/vehicle-spawn.cjs');
+const {SHARED_CHEATS}=require('../engine/shared-cheats.cjs');
 function validState(s) {
   return Array.isArray(s) && [10,20,34].includes(s.length) && s.every(Number.isFinite)
     && (s.length === 10 || (s.length===34?[10,15,20,25]:[10,15]).every(i => s[i] >= 0 && s[i] <= 1000 && s[i+1] >= 0 && s[i+1] <= 1000 && s[i+2] >= 0 && s[i+2] <= 1000 && s[i+3] >= 0 && s[i+3] <= 10 && s[i+4] >= 0 && s[i+4] <= 1.01))
@@ -20,7 +21,7 @@ function packet(type, slot, state = Array(10).fill(0)) {
   state.forEach((v, i) => b.writeFloatLE(v, 12 + i * 4)); return b;
 }
 class NativeEngine extends EventEmitter {
-  constructor(executable) { super(); this.executable = executable; this.slots = new Map(); this.received = new Map(); }
+  constructor(executable) { super(); this.executable = executable; this.slots = new Map(); this.received = new Map(); this.worldFrameStats={started:0,accepted:0,rejected:0,droppedUnsupportedPeds:0,lastReject:null}; }
   async start(gameRoot, { multiplayer = false, authoritativeWorld = false, inputDisabled = false, testWalk = false, testCombat = false, followPlayer = false, muted = false, name = 'Player', fps = 144, fullscreen = true, mouseSensitivity = 1.5, windowBounds, spawnOffset = Math.random() * 6, userDir = path.join(gameRoot, 'userfiles') } = {}) {
     if (this.child && this.child.exitCode === null) {
       if(this.multiplayer !== multiplayer) throw new Error('Close the current game before switching between singleplayer and multiplayer.');
@@ -57,8 +58,8 @@ class NativeEngine extends EventEmitter {
         const state = Array.from({ length: 34 }, (_, i) => b.readFloatLE(12 + 4 * i));
         if((type>=19 && type<=22) || type===35 || type===37 || type===42) {
           if(!this.authoritativeWorld || !this.endpoint)return;
-          if(type===19)this.worldPending={seq:state[0],expected:state[1],expectedGlass:state[21],expectedExplosions:state[22],environment:[...state.slice(2,21),state[23]],entities:[],glass:[],explosions:[]};
-          else if(type===20){const frame=this.worldPending;this.worldPending=null;if(frame && frame.seq===state[0] && frame.entities.length===frame.expected && frame.glass.length===frame.expectedGlass && frame.explosions.length===frame.expectedExplosions && validWorldFrame(frame))this.emit('world',frame);}
+          if(type===19){this.worldFrameStats.started++;this.worldPending={seq:state[0],expected:state[1],expectedGlass:state[21],expectedExplosions:state[22],environment:[...state.slice(2,21),state[23]],entities:[],glass:[],explosions:[]};}
+          else if(type===20){const raw=this.worldPending;this.worldPending=null;let frame=raw;const countsMatch=raw && raw.seq===state[0] && raw.entities.length===raw.expected && raw.glass.length===raw.expectedGlass && raw.explosions.length===raw.expectedExplosions;if(countsMatch){const normalized=retainSupportedWorldPeds(raw);frame=normalized.frame;this.worldFrameStats.droppedUnsupportedPeds+=normalized.droppedPeds;}if(countsMatch && validWorldFrame(frame)){this.worldFrameStats.accepted++;this.emit('world',frame);}else if(raw){this.worldFrameStats.rejected++;this.worldFrameStats.lastReject={seq:raw.seq,endSeq:state[0],expectedEntities:raw.expected,actualEntities:raw.entities.length,expectedGlass:raw.expectedGlass,actualGlass:raw.glass.length,expectedExplosions:raw.expectedExplosions,actualExplosions:raw.explosions.length,environment:raw.environment,firstEntity:frame.entities[0]??null,validFrame:validWorldFrame(frame)};this.emit('world-rejected',this.worldFrameStats.lastReject);}}
           else if(type===42){if(this.worldPending && this.worldPending.explosions.length<32)this.worldPending.explosions.push(state);}
           else if(type===37){if(this.worldPending && this.worldPending.glass.length<128)this.worldPending.glass.push(state);}
           else if(type===35){const vehicle=this.worldPending?.entities.find(e=>e.type===22 && e.id===slot);if(vehicle)vehicle.visual=state;}
@@ -70,7 +71,7 @@ class NativeEngine extends EventEmitter {
         else if(type===28 && Number.isSafeInteger(state[0]) && Number.isInteger(state[1]))this.emit('seat-state',{id:state[0],seat:state[1]});
         else if(type===30)this.emit('seat-request',{id:slot,driver:state[0]===-1});
         else if(type===55&&!this.authoritativeWorld&&Number.isInteger(state[0])&&VEHICLE_MODELS.includes(state[0]))this.emit('vehicle-spawn-request',state[0]);
-        else if(type===57&&!this.authoritativeWorld&&state[0]===1)this.emit('shared-cheat-request',1);
+        else if(type===57&&!this.authoritativeWorld&&Number.isInteger(state[0])&&SHARED_CHEATS.includes(state[0]))this.emit('shared-cheat-request',state[0]);
         else if(type===43&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&state.every(Number.isFinite))this.emit('driver-state',{id:slot,state});
         else if(type===40 && !this.authoritativeWorld && validGlass(state))this.emit('glass-request',state);
         else if(type===36 && this.authoritativeWorld && slot<=7 && Number.isFinite(state[0]) && state[0]>0 && state[0]<=100){const target=slot===7?null:[...this.slots].find(([,s])=>s===slot)?.[0];if(slot===7 || target)this.emit('world-damage',{target,amount:state[0]});}
@@ -161,7 +162,7 @@ class NativeEngine extends EventEmitter {
   closeSocket() { if (this.socket) { try { this.socket.close(); } catch {} this.socket = null; } this.endpoint = null; this.slots.clear(); }
   seatGrant(claim){if(Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=-1 && claim.seat<8)this.send(32,0,[claim.id,claim.seat]);}
   spawnVehicle(request){if(!this.authoritativeWorld||!this.socket||!this.endpoint||!VEHICLE_MODELS.includes(request?.model)||!Array.isArray(request?.position)||request.position.length!==3||!request.position.every(Number.isFinite)||!Number.isFinite(request.heading)||request.position.some((v,i)=>Math.abs(v)>[10000,10000,3000][i])||Math.abs(request.heading)>Math.PI*100)return false;this.send(56,0,[request.model,...request.position,request.heading]);return true;}
-  toggleSharedCheat(cheatId){if(!this.authoritativeWorld||!this.socket||!this.endpoint||cheatId!==1)return false;this.send(58,0,[cheatId]);return true;}
+  toggleSharedCheat(cheatId,position){if(!this.authoritativeWorld||!this.socket||!this.endpoint||!SHARED_CHEATS.includes(cheatId))return false;if(cheatId===2&&(!Array.isArray(position)||position.length!==3||!position.every(Number.isFinite)||position.some((v,i)=>Math.abs(v)>[10000,10000,3000][i])))return false;this.send(58,0,[cheatId,...(cheatId===2?position:[0,0,0])]);return true;}
   driverState(update){if(this.authoritativeWorld&&Number.isSafeInteger(update?.id)&&update.id>=0&&Array.isArray(update.state)&&update.state.length===34&&update.state.every(Number.isFinite))this.send(44,update.id,update.state);}
   remoteShot(shot) {
     if(shot?.self || typeof shot?.id!=='string' || !instantWeapon(shot.weapon) || !Number.isSafeInteger(shot.seq))return;
@@ -174,7 +175,7 @@ class NativeEngine extends EventEmitter {
   }
   stop() { this.child?.kill(); this.closeSocket(); }
   resetSession(){this.selfSequence=-1;this.worldReceived=0;this.worldPending=null;this.received.clear();this.slots.clear();this.shotSequences?.clear();this.send(54,0,[]);}
-  diagnostics(){return {running:!!this.child&&this.child.exitCode===null,host:this.authoritativeWorld===true,remotePlayers:this.slots.size,worldSequence:this.worldReceived||0,packets:this.packetCounts||{},performance:this.lastPerformance,lastMeleeTargetId:this.lastMeleeTargetId??null,lastMeleeRequestAt:this.lastMeleeRequestAt??null,appliedGuestHits:this.worldHitCounts||{npc:0,vehicle:0}};}
+  diagnostics(){return {running:!!this.child&&this.child.exitCode===null,host:this.authoritativeWorld===true,remotePlayers:this.slots.size,worldSequence:this.worldReceived||0,worldFrames:{...this.worldFrameStats},packets:this.packetCounts||{},performance:this.lastPerformance,lastMeleeTargetId:this.lastMeleeTargetId??null,lastMeleeRequestAt:this.lastMeleeRequestAt??null,appliedGuestHits:this.worldHitCounts||{npc:0,vehicle:0}};}
   networkStatus(status){if(!status||![status.ping,status.transportPing,status.peers].every(Number.isFinite)||status.ping< -1||status.ping>10000||status.transportPing< -1||status.transportPing>10000||!Number.isInteger(status.peers)||status.peers<0||status.peers>7)return;this.send(49,0,[status.ping,status.transportPing,status.peers]);}
 }
 function cleanLabel(name) { return String(name || 'Player').replace(/[^a-zA-Z0-9 _.-]/g, '').trim().slice(0, 24) || 'Player'; }

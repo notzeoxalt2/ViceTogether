@@ -134,6 +134,7 @@ const char* ViceTogetherWorldMenuStatus(){return menuStatus;}
 void ViceTogetherWorldMenuAction(int action){
     if(guest()){menuStatus="Only the host changes the shared world";return;}
     CPlayerPed* player=FindPlayerPed();if(!player||!player->m_rwObject||player->DyingOrDead())return;
+    if(action==2006){const CVector p=player->GetPosition();ViceTogetherWorldNearbyBigBang(p.x,p.y,p.z);return;}
     if(action>=2000){if(action==2000)CClock::SetGameClock(9,0);else if(action==2001)CClock::SetGameClock(22,0);else if(action==2002)CWeather::ForceWeatherNow(WEATHER_SUNNY);else if(action==2003)CWeather::ForceWeatherNow(WEATHER_RAINY);else if(action==2004)player->SetWantedLevel(0);else if(action==2005){for(auto& car:menuSpawned){if(!car||car->pDriver)continue;bool occupied=false;for(int seat=0;seat<8;seat++)if(car->pPassengers[seat])occupied=true;if(!occupied){CWorld::Remove(car);delete car;car=nil;}}}menuStatus="Applied";return;}
     const int model=action-1000;if(!allowedVehicle(model))return;
     if(menuSpawnModel>=0 || menuLastSpawn && CTimer::GetTimeInMilliseconds()-menuLastSpawn<3000){menuStatus="Wait a moment before spawning another vehicle";return;}
@@ -151,6 +152,13 @@ bool ViceTogetherWorldToggleFlyCheat(){
     CVehicle::bAllDodosCheat=!CVehicle::bAllDodosCheat;
     CHud::SetHelpMessage(TheText.Get(CVehicle::bAllDodosCheat?"CHEAT1":"CHEATOF"),true);
     return true;
+}
+bool ViceTogetherWorldNearbyBigBang(float x,float y,float z){
+    if(!host()||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||fabsf(x)>=10000||fabsf(y)>=10000||fabsf(z)>=3000)return false;
+    constexpr float radius=35.0f;const CVector center(x,y,z);std::vector<CVehicle*> targets;auto* pool=CPools::GetVehiclePool();
+    for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(!car||!car->m_rwObject||car->m_fHealth<=0||car->GetStatus()==STATUS_WRECKED||car->bRenderScorched)continue;if((car->GetPosition()-center).MagnitudeSqr()<=radius*radius)targets.push_back(car);}
+    CPlayerPed* cause=FindPlayerPed();for(CVehicle* car:targets)car->BlowUpCar(cause);
+    menuStatus=targets.empty()?"No vehicles within 35 m":"Nearby vehicles exploded";return !targets.empty();
 }
 void ViceTogetherWorldMenuTick(){
     if(menuSpawnModel<0)return;const uint32 now=CTimer::GetTimeInMilliseconds();if(guest()||now-menuSpawnTime>15000){menuSpawnModel=-1;menuStatus="Vehicle loading failed";return;}

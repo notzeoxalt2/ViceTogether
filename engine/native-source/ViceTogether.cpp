@@ -52,11 +52,11 @@ static const MenuItem menuBikes[]={{"PCJ-600",1191},{"Freeway",1193},{"Angel",11
 static const MenuItem menuHelis[]={{"Maverick",1217},{"Hunter",1155},{"Back",-100}};
 static const MenuItem menuBoats[]={{"Dinghy",1203},{"Speeder",1182},{"Squalo",1176},{"Back",-100}};
 static const MenuItem menuAircraft[]={{"Skimmer (water takeoff)",1190},{"Back",-100}};
-static const MenuItem menuAdmin[]={{"Morning",2000},{"Night",2001},{"Sunny weather",2002},{"Rainy weather",2003},{"Clear own wanted level",2004},{"Remove unused spawned vehicles",2005},{"Close",-99}};
-static const MenuItem menuGuestCheats[]={{"Weapon cheats",-1},{"Close",-99}};
+static const MenuItem menuAdmin[]={{"Morning",2000},{"Night",2001},{"Sunny weather",2002},{"Rainy weather",2003},{"Clear own wanted level",2004},{"Remove unused spawned vehicles",2005},{"Nearby Big Bang (35 m)",2006},{"Close",-99}};
+static const MenuItem menuGuestCheats[]={{"Weapon cheats",-1},{"Nearby Big Bang (35 m)",2006},{"Close",-99}};
 static bool menuHost(){const char* role=getenv("VT_WORLD_HOST");return !getenv("VT_PORT") || (role&&atoi(role)==1);}
 static const MenuItem* menuItems(int& count){
-    switch(modMenuPage){case 1:count=4;return menuWeapons;case 2:count=6;return menuVehicles;case 3:count=6;return menuCars;case 4:count=5;return menuBikes;case 5:count=3;return menuHelis;case 6:count=4;return menuBoats;case 7:count=2;return menuAircraft;case 8:if(menuHost()){count=7;return menuAdmin;}count=2;return menuGuestCheats;default:count=3;return menuRoot;}
+    switch(modMenuPage){case 1:count=4;return menuWeapons;case 2:count=6;return menuVehicles;case 3:count=6;return menuCars;case 4:count=5;return menuBikes;case 5:count=3;return menuHelis;case 6:count=4;return menuBoats;case 7:count=2;return menuAircraft;case 8:if(menuHost()){count=8;return menuAdmin;}count=3;return menuGuestCheats;default:count=3;return menuRoot;}
 }
 static float hudPing=-1,hudTransportPing=-1;static int hudPeers=0;static uint32 hudNetworkTime=0;
 void ViceTogetherNetworkStatus(const float* status){if(!std::isfinite(status[0])||!std::isfinite(status[1])||!std::isfinite(status[2])||status[0]<-1||status[0]>10000||status[1]<-1||status[1]>10000||status[2]<0||status[2]>7)return;hudPing=status[0];hudTransportPing=status[1];hudPeers=int(status[2]);hudNetworkTime=CTimer::GetTimeInMilliseconds();}
@@ -74,7 +74,7 @@ bool ViceTogetherMenuKey(int key,bool control){
     int count;const MenuItem* rows=menuItems(count);
     if(key==38||key=='W')modMenuRow=(modMenuRow+count-1)%count;
     else if(key==40||key=='S')modMenuRow=(modMenuRow+1)%count;
-    else if(key==13||key==39||key=='D'){const int action=rows[modMenuRow].action;if(action==-99)modMenuOpen=false;else if(action==-100){modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}else if(action<0){modMenuPage=-action;modMenuRow=0;}else if(action<1000||menuHost()||action<2000)modMenuAction=action;}
+    else if(key==13||key==39||key=='D'){const int action=rows[modMenuRow].action;if(action==-99)modMenuOpen=false;else if(action==-100){modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}else if(action<0){modMenuPage=-action;modMenuRow=0;}else if(action<1000||menuHost()||action<2000||action==2006)modMenuAction=action;}
     else if(key==8||key==37||key=='A'){if(!modMenuPage||modMenuPage==8)modMenuOpen=false;else{modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}}
     else if(key==27)modMenuOpen=false;
     return true;
@@ -516,7 +516,7 @@ bool ViceTogetherRenderBody(CPed* ped) {
 void ViceTogetherDrawNames() {
     if(!enabled) return;
     const CFontDetails saved=CFont::Details;
-    CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(0.38f), SCREEN_SCALE_Y(0.7f));
+    CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(0.31f), SCREEN_SCALE_Y(0.58f));
     CFont::SetCentreOn(); CFont::SetCentreSize(SCREEN_WIDTH); CFont::SetJustifyOff();
     CFont::SetRightJustifyOff(); CFont::SetBackgroundOff(); CFont::SetPropOn();
     CFont::SetAlphaFade(255.0f); CFont::SetDropShadowPosition(1); CFont::SetDropColor(CRGBA(0,0,0,230));
@@ -531,15 +531,11 @@ void ViceTogetherDrawNames() {
         const char* label=peers[i].name;
         if(!label || !label[0]) label="Player";
         wchar text[32]; AsciiToUnicode(label,text);
-        const float labelHalf=std::max(SCREEN_SCALE_X(30.0f),CFont::GetStringWidth(text,true)*0.5f+SCREEN_SCALE_X(8));
-        CSprite2d::DrawRect(CRect(screen.x-labelHalf,screen.y-SCREEN_SCALE_Y(2),screen.x+labelHalf,screen.y+SCREEN_SCALE_Y(13)),CRGBA(13,17,23,190));
+        const float labelHalf=std::max(SCREEN_SCALE_X(12.0f),CFont::GetStringWidth(text,true)*0.5f+SCREEN_SCALE_X(2));
         CFont::SetColor(CRGBA(230,244,240,255));
         CFont::PrintString(screen.x,screen.y,text);
-        if(i>=0) {
-            const float half=labelHalf, y=screen.y+SCREEN_SCALE_Y(15.0f), height=SCREEN_SCALE_Y(3.0f);
-            CSprite2d::DrawRect(CRect(screen.x-half,y,screen.x+half,y+height),CRGBA(0,0,0,180));
-            CSprite2d::DrawRect(CRect(screen.x-half,y,screen.x-half+2*half*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f)),y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
-        }
+        const float half=labelHalf, y=screen.y+SCREEN_SCALE_Y(10.0f), height=SCREEN_SCALE_Y(2.0f);
+        CSprite2d::DrawRect(CRect(screen.x-half,y,screen.x-half+2*half*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f)),y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
     }
     CFont::Details=saved;
     drawModMenu();
@@ -547,7 +543,7 @@ void ViceTogetherDrawNames() {
 }
 
 void ViceTogetherTick() {
-    if(modMenuAction>=0){const int action=modMenuAction;modMenuAction=-1;if(action==0)WeaponCheat1();else if(action==1)WeaponCheat2();else if(action==2)WeaponCheat3();else if(menuHost())ViceTogetherWorldMenuAction(action);else if(action<2000)ViceTogetherWorldRequestVehicle(action-1000);}
+    if(modMenuAction>=0){const int action=modMenuAction;modMenuAction=-1;if(action==0)WeaponCheat1();else if(action==1)WeaponCheat2();else if(action==2)WeaponCheat3();else if(action==2006&&!menuHost())VT_SendSharedCheatRequest(2);else if(menuHost())ViceTogetherWorldMenuAction(action);else if(action<2000)ViceTogetherWorldRequestVehicle(action-1000);}
     ViceTogetherWorldMenuTick();
     ViceTogetherNetworkTick();
     ViceTogetherWorldTick();

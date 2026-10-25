@@ -31,4 +31,16 @@ function validWorldFrame(frame) {
   }
   return true;
 }
-module.exports={POLICE_PED_TYPE,validWorldFrame};
+function retainSupportedWorldPeds(frame) {
+  if(!frame || !Array.isArray(frame.entities))return {frame,droppedPeds:0};
+  const entities=[];let droppedPeds=0;
+  for(const entity of frame.entities){
+    // Older native builds can still send civilians. Drop those entries instead
+    // of rejecting the whole transaction and losing its vehicles, police,
+    // weather, glass, and explosion updates.
+    if(entity?.type===21 && entity.state?.[1]!==POLICE_PED_TYPE){droppedPeds++;continue;}
+    entities.push(entity);
+  }
+  return {frame:{...frame,entities},droppedPeds};
+}
+module.exports={POLICE_PED_TYPE,validWorldFrame,retainSupportedWorldPeds};

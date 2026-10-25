@@ -1,3 +1,13 @@
+# ViceTogether alpha.21 — player labels and nearby vehicle blast
+
+The floating player label is now transparent, and multiplayer snapshot validation no longer drops vehicle updates when an older engine includes unsupported civilian peds in the same frame. The Ctrl+I menu adds a **Nearby Big Bang (35 m)** action for either player; the host checks the guest's recent living position and performs the blast in the authoritative game world.
+
+The two-client same-PC test from alpha.20 measured remote player positions within 0.08–0.14 m p95 of the source snapshots. The screenshot's screen-space gap varies because each game camera follows a different player; this is not a calibrated distance comparison. That run used the prior native binary, so it does not verify the new name rendering or nearby blast in-game. This remains an experimental prototype; cross-internet play, NPC AI, vehicles, and combat are not fully synchronized. Each player supplies their own legally obtained game files.
+
+The complete automated JS suite passes (64 tests). The Windows CI build must compile the updated native engine before the installer is published.
+
+---
+
 # ViceTogether alpha.20 — startup repair
 
 Fixes a packaging mistake in alpha.19 that made the launcher fail at startup for everyone. The installer now includes the vehicle-spawn validator required by the native launcher, and a regression test checks that native launcher engine dependencies stay in the packaged-file allowlist.

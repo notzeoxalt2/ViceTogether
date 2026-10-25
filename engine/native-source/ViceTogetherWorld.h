@@ -12,6 +12,7 @@ void ViceTogetherWorldMenuAction(int action);
 void ViceTogetherWorldRequestVehicle(int model);
 void ViceTogetherWorldSpawnVehicle(int model,float x,float y,float z,float heading);
 bool ViceTogetherWorldToggleFlyCheat();
+bool ViceTogetherWorldNearbyBigBang(float x,float y,float z);
 void ViceTogetherWorldMenuTick();
 const char* ViceTogetherWorldMenuStatus();
 void ViceTogetherWorldStatus(float* state);

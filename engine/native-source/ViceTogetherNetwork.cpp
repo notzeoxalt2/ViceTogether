@@ -115,7 +115,7 @@ extern "C" void VT_SendShot(int weapon,const CVector& source,const CVector& end,
 extern "C" void VT_SendSeatRequest(unsigned id){float state[34]={};sendWorld(30,id,state);}
 extern "C" void VT_SendDriverRequest(unsigned id){float state[34]={};state[0]=-1;sendWorld(30,id,state);}
 extern "C" void VT_SendVehicleSpawnRequest(int model){if(bridge==INVALID_SOCKET||model<0||model>=6500)return;float state[34]={};state[0]=float(model);sendWorld(55,0,state);}
-extern "C" void VT_SendSharedCheatRequest(int cheatId){if(bridge==INVALID_SOCKET||cheatId!=1)return;float state[34]={};state[0]=float(cheatId);sendWorld(57,0,state);}
+extern "C" void VT_SendSharedCheatRequest(int cheatId){if(bridge==INVALID_SOCKET||(cheatId!=1&&cheatId!=2))return;float state[34]={};state[0]=float(cheatId);sendWorld(57,0,state);}
 extern "C" void VT_SendWorldDamage(int slot,float amount){if(bridge==INVALID_SOCKET || slot<0 || slot>7 || !std::isfinite(amount) || amount<=0)return;float state[34]={};state[0]=std::min(100.0f,amount);sendWorld(36,unsigned(slot),state);}
 extern "C" void VT_SendWorldMelee(unsigned target,int weapon,float amount){if(bridge==INVALID_SOCKET || target>=16777216 || weapon<WEAPONTYPE_UNARMED || weapon>WEAPONTYPE_CHAINSAW || !std::isfinite(amount) || amount<=0 || amount>250)return;float state[34]={};state[0]=float(weapon);state[1]=amount;sendWorld(47,target,state);}
 extern "C" void VT_ReportWorldMeleeValidation(unsigned slot,float stage,unsigned target,float distance,float health){if(bridge==INVALID_SOCKET || !getenv("VT_TEST_GUEST_NPC_MELEE"))return;float state[34]={};state[0]=stage;state[1]=float(target);state[2]=distance;state[3]=health;sendWorld(51,slot,state);}
@@ -222,7 +222,7 @@ void ViceTogetherNetworkTick() {
         if(wire.type==48){VT_ReportWorldMeleeValidation(wire.slot,0,unsigned(std::max(0.0f,wire.state[0])),0,wire.state[2]);VT_ApplyWorldMelee(wire.slot,wire.state);continue;}
         if(wire.type==44){ViceTogetherApplyDriver(wire.slot,wire.state);continue;}
         if(wire.type==56){if(std::isfinite(wire.state[0])&&std::isfinite(wire.state[1])&&std::isfinite(wire.state[2])&&std::isfinite(wire.state[3])&&std::isfinite(wire.state[4])&&wire.state[0]>=0&&wire.state[0]<6500&&wire.state[0]==floorf(wire.state[0]))ViceTogetherWorldSpawnVehicle(int(wire.state[0]),wire.state[1],wire.state[2],wire.state[3],wire.state[4]);continue;}
-        if(wire.type==58){if(wire.state[0]==1)ViceTogetherWorldToggleFlyCheat();continue;}
+        if(wire.type==58){if(wire.state[0]==1)ViceTogetherWorldToggleFlyCheat();else if(wire.state[0]==2&&std::isfinite(wire.state[1])&&std::isfinite(wire.state[2])&&std::isfinite(wire.state[3]))ViceTogetherWorldNearbyBigBang(wire.state[1],wire.state[2],wire.state[3]);continue;}
         if(wire.type==49){ViceTogetherNetworkStatus(wire.state);continue;}
         if(wire.type==54){for(int slot=0;slot<7;slot++){history[slot]={};VT_RemoveRemote(slot);}delayedShots.clear();ViceTogetherWorldReset();continue;}
         if(wire.type==41){ViceTogetherWorldGlassRequest(wire.state);continue;}

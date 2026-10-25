@@ -1,6 +1,6 @@
 {
   "name": "vice-together",
-  "version": "0.3.0-alpha.20",
+  "version": "0.3.0-alpha.21",
   "description": "Experimental native Vice City on-foot WebRTC multiplayer launcher",
   "author": "ViceTogether contributors",
   "license": "MIT",
@@ -41,6 +41,7 @@
       "README.md",
       "engine/shots.js",
       "engine/world.cjs",
+      "engine/shared-cheats.cjs",
       "engine/vehicle-spawn.cjs",
       "engine/seats.cjs",
       "engine/weapons.cjs",

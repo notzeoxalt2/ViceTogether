@@ -79,7 +79,7 @@ export class PrivateLobby extends EventTarget {
     this.vehicleSpawnAction.onMessage=(request,{peerId})=>{if(!this.isHost)return;const approved=acceptVehicleSpawn(peerId,request?.model,{players:this.players,states:this.states,cooldowns:this.vehicleSpawnCooldowns,now:performance.now()});if(approved)this.emit('vehicle-spawn-approved',approved);};
     this.sharedCheatCooldowns=new Map();this.sharedCheatAction=this.room.makeAction('shared-cheat-toggle');
     this.sharedCheatAction.onReceive=({byteLength})=>byteLength<64;
-    this.sharedCheatAction.onMessage=(request,{peerId})=>{if(!this.isHost)return;const accepted=acceptSharedCheatToggle(peerId,request?.cheatId,{players:this.players,cooldowns:this.sharedCheatCooldowns,now:performance.now()});if(accepted)this.emit('shared-cheat-toggle-request',accepted);};
+    this.sharedCheatAction.onMessage=(request,{peerId})=>{if(!this.isHost)return;const accepted=acceptSharedCheatToggle(peerId,request?.cheatId,{players:this.players,states:this.states,cooldowns:this.sharedCheatCooldowns,now:performance.now()});if(accepted)this.emit('shared-cheat-toggle-request',accepted);};
     this.seatInput.onReceive=({byteLength})=>byteLength<256;
     this.seatOutput.onReceive=({byteLength})=>byteLength<256;
     this.seatInput.onMessage=(request,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptSeat(peerId,request);};

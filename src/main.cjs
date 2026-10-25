@@ -215,7 +215,7 @@ async function start() {
   ipc('network-status',status=>nativeEngine.networkStatus(status));
   ipc('seat-grant',claim=>nativeEngine.seatGrant(claim));
   ipc('vehicle-spawn',request=>nativeEngine.spawnVehicle(request));
-  ipc('shared-cheat-toggle',cheatId=>nativeEngine.toggleSharedCheat(cheatId));
+  ipc('shared-cheat-toggle',(cheatId,position)=>nativeEngine.toggleSharedCheat(cheatId,position));
   ipc('glass-request',state=>nativeEngine.glassRequest(state));
   ipc('melee-grant',request=>nativeEngine.meleeGrant(request));
   ipcMain.on('local-state', (event, state) => {
