@@ -31,6 +31,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const worldStatusHistory=[[],[]],hostVehicleSamples=[];
   const menuObserved=[null,null],vehicleModels=[new Set(),new Set()];
   const driverSamples=[];const localSeats=[[],[]];let lastGuestSeat=-1,lastHostSeat=-1;
+  const forwardedDriverTimes=[0,0],forwardedDriverCounts=[0,0];
   const deliveredGlass=new Map(),forwardedMelee=new Set();
   const placements=[0,1].map(i=>require('./display.cjs').gameWindow(i));
   const local = [[], []], remote = [[], []], performance = [[], []], errors = [];
@@ -79,7 +80,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       try {
         for (let i = 0; i < 2; i++) {
           const meleeExpression=i===0?"window.testNpcMeleeEvents.slice(-16)":"[]";
-          const data = await windows[i].webContents.executeJavaScript(`({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,driver:testEvents.findLast(e=>e.name==='driver-state')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail),melee:${meleeExpression}})`);
+          const data = await windows[i].webContents.executeJavaScript(`({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,driver:window.testAcceptedDriverStates.at(-1)||null,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail),melee:${meleeExpression}})`);
           engines[i].frame(data.frame);for(const shot of data.shots)engines[i].remoteShot(shot);
           if(i===0)for(const request of data.melee||[]){const key=`${request.playerId}:${request.seq}`;if(!forwardedMelee.has(key)){forwardedMelee.add(key);engines[i].meleeGrant(request);}}
           const connected=data.frame.filter(player=>!player.self);engines[i].networkStatus({ping:connected.map(player=>player.ping).filter(Number.isFinite).reduce((max,ping)=>Math.max(max,ping),-1),transportPing:-1,peers:Math.min(7,connected.length)});
@@ -90,7 +91,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
               else if(resetInjected&&!resetDue&&worldObserved[1]?.seq>0&&worldObserved[1].seq<1000000&&worldObserved[1].loadedPeds+worldObserved[1].loadedVehicles>0)resetRecovered=true;
             }
             clientWorld[i]=data.ambient;engines[i].remoteWorld(data.ambient);for(const entity of data.ambient.entities){if(entity.type===22)vehicleModels[i].add(entity.state[0]);if(i===1&&entity.type===21){if(!guestNpcHealthSamples.has(entity.id))guestNpcHealthSamples.set(entity.id,[]);const samples=guestNpcHealthSamples.get(entity.id);samples.push({time:Date.now(),health:entity.state[6],animation:entity.state.slice(10,30)});if(samples.length>100)samples.shift();}}}
-          if(data.seat)engines[i].seatGrant(data.seat); if(data.driver)engines[i].driverState(data.driver);
+          if(data.seat)engines[i].seatGrant(data.seat);
+          if(i===0&&data.driver&&data.driver.time>forwardedDriverTimes[i]){engines[i].driverState(data.driver);forwardedDriverTimes[i]=data.driver.time;forwardedDriverCounts[i]++;}
           if(i===0)for(const pane of data.glass||[]){const key=JSON.stringify(pane.slice(0,5));const previous=deliveredGlass.get(key)||0;if(pane[1]>previous){engines[i].glassRequest(pane);deliveredGlass.set(key,pane[1]);}}
         }
       } catch(e) { errors.push(e.message); } finally { forwarding = false; }
@@ -188,12 +190,13 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const authority=await windows[0].webContents.executeJavaScript("({claims:[...testLobby.seats.claims.values()],motion:[...testLobby.seats.motion?.values()||[]],cars:[...testLobby.seats.cars.values()],accepted:window.testAcceptedDriverStates.length,lastAccepted:window.testAcceptedDriverStates.slice(-3)})");
       const seatTrace=localSeats.map(seats=>seats.filter((sample,index)=>index===0||sample.id!==seats[index-1].id||sample.seat!==seats[index-1].seat));
       const driverVehicleCounts=Object.entries(driverSamples.reduce((counts,sample)=>(counts[sample.id]=(counts[sample.id]||0)+1,counts),{}));
-      await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify({errors,authority,firstDriverSamples:driverSamples.slice(0,20),driverSamples:driverSamples.slice(-20),driverVehicleCounts,hostVehicleSamples:hostVehicleSamples.slice(-100),local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),seatTrace,worldObserved},null,2));
+      await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify({errors,authority,forwardedDriverCounts,firstDriverSamples:driverSamples.slice(0,20),driverSamples:driverSamples.slice(-20),driverVehicleCounts,hostVehicleSamples:hostVehicleSamples.slice(-100),local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),seatTrace,worldObserved},null,2));
       assert.equal(errors.length,0,errors.join('; '));
       const guestDriver=localSeats[1].filter(s=>s.id>=0&&s.seat===-1),hostPassenger=localSeats[0].filter(s=>s.id>=0&&s.seat>=0);
       assert.ok(guestDriver.length>100,'Guest did not become the native driver');assert.ok(hostPassenger.length>100,'Host did not become the native passenger');assert.equal(guestDriver.at(-1).id,hostPassenger.at(-1).id,'Players occupied different cars');
       const acceptedDriverSamples=await windows[0].webContents.executeJavaScript('window.testAcceptedDriverStates');
       assert.ok(acceptedDriverSamples.length>100,'Host did not accept the guest’s authorized car state');
+      assert.ok(forwardedDriverCounts[0]>100,'Accepted guest-driver updates did not reach the host native game process');
       assert.ok(acceptedDriverSamples.some(sample=>sample.visual?.length===34),'Guest driver wheel, door and damage visuals did not reach the host');
       if(process.env.VT_TEST_CAR_BLAST==='1'){
         assert.ok(worldStatusHistory.every(history=>history.some(world=>world.wreckedVehicles>=1)),'Shared wreck did not become wrecked in both engines');const respawns=local.map(samples=>{const dead=samples.find(sample=>sample.state[8]<=0),alive=dead&&samples.find(sample=>sample.time>dead.time+1000&&sample.state[8]>0);assert.ok(dead&&alive,'Both occupants must die and respawn after the shared car explosion');const distance=Math.hypot(...alive.state.slice(0,3).map((v,k)=>v-dead.state[k]));assert.ok(distance<110,'Respawn was not near the death location');return {distance,delayMs:alive.time-dead.time};});return {success:true,scenario:'Guest-driven car explosion, shared wreck and near-death respawn',worldObserved,maximumWrecks:worldStatusHistory.map(history=>Math.max(...history.map(world=>world.wreckedVehicles))),respawns,samePC:true,internetTested:false};

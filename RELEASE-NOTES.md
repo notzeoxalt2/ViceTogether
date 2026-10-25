@@ -1,4 +1,4 @@
-# ViceTogether alpha.27 — guest-driven vehicle replication
+# ViceTogether alpha.28 — guest-driven vehicle replication
 
 Guest driver updates include the car’s health and visual state, and the guest sends driver motion at 20 Hz instead of 10 Hz. The host accepts motion only after the lobby validates an exclusive driver claim. The native bridge now tolerates the short interval where Vice City has granted that claim but its stock seat task has not attached the remote player to `pDriver`; it still refuses to overwrite a locally driven car or an unrelated driver. Wreck status stays authoritative across later cosmetic updates.
 
