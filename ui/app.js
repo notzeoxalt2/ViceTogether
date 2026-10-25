@@ -1,5 +1,6 @@
 import { PrivateLobby } from './network.bundle.js';
 import { setupFriends } from './social-ui.js';
+import { localSeatAction } from './seat-actions.mjs';
 const $ = id => document.getElementById(id);
 for(const operation of ['minimize','maximize','close'])$('window-'+operation).addEventListener('click',()=>call(window.desktop.windowAction(operation)).catch(error=>notice(error.message)));
 let state, invitation, lobbyInfo, deferredInvite, latestDetected;
@@ -101,8 +102,14 @@ lobby.addEventListener('glass-request',event=>window.desktop.glassRequest(event.
 lobby.addEventListener('ambient',event=>window.desktop.sendWorld(event.detail));
 window.desktop.on('local-driver-state',update=>lobby.sendVehicle(update));
 lobby.addEventListener('driver-state',event=>window.desktop.sendDriverState(event.detail));
-let lastSeat=-1;
-window.desktop.on('local-seat-state',seat=>{if(lobby.isHost){if(seat.seat===-1)lobby.sendSeat({driver:true,car:seat});else lobby.sendSeat({id:seat.id});}else if(seat.id<0 && lastSeat>=0)lobby.sendSeat({release:true});lastSeat=seat.id;});
+let lastSeat=-1,lastSeatIndex=-1;
+window.desktop.on('local-seat-state',seat=>{
+  if(seat.id!==lastSeat || seat.seat!==lastSeatIndex){
+    const action=localSeatAction(lobby.isHost,seat,lastSeat);
+    if(action)lobby.sendSeat(action);
+    lastSeat=seat.id;lastSeatIndex=seat.seat;
+  }
+});
 window.desktop.on('local-seat-request',request=>lobby.sendSeat(request));
 lobby.addEventListener('npc-melee',event=>window.desktop.applyMeleeRequest(event.detail));
 window.desktop.on('local-melee-request',request=>lobby.sendNpcMeleeRequest(request));
