@@ -30,6 +30,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   let guestNpcShot=null;const guestNpcShotAttempts=[];let meleeRequestAt=null;const npcHealthSamples=new Map(),guestNpcHealthSamples=new Map();
   const worldStatusHistory=[[],[]],hostVehicleSamples=[];
   const menuObserved=[null,null],vehicleModels=[new Set(),new Set()];
+  const seatDiagnostics=[null,null],seatGrantCalls=[0,0],lastSeatGrantEventCount=[0,0];
   const driverSamples=[];const localSeats=[[],[]];let lastGuestSeat=-1,lastHostSeat=-1;
   const forwardedDriverCounts=[0,0];
   const nativeDoorEvents=[[],[]],forwardedDoorUpdates=[];
@@ -82,7 +83,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       try {
         for (let i = 0; i < 2; i++) {
           const meleeExpression=i===0?"window.testNpcMeleeEvents.slice(-16)":"[]";
-          const data = await windows[i].webContents.executeJavaScript(`({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail),driverStates:${i===0?'window.testNativeDriverStates.splice(0,128)':'[]'},vehicleDoors:${i===0?'window.testNativeVehicleDoors.splice(0,128)':'[]'},melee:${meleeExpression}})`);
+          const data = await windows[i].webContents.executeJavaScript(`({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,seatDiagnostics:(()=>{const l=window.testLobby;const self=[...l.players].find(([,p])=>p.id===l.selfId)?.[0];const local=l.states.get(self);const grants=window.testEvents.filter(e=>e.name==='seat-grant');return {self,lobbySelfId:l.selfId,isHost:l.isHost,hostId:l.hostId,players:[...l.players.entries()],lastSeatGrant:grants.at(-1)?.detail||null,seatGrantCount:grants.length,local:local?{state:local.state,time:local.time}:null,states:[...l.states.entries()].map(([id,s])=>({id,state:s.state,time:s.time})),cars:[...l.seats.cars.entries()].map(([id,s])=>({id,model:s[0],class:s[1],position:s.slice(2,5),health:s[17],capacity:s[22]})),claims:[...l.seats.claims.entries()],npcs:[...l.seats.npcs],wrecks:[...l.seats.wrecks]}})(),glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail),driverStates:${i===0?'window.testNativeDriverStates.splice(0,128)':'[]'},vehicleDoors:${i===0?'window.testNativeVehicleDoors.splice(0,128)':'[]'},melee:${meleeExpression}})`);
+          seatDiagnostics[i]=data.seatDiagnostics;
           engines[i].frame(data.frame);for(const shot of data.shots)engines[i].remoteShot(shot);
           if(i===0){for(const update of data.driverStates||[]){forwardedDriverCounts[0]++;engines[0].driverState(update);}for(const update of data.vehicleDoors||[]){forwardedDoorUpdates.push({time:Date.now(),...update});engines[0].driverDoors(update);}}
           if(i===0)for(const request of data.melee||[]){const key=`${request.playerId}:${request.seq}`;if(!forwardedMelee.has(key)){forwardedMelee.add(key);engines[i].meleeGrant(request);}}
@@ -94,7 +96,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
               else if(resetInjected&&!resetDue&&worldObserved[1]?.seq>0&&worldObserved[1].seq<1000000&&worldObserved[1].loadedPeds+worldObserved[1].loadedVehicles>0)resetRecovered=true;
             }
             clientWorld[i]=data.ambient;engines[i].remoteWorld(data.ambient);for(const entity of data.ambient.entities){if(entity.type===22)vehicleModels[i].add(entity.state[0]);if(i===1&&entity.type===21){if(!guestNpcHealthSamples.has(entity.id))guestNpcHealthSamples.set(entity.id,[]);const samples=guestNpcHealthSamples.get(entity.id);samples.push({time:Date.now(),health:entity.state[6],animation:entity.state.slice(10,30)});if(samples.length>100)samples.shift();}}}
-          if(data.seat)engines[i].seatGrant(data.seat);
+          const grantCount=data.seatDiagnostics?.seatGrantCount??0;
+          if(data.seat&&grantCount>lastSeatGrantEventCount[i]){lastSeatGrantEventCount[i]=grantCount;seatGrantCalls[i]++;engines[i].seatGrant(data.seat);}
           if(i===0)for(const pane of data.glass||[]){const key=JSON.stringify(pane.slice(0,5));const previous=deliveredGlass.get(key)||0;if(pane[1]>previous){engines[i].glassRequest(pane);deliveredGlass.set(key,pane[1]);}}
         }
       } catch(e) { errors.push(e.message); } finally { forwarding = false; }
@@ -194,7 +197,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const driverVehicleCounts=Object.entries(driverSamples.reduce((counts,sample)=>(counts[sample.id]=(counts[sample.id]||0)+1,counts),{}));
       const acceptedDoors=await windows[0].webContents.executeJavaScript('window.testAcceptedVehicleDoors');
       const playerAnimAndDoor=sourceSkeleton.map(samples=>samples.slice(-100).map(sample=>({time:sample.time,vehicleState:sample.state.slice(4,15),doors:sample.state.slice(20,26)})));
-      const diagnosticBase={errors,authority,forwardedDriverCounts,nativeDoorEvents:nativeDoorEvents.map(events=>events.slice(-100)),forwardedDoorUpdates:forwardedDoorUpdates.slice(-100),firstDriverSamples:driverSamples.slice(0,20),driverSamples:driverSamples.slice(-1500),driverVehicleCounts,hostVehicleSamples:hostVehicleSamples.slice(-1500),local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),seatTrace,worldObserved,acceptedVehicleDoorSamples:acceptedDoors,playerAnimAndDoor};
+      const diagnosticBase={errors,authority,forwardedDriverCounts,seatGrantCalls,lastSeatGrantEventCount,nativeDoorEvents:nativeDoorEvents.map(events=>events.slice(-100)),forwardedDoorUpdates:forwardedDoorUpdates.slice(-100),firstDriverSamples:driverSamples.slice(0,20),driverSamples:driverSamples.slice(-1500),driverVehicleCounts,hostVehicleSamples:hostVehicleSamples.slice(-1500),nativeWorldVehicleModels:vehicleModels.map(models=>[...models].sort((a,b)=>a-b)),nativeWorldFrameCounts:worldFrames,seatDiagnostics,local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),seatTrace,worldObserved,acceptedVehicleDoorSamples:acceptedDoors,playerAnimAndDoor};
       await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify(diagnosticBase,null,2));
       assert.equal(errors.length,0,errors.join('; '));
       const guestDriver=localSeats[1].filter(s=>s.id>=0&&s.seat===-1),hostPassenger=localSeats[0].filter(s=>s.id>=0&&s.seat>=0);
@@ -371,7 +374,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       limitation: 'Same-PC prototype. Closest recent position metric allows up to 350 ms lag and does not prove visual smoothness. Basic guest melee and gun damage now reach the host NPC and return its health/animation snapshot; full NPC AI ownership, police pursuit behavior, cross-internet combat and a fresh Windows installation remain unverified.' };
   } finally {
     clearInterval(timer); stopping = true; engines.forEach(e=>e.stop());
-    await fs.writeFile(path.join(out, 'native-game-samples.json'), JSON.stringify({ local, remote, skeleton,sourceSkeleton,localSeats,worldFrames,worldObserved, performance, errors, diagnostics,hits,shots,playedShots,engineDiagnostics:engines.map(e=>e.diagnostics()) }));
+    await fs.writeFile(path.join(out, 'native-game-samples.json'), JSON.stringify({ local, remote, skeleton,sourceSkeleton,localSeats,worldFrames,worldObserved,nativeWorldVehicleModels:vehicleModels.map(models=>[...models].sort((a,b)=>a-b)), performance, errors, diagnostics,hits,shots,playedShots,engineDiagnostics:engines.map(e=>e.diagnostics()) }));
   }
 }
 module.exports = { runNativeGameTest };

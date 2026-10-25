@@ -82,6 +82,10 @@ CHeli* createMultiplayerHeli(int model){
 }
 CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);const uint32 flags=handling?handling->Flags:0;if(flags&HANDLING_IS_HELI)return createMultiplayerHeli(model);if(flags&HANDLING_IS_PLANE)return new CPlane(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BOAT)return new CBoat(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BIKE)return new CBike(model,MISSION_VEHICLE);switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return createMultiplayerHeli(model);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
 int testMeleeStage=0,testMeleeTarget=-1;float testMeleeLocalDistance=-1,testMeleeRemoteDistance=-1;
+int testSeatGrantStatus=0;
+int testSeatGrantCalls=0;
+int testSeatGrantModel=-1;
+int testSeatGrantSeat=-2;
 void applyDoorAngles(CAutomobile* car,const float* angles){const int nodes[]={CAR_BONNET,CAR_BOOT,CAR_DOOR_LF,CAR_DOOR_RF,CAR_DOOR_LR,CAR_DOOR_RR};for(int i=0;i<6;i++){if(!car->m_aCarNodes[nodes[i]])continue;const float closed=car->Doors[i].RetAngleWhenClosed(),open=car->Doors[i].RetAngleWhenOpen(),span=open-closed;if(fabsf(span)<0.001f)continue;const float ratio=std::max(0.0f,std::min(1.0f,(angles[i]-closed)/span));car->OpenDoor(nodes[i],(eDoors)i,ratio);}}
 void doorMatrices(CAutomobile* car){float angles[6];for(int i=0;i<6;i++)angles[i]=car->Doors[i].m_fAngle;applyDoorAngles(car,angles);}
 void captureVehicleVisual(CVehicle* car,float* v){v[0]=car->m_fSteerAngle;v[1]=car->m_fGasPedal;v[2]=car->m_fBrakePedal;v[31]=float(car->GetStatus());v[32]=car->bLightsOn;v[33]=car->m_bSirenOrAlarm;if(car->IsCar()){CAutomobile* a=(CAutomobile*)car;for(int j=0;j<4;j++){v[3+j]=a->m_aWheelRotation[j];v[7+j]=a->m_aWheelPosition[j];v[11+j]=a->m_aWheelSpeed[j];v[15+j]=a->m_aSuspensionSpringRatio[j];v[25]+=float(a->Damage.m_wheelStatus[j]<<(j*2));}for(int j=0;j<6;j++){v[19+j]=a->Doors[j].m_fAngle;v[26]+=float(a->Damage.m_doorStatus[j]<<(j*2));}v[27]=float(a->Damage.m_panelStatus&65535);v[28]=float(a->Damage.m_panelStatus>>16);v[29]=float(a->Damage.m_lightStatus);v[30]=float(a->Damage.m_engineStatus);}else if(car->IsBike()){CBike* a=(CBike*)car;for(int j=0;j<2;j++){v[3+j]=a->m_aWheelRotation[j];v[7+j]=a->m_aWheelPosition[j];v[11+j]=a->m_aWheelSpeed[j];v[25]+=float(a->m_wheelStatus[j]<<(j*2));}for(int j=0;j<4;j++)v[15+j]=a->m_aSuspensionSpringRatio[j];v[19]=a->m_fLeanLRAngle;v[20]=a->m_fLeanLRAngle2;}}
@@ -245,6 +249,7 @@ void ViceTogetherWorldStatus(float* out) {
     out[11]=float(glass.size());out[12]=out[13]=0;auto* objects=CPools::GetObjectPool();for(int i=0;i<objects->GetSize();i++){CObject* object=objects->GetSlot(i);if(object && IsGlass(object->GetModelIndex())){if(object->bGlassBroken && !object->bIsVisible && !object->bUsesCollision)out[12]++;else if(object->bGlassCracked)out[13]++;}}out[14]=float(host()?explosionSequence:lastExplosion);
     out[16]=out[17]=0;auto* pedPool=CPools::GetPedPool();for(int i=0;i<pedPool->GetSize();i++){CPed* ped=pedPool->GetSlot(i);if(ped && !ped->IsPlayer() && !ViceTogetherIsRemote(ped) && !ViceTogetherWorldPed(ped) && ped->CharCreatedBy==RANDOM_CHAR)out[16]++;}auto* carPool=CPools::GetVehiclePool();for(int i=0;i<carPool->GetSize();i++){CVehicle* car=carPool->GetSlot(i);if(car && car->VehicleCreatedBy==RANDOM_VEHICLE)out[17]++;}out[18]=guestOwnsNearbyPopulation()?1.0f:0.0f;
     if(getenv("VT_TEST_GUEST_NPC_MELEE")){out[19]=float(testMeleeStage);out[20]=float(testMeleeTarget);out[21]=testMeleeLocalDistance;out[22]=testMeleeRemoteDistance;}
+    if(getenv("VT_TEST_GUEST_DRIVE")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;}
 }
 bool ViceTogetherWorldVehicle(const CVehicle* car) {
     if(host()){auto it=delegatedVehicles.find(unsigned(CPools::GetVehicleRef((CVehicle*)car)));return it!=delegatedVehicles.end() && CTimer::GetTimeInMilliseconds()-it->second<750;}
@@ -258,24 +263,28 @@ bool ViceTogetherGuestOnFoot(){return guest() && FindPlayerPed() && !FindPlayerP
 void ViceTogetherRequestPassenger(){if((!guest()&&!host()) || !FindPlayerPed() || FindPlayerPed()->bInVehicle)return;float best=64;unsigned id=0;bool found=false;auto* cars=CPools::GetVehiclePool();for(int i=0;i<cars->GetSize();i++){CVehicle* car=cars->GetSlot(i);if(!car)continue;const int carId=ViceTogetherWorldVehicleId(car);if(carId<0)continue;const float distance=(car->GetPosition()-FindPlayerPed()->GetPosition()).MagnitudeSqr();if(distance<best){best=distance;id=unsigned(carId);found=true;}}if(found)VT_SendSeatRequest(id);}
 void ViceTogetherRequestDriver(){if(!guest() || !FindPlayerPed() || FindPlayerPed()->bInVehicle)return;float best=64;unsigned id=0;bool found=false;for(const auto& entry:vehicles)if(entry.second.entity && !((CVehicle*)entry.second.entity)->pDriver){const float distance=(entry.second.entity->GetPosition()-FindPlayerPed()->GetPosition()).MagnitudeSqr();if(distance<best){best=distance;id=entry.first;found=true;}}if(found)VT_SendDriverRequest(id);}
 void ViceTogetherGrantPassenger(unsigned id,int seat){
-    if((!guest()&&!host()) || seat< -1 || seat>=8)return;
+    if(getenv("VT_TEST_GUEST_DRIVE")){testSeatGrantStatus=1;testSeatGrantCalls++;testSeatGrantModel=-1;testSeatGrantSeat=seat;}
+    if((!guest()&&!host()) || seat< -1 || seat>=8){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=2;return;}
     CPlayerPed* player=FindPlayerPed();
     CVehicle* car=ViceTogetherWorldFindVehicle(id);
-    if(!player || !car || player->bInVehicle || car->m_fHealth<=0 || car->GetStatus()==STATUS_WRECKED || car->bRenderScorched)return;
+    if(getenv("VT_TEST_GUEST_DRIVE")&&car)testSeatGrantModel=car->GetModelIndex();
+    if(!player || !car || player->bInVehicle || car->m_fHealth<=0 || car->GetStatus()==STATUS_WRECKED || car->bRenderScorched){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=!player?3:!car?4:player->bInVehicle?5:6;return;}
     // A grant can be repeated while a player is still walking to the door.
     // Keep the existing stock entry task instead of restarting it every packet.
-    if((player->m_objective==OBJECTIVE_ENTER_CAR_AS_DRIVER || player->m_objective==OBJECTIVE_ENTER_CAR_AS_PASSENGER) && player->m_carInObjective==car)return;
+    if((player->m_objective==OBJECTIVE_ENTER_CAR_AS_DRIVER || player->m_objective==OBJECTIVE_ENTER_CAR_AS_PASSENGER) && player->m_carInObjective==car){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=7;return;}
     if(seat==-1){
-        if(car->pDriver && car->pDriver!=player)return;
+        if(car->pDriver && car->pDriver!=player){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=8;return;}
         // Vice City's native objective handles walking to the driver's door,
         // door interaction, entry animation, and seat attachment.
         player->SetObjective(OBJECTIVE_ENTER_CAR_AS_DRIVER,car);
+        if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=9;
         return;
     }
-    if(seat>=car->m_nNumMaxPassengers || (car->pPassengers[seat] && car->pPassengers[seat]!=player))return;
+    if(seat>=car->m_nNumMaxPassengers || (car->pPassengers[seat] && car->pPassengers[seat]!=player)){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=10;return;}
     // Do not WarpPedIntoCar or edit pPassengers here. The stock objective
     // selects an available passenger seat and runs the game's entry sequence.
     player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);
+    if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=11;
 }
 void ViceTogetherCaptureDriver(VTWorldSender send){if(!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->m_pMyVehicle)return;CVehicle* car=p->m_pMyVehicle;const bool driver=car->pDriver==p;bool occupant=driver;for(int i=0;i<8&&!occupant;i++)occupant=car->pPassengers[i]==p;if(!occupant)return;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;
     // Entry and exit door animations happen while bInVehicle is still false.
