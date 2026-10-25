@@ -835,6 +835,16 @@ diff --git a/src/vehicles/Heli.cpp b/src/vehicles/Heli.cpp
 index f51c8481..64bf095a 100644
 --- a/src/vehicles/Heli.cpp
 +++ b/src/vehicles/Heli.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ #include "main.h"
+ 
+@@ -126,3 +127,4 @@
+ CHeli::ProcessControl(void)
+ {
++    if(ViceTogetherWorldVehicle(this))return;
+ 	int i;
 @@ -564,21 +564,27 @@ CHeli::Render(void)
  	CMatrix mat;
  	CVector pos;
@@ -873,3 +883,17 @@ index f51c8481..64bf095a 100644
  
  	CEntity::Render();
  }
+diff --git a/src/vehicles/Plane.cpp b/src/vehicles/Plane.cpp
+index 0000000..0000000 100644
+--- a/src/vehicles/Plane.cpp
++++ b/src/vehicles/Plane.cpp
+@@ -1,4 +1,5 @@
+ #include "common.h"
++#include "ViceTogetherWorld.h"
+ #include "main.h"
+ 
+@@ -141,3 +142,4 @@
+ CPlane::ProcessControl(void)
+ {
++    if(ViceTogetherWorldVehicle(this))return;
+ 	int i;
