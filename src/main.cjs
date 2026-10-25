@@ -23,6 +23,7 @@ let nativeEngine;
 const launchGate=new (require('./launch-gate.cjs').LaunchGate)();
 const testWindows=new Set();
 const testLaunchers=new Map();
+const testDriverStateHandlers=new Map();
 const testLaunchGates=new WeakMap();
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json');
 function handleInvite(argv) {
@@ -211,7 +212,11 @@ async function start() {
   });
   ipc('remote-shot',shot=>{nativeEngine.remoteShot(shot);return true;});
   ipc('remote-world',frame=>nativeEngine.remoteWorld(frame));
-  ipc('remote-driver-state',update=>nativeEngine.driverState(update));
+  ipc('remote-driver-state',function(update){
+    const testHandler=testDriverStateHandlers.get(this.sender);
+    if(selfTest&&testHandler)return testHandler(update);
+    return nativeEngine.driverState(update);
+  });
   ipc('network-status',status=>nativeEngine.networkStatus(status));
   ipc('seat-grant',claim=>nativeEngine.seatGrant(claim));
   ipc('vehicle-spawn',request=>nativeEngine.spawnVehicle(request));
@@ -242,7 +247,7 @@ async function start() {
   if (!selfTest) {
     if (app.isPackaged && !process.env.PORTABLE_EXECUTABLE_DIR) app.setAsDefaultProtocolClient('vicetogether');
     setTimeout(() => checkUpdates().catch(() => {}), 15000).unref();
-  } else await require('./self-test.cjs').run({ app, win, assets, BrowserWindow, lockdown,registerTestWindow:w=>testWindows.add(w.webContents),registerTestLauncher:(w,launch)=>testLaunchers.set(w.webContents,launch), nativeExecutable: nativeExecutable() });
+  } else await require('./self-test.cjs').run({ app, win, assets, BrowserWindow, lockdown,registerTestWindow:w=>testWindows.add(w.webContents),registerTestLauncher:(w,launch,driverState)=>{testLaunchers.set(w.webContents,launch);if(driverState)testDriverStateHandlers.set(w.webContents,driverState);}, nativeExecutable: nativeExecutable() });
 }
 async function checkUpdates() {
   if (!config.updateFeedUrl) return { message: 'Updates are not published yet. This alpha has no update feed configured.' };

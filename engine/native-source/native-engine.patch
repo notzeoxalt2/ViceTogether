@@ -567,7 +567,7 @@ index 3e7a26c..bed7dcf 100644
  /*
   *****************************************************************************
   */
-+static LONG WINAPI ViceTogetherTestException(EXCEPTION_POINTERS* info){if(info->ExceptionRecord->ExceptionCode==0xc0000005){FILE* f=fopen("native-exception.log","a");if(f){fprintf(f,"rva=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx\n",DWORD(info->ExceptionRecord->ExceptionAddress)-DWORD(GetModuleHandle(nil)),info->ContextRecord->Eax,info->ContextRecord->Ebx,info->ContextRecord->Ecx,info->ContextRecord->Edx,info->ContextRecord->Esi,info->ContextRecord->Edi);fclose(f);}}return EXCEPTION_CONTINUE_SEARCH;}
++static LONG WINAPI ViceTogetherTestException(EXCEPTION_POINTERS* info){if(info->ExceptionRecord->ExceptionCode==0xc0000005){FILE* f=fopen("native-exception.log","a");if(f){const DWORD operation=info->ExceptionRecord->NumberParameters>0?DWORD(info->ExceptionRecord->ExceptionInformation[0]):0xffffffff;const DWORD target=info->ExceptionRecord->NumberParameters>1?DWORD(info->ExceptionRecord->ExceptionInformation[1]):0;fprintf(f,"rva=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx esp=%08lx ebp=%08lx access=%lu target=%08lx\n",DWORD(info->ExceptionRecord->ExceptionAddress)-DWORD(GetModuleHandle(nil)),info->ContextRecord->Eax,info->ContextRecord->Ebx,info->ContextRecord->Ecx,info->ContextRecord->Edx,info->ContextRecord->Esi,info->ContextRecord->Edi,info->ContextRecord->Esp,info->ContextRecord->Ebp,operation,target);fclose(f);}}return EXCEPTION_CONTINUE_SEARCH;}
  int PASCAL
  WinMain(HINSTANCE instance, 
  		HINSTANCE prevInstance	__RWUNUSED__, 

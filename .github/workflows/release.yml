@@ -37,13 +37,18 @@ jobs:
           [System.IO.File]::WriteAllText($resource, $resourceText.Replace('"gtavc.ico"','"vice-together.ico"'), [System.Text.UTF8Encoding]::new($false))
           $build = Join-Path $source 'build'
           $milesSdk = Join-Path $source 'vendor/milessdk'
-          cmake -S $source -B $build -G "Visual Studio 17 2022" -A Win32 -DLIBRW_PLATFORM=D3D9 -DREVC_AUDIO=MSS "-DMilesSDK_DIR=$milesSdk" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DREVC_WITH_OPUS=OFF -DLIBRW_TOOLS=OFF -DLIBRW_INSTALL=OFF -DREVC_INSTALL=OFF
+          cmake -S $source -B $build -G "Visual Studio 17 2022" -A Win32 -DLIBRW_PLATFORM=D3D9 -DREVC_AUDIO=MSS "-DMilesSDK_DIR=$milesSdk" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DREVC_WITH_OPUS=OFF -DLIBRW_TOOLS=OFF -DLIBRW_INSTALL=OFF -DREVC_INSTALL=OFF "-DCMAKE_CXX_FLAGS_RELEASE=/O2 /Ob2 /DNDEBUG /Zi" "-DCMAKE_EXE_LINKER_FLAGS_RELEASE=/DEBUG /MAP"
           if ($LASTEXITCODE -ne 0) { throw 'Native engine CMake configuration failed.' }
           cmake --build $build --config Release --target reVC --parallel 2
           if ($LASTEXITCODE -ne 0) { throw 'Native engine build failed.' }
           $engine = Get-ChildItem $build -Filter reVC.exe -Recurse | Select-Object -First 1
           if (!$engine) { throw 'Native engine executable was not produced.' }
           Copy-Item -LiteralPath $engine.FullName -Destination engine/native/reVC.exe -Force
+          $map = Get-ChildItem $build -Filter reVC.map -Recurse | Select-Object -First 1
+          $symbols = Get-ChildItem $build -Filter reVC.pdb -Recurse | Select-Object -First 1
+          if (!$map -or !$symbols) { throw 'Native test symbols or map file were not produced.' }
+          Copy-Item -LiteralPath $map.FullName -Destination engine/native/reVC.map -Force
+          Copy-Item -LiteralPath $symbols.FullName -Destination engine/native/reVC.pdb -Force
       - run: npm ci
       - run: npm test
       - name: Build installer and portable launcher
@@ -63,7 +68,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ViceTogether-NativeEngine-Test
-          path: engine/native/reVC.exe
+          path: |
+            engine/native/reVC.exe
+            engine/native/reVC.map
+            engine/native/reVC.pdb
           retention-days: 3
       - name: Publish tagged update
         if: startsWith(github.ref, 'refs/tags/')

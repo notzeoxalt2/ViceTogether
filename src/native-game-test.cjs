@@ -31,7 +31,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const worldStatusHistory=[[],[]],hostVehicleSamples=[];
   const menuObserved=[null,null],vehicleModels=[new Set(),new Set()];
   const driverSamples=[];const localSeats=[[],[]];let lastGuestSeat=-1,lastHostSeat=-1;
-  const forwardedDriverTimes=[0,0],forwardedDriverCounts=[0,0];
+  const forwardedDriverCounts=[0,0];
   const deliveredGlass=new Map(),forwardedMelee=new Set();
   const placements=[0,1].map(i=>require('./display.cjs').gameWindow(i));
   const local = [[], []], remote = [[], []], performance = [[], []], errors = [];
@@ -71,16 +71,16 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       engines[i].on('world-observed',status=>{worldObserved[i]=status;worldStatusHistory[i].push(status);});
       engines[i].on('seat-state',seat=>{localSeats[i].push({...seat,time:Date.now()});if(i===0){if(seat.seat===-1&&seat.id!==lastHostSeat)windows[i].webContents.executeJavaScript(`testLobby.sendSeat(${JSON.stringify({driver:true,car:seat})})`).catch(e=>errors.push(e.message));else if(seat.id<0&&lastHostSeat>=0)windows[i].webContents.executeJavaScript('testLobby.sendSeat({release:true})').catch(e=>errors.push(e.message));lastHostSeat=seat.id;}else if(seat.id<0 && lastGuestSeat>=0)windows[i].webContents.executeJavaScript('testLobby.sendSeat({release:true})').catch(e=>errors.push(e.message));if(i===1)lastGuestSeat=seat.id;});
       engines[i].on('seat-request',request=>windows[i].webContents.executeJavaScript(`testLobby.sendSeat(${JSON.stringify(request)})`).catch(e=>errors.push(e.message)));
-      engines[i].on('driver-state',update=>{driverSamples.push({...update,time:Date.now()});return windows[i].webContents.executeJavaScript(`testLobby.sendVehicle(${JSON.stringify(update)})`).catch(e=>errors.push(e.message));});
+      engines[i].on('driver-state',update=>{driverSamples.push({...update,time:Date.now()});if(driverSamples.length>5000)driverSamples.shift();windows[i].webContents.send('local-driver-state',update);});
       const launch=()=>engines[i].start(root, { multiplayer: true, authoritativeWorld:i===0, inputDisabled:interactive&&i===1&&process.env.VT_MANUAL_HOST_ONLY==='1', testWalk: !interactive, testCombat:!interactive&&combatTest, followPlayer:autoFollow&&i===1, muted:!interactive||i===1, name: i ? 'Friend' : 'Host', fullscreen: process.env.VT_TEST_FULLSCREEN === '1',windowBounds:placements[i], fps: Number(process.env.VT_TEST_FPS ?? 144), spawnOffset: i * (interactive?4:process.env.VT_TEST_GUN==='1'?6:1.1), userDir:path.join(root,'userfiles') });
-      if(registerLauncher)registerLauncher(windows[i],launch);else await launch();
+      if(registerLauncher)registerLauncher(windows[i],launch,i===0?update=>{forwardedDriverCounts[0]++;engines[0].driverState(update);}:null);else await launch();
     }
     timer = setInterval(async () => {
       if (forwarding) return; forwarding = true;
       try {
         for (let i = 0; i < 2; i++) {
           const meleeExpression=i===0?"window.testNpcMeleeEvents.slice(-16)":"[]";
-          const data = await windows[i].webContents.executeJavaScript(`({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,driver:window.testAcceptedDriverStates.at(-1)||null,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail),melee:${meleeExpression}})`);
+          const data = await windows[i].webContents.executeJavaScript(`({frame:testEvents.findLast(e=>e.name==='frame')?.detail || [],shots:testEvents.filter(e=>e.name==='shot').slice(-16).map(e=>e.detail),ambient:testEvents.findLast(e=>e.name==='ambient')?.detail,seat:testEvents.findLast(e=>e.name==='seat-grant')?.detail,glass:testEvents.filter(e=>e.name==='glass-request').slice(-128).map(e=>e.detail),melee:${meleeExpression}})`);
           engines[i].frame(data.frame);for(const shot of data.shots)engines[i].remoteShot(shot);
           if(i===0)for(const request of data.melee||[]){const key=`${request.playerId}:${request.seq}`;if(!forwardedMelee.has(key)){forwardedMelee.add(key);engines[i].meleeGrant(request);}}
           const connected=data.frame.filter(player=>!player.self);engines[i].networkStatus({ping:connected.map(player=>player.ping).filter(Number.isFinite).reduce((max,ping)=>Math.max(max,ping),-1),transportPing:-1,peers:Math.min(7,connected.length)});
@@ -92,7 +92,6 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
             }
             clientWorld[i]=data.ambient;engines[i].remoteWorld(data.ambient);for(const entity of data.ambient.entities){if(entity.type===22)vehicleModels[i].add(entity.state[0]);if(i===1&&entity.type===21){if(!guestNpcHealthSamples.has(entity.id))guestNpcHealthSamples.set(entity.id,[]);const samples=guestNpcHealthSamples.get(entity.id);samples.push({time:Date.now(),health:entity.state[6],animation:entity.state.slice(10,30)});if(samples.length>100)samples.shift();}}}
           if(data.seat)engines[i].seatGrant(data.seat);
-          if(i===0&&data.driver&&data.driver.time>forwardedDriverTimes[i]){engines[i].driverState(data.driver);forwardedDriverTimes[i]=data.driver.time;forwardedDriverCounts[i]++;}
           if(i===0)for(const pane of data.glass||[]){const key=JSON.stringify(pane.slice(0,5));const previous=deliveredGlass.get(key)||0;if(pane[1]>previous){engines[i].glassRequest(pane);deliveredGlass.set(key,pane[1]);}}
         }
       } catch(e) { errors.push(e.message); } finally { forwarding = false; }
@@ -190,7 +189,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const authority=await windows[0].webContents.executeJavaScript("({claims:[...testLobby.seats.claims.values()],motion:[...testLobby.seats.motion?.values()||[]],cars:[...testLobby.seats.cars.values()],accepted:window.testAcceptedDriverStates.length,lastAccepted:window.testAcceptedDriverStates.slice(-3)})");
       const seatTrace=localSeats.map(seats=>seats.filter((sample,index)=>index===0||sample.id!==seats[index-1].id||sample.seat!==seats[index-1].seat));
       const driverVehicleCounts=Object.entries(driverSamples.reduce((counts,sample)=>(counts[sample.id]=(counts[sample.id]||0)+1,counts),{}));
-      await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify({errors,authority,forwardedDriverCounts,firstDriverSamples:driverSamples.slice(0,20),driverSamples:driverSamples.slice(-20),driverVehicleCounts,hostVehicleSamples:hostVehicleSamples.slice(-100),local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),seatTrace,worldObserved},null,2));
+      const diagnosticBase={errors,authority,forwardedDriverCounts,firstDriverSamples:driverSamples.slice(0,20),driverSamples:driverSamples.slice(-1500),driverVehicleCounts,hostVehicleSamples:hostVehicleSamples.slice(-1500),local:local.map(s=>s.slice(-20)),seats:localSeats.map(s=>s.slice(-20)),seatTrace,worldObserved};
+      await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify(diagnosticBase,null,2));
       assert.equal(errors.length,0,errors.join('; '));
       const guestDriver=localSeats[1].filter(s=>s.id>=0&&s.seat===-1),hostPassenger=localSeats[0].filter(s=>s.id>=0&&s.seat>=0);
       assert.ok(guestDriver.length>100,'Guest did not become the native driver');assert.ok(hostPassenger.length>100,'Host did not become the native passenger');assert.equal(guestDriver.at(-1).id,hostPassenger.at(-1).id,'Players occupied different cars');
@@ -202,7 +202,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         assert.ok(worldStatusHistory.every(history=>history.some(world=>world.wreckedVehicles>=1)),'Shared wreck did not become wrecked in both engines');const respawns=local.map(samples=>{const dead=samples.find(sample=>sample.state[8]<=0),alive=dead&&samples.find(sample=>sample.time>dead.time+1000&&sample.state[8]>0);assert.ok(dead&&alive,'Both occupants must die and respawn after the shared car explosion');const distance=Math.hypot(...alive.state.slice(0,3).map((v,k)=>v-dead.state[k]));assert.ok(distance<110,'Respawn was not near the death location');return {distance,delayMs:alive.time-dead.time};});return {success:true,scenario:'Guest-driven car explosion, shared wreck and near-death respawn',worldObserved,maximumWrecks:worldStatusHistory.map(history=>Math.max(...history.map(world=>world.wreckedVehicles))),respawns,samePC:true,internetTested:false};
       }
       const model=Number(process.env.VT_TEST_VEHICLE||130),vehicleId=guestDriver.at(-1).id;
-      const movingDriverSamples=driverSamples.filter(sample=>sample.id===vehicleId&&sample.state?.[17]>0);
+      const movingDriverSamples=driverSamples.filter(sample=>sample.id===vehicleId&&Math.hypot(...sample.state.slice(14,17))>0.5);
       assert.ok(movingDriverSamples.length>100,'Guest did not stream enough live driver snapshots for the shared car');
       const guestCarTravel=Math.hypot(...movingDriverSamples.at(-1).state.slice(2,5).map((v,k)=>v-movingDriverSamples[0].state[k+2]));
       assert.ok(guestCarTravel>20,`Guest-driven car only moved ${guestCarTravel.toFixed(1)} m`);
@@ -217,6 +217,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       assert.ok(matchedCarSamples.length>10,'Host did not publish enough car samples to compare against the guest driver');
       const positionErrors=matchedCarSamples.map(sample=>sample.positionErrorMetres).sort((a,b)=>a-b),basisErrors=matchedCarSamples.map(sample=>sample.basisError).sort((a,b)=>a-b);
       const carReplication={matchedSamples:matchedCarSamples.length,positionErrorP95Metres:positionErrors[Math.floor(positionErrors.length*.95)],basisErrorP95:basisErrors[Math.floor(basisErrors.length*.95)],maximumSampleAgeMs:Math.max(...matchedCarSamples.map(sample=>Math.abs(sample.ageMs))),recent:matchedCarSamples.slice(-12)};
+      await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify({...diagnosticBase,guestCarTravel,hostCarTravel,movingDriverSamples:movingDriverSamples.slice(-1500),matchedCarSamples:matchedCarSamples.slice(-1500),acceptedDriverSampleCount:acceptedDriverSamples.length,acceptedDriverSamples:acceptedDriverSamples.slice(-1500),carReplication},null,2));
       assert.ok(carReplication.positionErrorP95Metres<5,`Host car transform lagged the guest driver by ${carReplication.positionErrorP95Metres.toFixed(2)} m at p95`);
       assert.ok(carReplication.basisErrorP95<0.35,`Host car orientation disagreed with the guest driver by ${carReplication.basisErrorP95.toFixed(3)} at p95`);
       const carPerformance=performance.map((samples,i)=>{const segment=samples.filter(sample=>sample.time>=carStart&&sample.time<=carEnd);assert.ok(segment.length>5,`Engine ${i} did not report performance during the shared-car drive`);const fps=segment.map(sample=>sample.fps).sort((a,b)=>a-b);const p95=segment.map(sample=>sample.frameMsP95).sort((a,b)=>a-b);const result={minFps:fps[0],medianFps:fps[Math.floor(fps.length/2)],frameMsP95P95:p95[Math.floor(p95.length*.95)],samples:segment.length};assert.ok(result.minFps>100,`Engine ${i} dropped below 100 FPS during the shared-car drive: ${result.minFps}`);return result;});
