@@ -482,7 +482,7 @@ index 3e7a26c..bed7dcf 100644
  		}
  		
  		case WM_SIZE:
-@@ -1105,6 +1132,11 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1105,6 +1132,12 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  		case WM_KEYDOWN:
  		{
  			RsKeyCodes ks;
@@ -490,11 +490,12 @@ index 3e7a26c..bed7dcf 100644
 +            if(!(lParam&(1L<<30)) && ViceTogetherMenuKey(int(wParam),(GetKeyState(VK_CONTROL)&0x8000)!=0))return 0L;
 +            if(ViceTogetherMenuOpen())return 0L;
 +            if(wParam=='G' && getenv("VT_PORT") && !(lParam&(1L<<30)))ViceTogetherRequestPassenger();
++            if(wParam=='F' && getenv("VT_PORT") && !(lParam&(1L<<30)) && ViceTogetherRequestVehicleExit())return 0L;
 +            if(wParam=='F' && !(lParam&(1L<<30)) && ViceTogetherGuestOnFoot()){ViceTogetherRequestDriver();return 0L;}
  			
  			if ( _InputTranslateKey(&ks, lParam, wParam) )
  				RsKeyboardEventHandler(rsKEYDOWN, &ks);
-@@ -1171,6 +1203,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1171,6 +1204,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  
  		case WM_ACTIVATEAPP:
  		{
@@ -502,7 +503,7 @@ index 3e7a26c..bed7dcf 100644
  			switch ( gGameState )
  			{
  				case GS_LOGO_MPEG:
-@@ -1206,7 +1239,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1206,7 +1240,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  							else
  							{
  								WaitForState(State_Running);
@@ -511,7 +512,7 @@ index 3e7a26c..bed7dcf 100644
  							}
  						}
  					}
-@@ -1358,6 +1391,10 @@ RwBool IsForegroundApp()
+@@ -1358,6 +1392,10 @@ RwBool IsForegroundApp()
  	return !!ForegroundApp;
  }
  
@@ -522,7 +523,7 @@ index 3e7a26c..bed7dcf 100644
  UINT GetBestRefreshRate(UINT width, UINT height, UINT depth)
  {
  #ifdef USE_D3D9
-@@ -1558,6 +1595,10 @@ psSelectDevice()
+@@ -1558,6 +1596,10 @@ psSelectDevice()
  #ifdef IMPROVED_VIDEOMODE
  	if (FrontEndMenuManager.m_nPrefsWindowed)
  		GcurSelVM = bestWndMode;
@@ -533,7 +534,7 @@ index 3e7a26c..bed7dcf 100644
  
  	// Now GcurSelVM is 0 but vm has sizes(and fullscreen flag) of the video mode we want, that's why we changed the rwVIDEOMODEEXCLUSIVE conditions below
  	FrontEndMenuManager.m_nPrefsWidth = vm.width;
-@@ -1624,7 +1665,9 @@ psSelectDevice()
+@@ -1624,7 +1666,9 @@ psSelectDevice()
  		int spaceY = GetSystemMetrics(SM_CYSCREEN) - (rect.bottom-rect.top);
  
  		SetWindowLong(PSGLOBAL(window), GWL_STYLE, WS_VISIBLE | WS_OVERLAPPEDWINDOW);
@@ -544,7 +545,7 @@ index 3e7a26c..bed7dcf 100644
  			(rect.right - rect.left),
  			(rect.bottom - rect.top), 0);
  
-@@ -1892,7 +1935,7 @@ void CenterVideo(void)
+@@ -1892,7 +1936,7 @@ void CenterVideo(void)
  
  	JIF(pVW->put_MessageDrain((OAHWND) PSGLOBAL(window)));
  
@@ -553,7 +554,7 @@ index 3e7a26c..bed7dcf 100644
  }
  
  /*
-@@ -1944,7 +1987,7 @@ void PlayMovieInWindow(int cmdShow, const char* szFile)
+@@ -1944,7 +1988,7 @@ void PlayMovieInWindow(int cmdShow, const char* szFile)
  		// Run the graph to play the media file
  		JIF(pMC->Run());
  
@@ -562,7 +563,7 @@ index 3e7a26c..bed7dcf 100644
  	}
  	
  	ASSERT(pGB != nil);
-@@ -2007,6 +2050,7 @@ void HandleExit()
+@@ -2007,6 +2051,7 @@ void HandleExit()
  /*
   *****************************************************************************
   */
@@ -570,7 +571,7 @@ index 3e7a26c..bed7dcf 100644
  int PASCAL
  WinMain(HINSTANCE instance, 
  		HINSTANCE prevInstance	__RWUNUSED__, 
-@@ -2014,6 +2058,7 @@ WinMain(HINSTANCE instance,
+@@ -2014,6 +2059,7 @@ WinMain(HINSTANCE instance,
  		int cmdShow)
  {
  	MSG message;
@@ -578,7 +579,7 @@ index 3e7a26c..bed7dcf 100644
  	RwV2d pos;
  	RwInt32 argc, i;
  	RwChar **argv;
-@@ -2155,7 +2200,7 @@ WinMain(HINSTANCE instance,
+@@ -2155,7 +2201,7 @@ WinMain(HINSTANCE instance,
  	/*
  	 * Show the window, and refresh it...
  	 */
@@ -587,7 +588,7 @@ index 3e7a26c..bed7dcf 100644
  	UpdateWindow(PSGLOBAL(window));
  	
  	{
-@@ -2269,7 +2314,7 @@ WinMain(HINSTANCE instance,
+@@ -2269,7 +2315,7 @@ WinMain(HINSTANCE instance,
  				TheModelViewer();
  			}
  #endif
@@ -596,7 +597,7 @@ index 3e7a26c..bed7dcf 100644
  			{
  				switch ( gGameState )
  				{
-@@ -2399,6 +2444,7 @@ WinMain(HINSTANCE instance,
+@@ -2399,6 +2445,7 @@ WinMain(HINSTANCE instance,
  #ifndef PS2_MENU
  					case GS_INIT_FRONTEND:
  					{
@@ -604,7 +605,7 @@ index 3e7a26c..bed7dcf 100644
  						LoadingScreen(nil, nil, "loadsc0");
  						// LoadingScreen(nil, nil, "loadsc0"); // duplicate
  						
-@@ -2489,8 +2535,13 @@ WinMain(HINSTANCE instance,
+@@ -2489,8 +2536,13 @@ WinMain(HINSTANCE instance,
  						float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
  						if ( RwInitialised )
  						{
@@ -620,7 +621,7 @@ index 3e7a26c..bed7dcf 100644
  						}
  						break;
  					}
-@@ -2929,6 +2980,16 @@ HRESULT _InputAddJoys()
+@@ -2929,6 +2981,16 @@ HRESULT _InputAddJoys()
  HRESULT _InputGetMouseState(DIMOUSESTATE2 *state)
  {
  	HRESULT		  hr;

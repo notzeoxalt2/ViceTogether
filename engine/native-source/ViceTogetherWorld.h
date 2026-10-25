@@ -27,6 +27,7 @@ int ViceTogetherWorldVehicleId(CVehicle* vehicle);
 void ViceTogetherRequestPassenger();
 void ViceTogetherGrantPassenger(unsigned id,int seat);
 void ViceTogetherRequestDriver();
+bool ViceTogetherRequestVehicleExit();
 bool ViceTogetherGuestOnFoot();
 void ViceTogetherCaptureDriver(VTWorldSender send);
 void ViceTogetherApplyDriver(unsigned id,const float* state);
