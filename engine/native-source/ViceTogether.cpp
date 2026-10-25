@@ -147,6 +147,15 @@ bool registeredAnimation(int group, int id) {
     return animations.assocList && id>=animations.firstAnimId
         && id-animations.firstAnimId<animations.numAssociations;
 }
+constexpr float remoteTagScaleX=0.34f;
+constexpr float remoteTagScaleY=0.64f;
+float remoteTagLineHeight(){return SCREEN_SCALE_Y(20.0f*remoteTagScaleY);}
+bool remoteTagProjection(CPed* ped,RwV3d* screen){
+    if(!ped||!ped->m_rwObject||!ped->GetClump()||!screen)return false;
+    CVector head=ped->GetNodePosition(PED_HEAD);head.z+=0.10f;
+    RwV3d world={head.x,head.y,head.z};float width,height;
+    return CSprite::CalcScreenCoors(world,screen,&width,&height,true);
+}
 }
 
 // This hook is called by the patched game cheat function from another
@@ -365,16 +374,19 @@ int VT_ReadLocalSkeleton(float* out) {
     const CVector head=p->GetNodePosition(PED_HEAD),left=p->GetNodePosition(PED_FOOTL),right=p->GetNodePosition(PED_FOOTR);
     out[0]=(head-left).Magnitude();out[1]=(head-right).Magnitude();out[2]=(left-right).Magnitude();out[3]=p->m_fHealth;
     out[4]=float(p->m_nPedState);out[5]=float(p->m_objective);out[6]=p->bInVehicle?1:0;
+    out[17]=head.x;out[18]=head.y;out[19]=head.z;
     if(p->m_pMyVehicle){CVehicle* car=p->m_pMyVehicle;out[7]=float(car->GetStatus());out[8]=car->pDriver==p?1:0;out[9]=car->m_fGasPedal;out[10]=car->GetMoveSpeed().Magnitude();}
     return 1;
 }
 int VT_ReadRemoteSkeleton(int slot,float* out) {
     if(slot<0 || slot>=7 || !out || !peers[slot].ped)return 0;
     CPed* p=peers[slot].ped;
-    if(CTimer::GetFrameCounter()-peers[slot].createdFrame<3)return 0;
+    if(CTimer::GetFrameCounter()-peers[slot].createdFrame<3||!p->m_rwObject||!p->GetClump())return 0;
     const CVector head=p->GetNodePosition(PED_HEAD),left=p->GetNodePosition(PED_FOOTL),right=p->GetNodePosition(PED_FOOTR);
     out[0]=(head-left).Magnitude();out[1]=(head-right).Magnitude();out[2]=(left-right).Magnitude();
     out[3]=p->m_fHealth;out[4]=0;out[5]=0;
+    out[17]=head.x;out[18]=head.y;out[19]=head.z;
+    RwV3d tagScreen;if(remoteTagProjection(p,&tagScreen)){out[20]=tagScreen.x;out[21]=tagScreen.y-remoteTagLineHeight()-SCREEN_SCALE_Y(2.0f);out[22]=tagScreen.y-SCREEN_SCALE_Y(1.0f);out[23]=1.0f;}
     out[9]=peers[slot].aim[0];out[10]=peers[slot].aim[1];out[11]=peers[slot].aim[2];
     const int color=peers[slot].color;out[6]=float(color);out[7]=float(outfitDraws[color]);out[8]=float(outfitTexels[color]);
     out[12]=0;
@@ -516,27 +528,29 @@ bool ViceTogetherRenderBody(CPed* ped) {
 void ViceTogetherDrawNames() {
     if(!enabled) return;
     const CFontDetails saved=CFont::Details;
-    CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(0.34f), SCREEN_SCALE_Y(0.64f));
+    CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(remoteTagScaleX), SCREEN_SCALE_Y(remoteTagScaleY));
     CFont::SetCentreOff(); CFont::SetJustifyOff();
     CFont::SetRightJustifyOff(); CFont::SetBackgroundOff(); CFont::SetPropOn();
     CFont::SetAlphaFade(255.0f); CFont::SetDropShadowPosition(1); CFont::SetDropColor(CRGBA(0,0,0,230));
     for(int i=0;i<7;i++) {
         CPed* ped=peers[i].ped;
         if(!ped || !peers[i].active) continue;
-        CVector p=ped->GetPosition();
-        if((p-TheCamera.GetPosition()).MagnitudeSqr()>60.0f*60.0f) continue;
-        p.z+=1.25f;
-        RwV3d world={p.x,p.y,p.z}, screen; float w,h;
-        if(!CSprite::CalcScreenCoors(world,&screen,&w,&h,true) || screen.x<0 || screen.x>SCREEN_WIDTH || screen.y<0 || screen.y>SCREEN_HEIGHT) continue;
+        const CVector position=ped->GetPosition();
+        if((position-TheCamera.GetPosition()).MagnitudeSqr()>60.0f*60.0f) continue;
+        RwV3d screen;
+        if(!remoteTagProjection(ped,&screen) || screen.x<0 || screen.x>SCREEN_WIDTH || screen.y<0 || screen.y>SCREEN_HEIGHT) continue;
         const char* label=peers[i].name;
         if(!label || !label[0]) label="Player";
         wchar text[32]; AsciiToUnicode(label,text);
         const float labelWidth=std::max(SCREEN_SCALE_X(12.0f),CFont::GetStringWidth(text,true));
         const float labelLeft=screen.x-labelWidth*0.5f;
+        const float lineHeight=remoteTagLineHeight();
+        const float labelY=screen.y-lineHeight-SCREEN_SCALE_Y(2.0f);
+        if(labelLeft<0 || labelLeft+labelWidth>SCREEN_WIDTH || labelY<0)continue;
         CFont::SetColor(CRGBA(230,244,240,255));
-        CFont::PrintString(labelLeft,screen.y,text);
+        CFont::PrintString(labelLeft,labelY,text);
         const float healthWidth=labelWidth*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f));
-        const float healthLeft=screen.x-healthWidth*0.5f, y=screen.y+SCREEN_SCALE_Y(10.0f), height=SCREEN_SCALE_Y(2.0f);
+        const float healthLeft=screen.x-healthWidth*0.5f, y=screen.y-SCREEN_SCALE_Y(1.0f), height=SCREEN_SCALE_Y(2.0f);
         CSprite2d::DrawRect(CRect(healthLeft,y,healthLeft+healthWidth,y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
     }
     CFont::Details=saved;

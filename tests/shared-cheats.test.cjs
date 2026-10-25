@@ -50,12 +50,16 @@ test('transient complete-frame omissions keep vehicle and police replicas briefl
  assert.match(world,/now-it->second\.received<2000/);
 });
 
-test('floating player names and health lines share one transparent centered anchor',()=>{
+test('floating player names and health lines share a transparent animated-head anchor',()=>{
  const cpp=fs.readFileSync(path.join(__dirname,'..','engine/native-source/ViceTogether.cpp'),'utf8');
  const draw=cpp.slice(cpp.indexOf('void ViceTogetherDrawNames()'),cpp.indexOf('\nvoid ViceTogetherTick()'));
  assert.match(draw,/CFont::SetCentreOff\(\)/);
+ assert.match(cpp,/CVector head=ped->GetNodePosition\(PED_HEAD\);head\.z\+=0\.10f/);
+ assert.match(draw,/remoteTagProjection\(ped,&screen\)/);
  assert.match(draw,/const float labelLeft=screen\.x-labelWidth\*0\.5f/);
- assert.match(draw,/CFont::PrintString\(labelLeft,screen\.y,text\)/);
+ assert.match(draw,/const float labelY=screen\.y-lineHeight-SCREEN_SCALE_Y\(2\.0f\)/);
+ assert.match(draw,/CFont::PrintString\(labelLeft,labelY,text\)/);
  assert.match(draw,/healthLeft=screen\.x-healthWidth\*0\.5f/);
+ assert.match(draw,/y=screen\.y-SCREEN_SCALE_Y\(1\.0f\)/);
  assert.doesNotMatch(draw,/CRGBA\(13,17,23/,'name text has no dark backing rectangle');
 });

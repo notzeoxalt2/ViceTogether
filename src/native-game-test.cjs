@@ -265,6 +265,11 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       // source bone distances within the interpolation window, not standing height.
       const shapeErrors=upright.map(s=>{const recent=sourceSkeleton[1-i].filter(p=>p.time<=s.time && s.time-p.time<350 && p.state[3]>0);return recent.length?Math.min(...recent.map(p=>Math.hypot(...p.state.slice(0,3).map((v,k)=>v-s.state[k])))):null;}).filter(e=>e!==null).sort((a,b)=>a-b);
       assert.ok(shapeErrors.length>50 && shapeErrors[Math.floor(shapeErrors.length*.95)]<0.25,`Engine ${i} remote skeleton does not match actual source bones: p95 ${shapeErrors[Math.floor(shapeErrors.length*.95)]}`);
+      const headPositionErrors=upright.map(s=>{if(!s.state.slice(17,20).every(Number.isFinite))return null;const recent=sourceSkeleton[1-i].filter(p=>p.time<=s.time && s.time-p.time<350 && p.state[3]>0 && p.state.slice(17,20).every(Number.isFinite));return recent.length?Math.min(...recent.map(p=>Math.hypot(...p.state.slice(17,20).map((v,k)=>v-s.state[17+k])))):null;}).filter(e=>e!==null).sort((a,b)=>a-b);
+      assert.ok(headPositionErrors.length>50 && headPositionErrors[Math.floor(headPositionErrors.length*.95)]<0.75,`Engine ${i} animated head spacing disagreed with the other view: p95 ${headPositionErrors[Math.floor(headPositionErrors.length*.95)]} m`);
+      const projectedTags=upright.filter(s=>s.state[23]===1&&s.state.slice(20,23).every(Number.isFinite));
+      assert.ok(projectedTags.length>20,`Engine ${i} did not project the remote player's head-anchored name tag`);
+      assert.ok(projectedTags.every(s=>s.state[22]>s.state[21]&&s.state[22]-s.state[21]<25),`Engine ${i} name and health line did not stay tightly aligned to the head projection`);
       const colored=upright.filter(s=>s.state[6]>0 && s.state[7]>0);
       assert.ok(colored.length>10 && colored.some(s=>s.state[8]>100), `Engine ${i} remote shirt recoloring was not applied during native rendering`);
       const gunAimSamples=upright.filter(s=>s.state[9]===1);
@@ -305,6 +310,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         remoteGaitSamples: gaitSamples.length, remoteGaitPhaseChanges: gaitPhaseChanges,
         maximumRenderPositionErrorMetres:Math.max(...renderErrors),pauseMenuObserved:remote[i].some(s=>s.state[9]===1),
         skeletonSamples:upright.length,minimumHeadToFootMetres:Math.min(...heights),maximumHeadToFootMetres:Math.max(...heights),
+        animatedHeadSpacingErrorP95Metres:headPositionErrors[Math.floor(headPositionErrors.length*.95)],projectedNameTagSamples:projectedTags.length,
         coloredRemoteDraws:Math.max(0,...upright.map(s=>s.state[7])),recoloredTexturePixels:Math.max(0,...upright.map(s=>s.state[8])),
         replicatedGunAimSamples:gunAimSamples.length,
         replicatedJumpSamples:jumpSamples.length,

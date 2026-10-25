@@ -1,3 +1,11 @@
+# ViceTogether alpha.30 — head-anchored player labels
+
+Remote player labels now follow the animated head bone instead of a fixed offset from the ped root. The name and slim health line use the same projected center, with the line directly below the name and no backing panel. The paired native game test now measures world-space head separation and confirms the name/health projection stays together.
+
+The updated native build and two-client test must pass before publishing. Each player imports their own legally obtained Vice City installation; no game assets are included.
+
+---
+
 # ViceTogether alpha.29 — shared vehicle rotation
 
 Guest-driven cars now send their angular velocity to the host, and host-owned world vehicle snapshots include angular velocity for remote playback. This lets the other game follow turning, pitching, rolling, and settling motion instead of only copying position and orientation while losing the car's rotational momentum.
