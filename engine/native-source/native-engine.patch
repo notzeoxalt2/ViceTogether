@@ -830,7 +830,7 @@ index cada168..2a0c141 100644
 +	ViceTogetherReportShot(shooter,m_eWeaponType,source,victim?point.point:target,victim!=nil,victim?point.normal:CVector(0,0,0),victim?(victim->IsPed()?1:2):0);
  
  	CVector bulletPos;
-
+ 
 diff --git a/src/vehicles/Heli.cpp b/src/vehicles/Heli.cpp
 index f51c8481..64bf095a 100644
 --- a/src/vehicles/Heli.cpp
