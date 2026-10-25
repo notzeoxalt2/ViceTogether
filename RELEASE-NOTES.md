@@ -1,6 +1,6 @@
 # ViceTogether alpha.31 — smoother vehicle snapshots
 
-Guest-driven car, bike, boat, and aircraft motion now sends native driver snapshots at 30 Hz instead of 20 Hz. The host accepts those replaceable snapshots at the matching rate while continuing to reject invalid ownership, teleports, and malformed vehicle state. The two-game guest-drive test now checks the measured arrival cadence as well as car motion, orientation, seats, exits, and frame rate.
+Guest-driven car, bike, boat, and aircraft motion now sends native driver snapshots near 60 Hz instead of 20 Hz. The host accepts those replaceable snapshots at the matching rate while continuing to reject invalid ownership, teleports, and malformed vehicle state. The two-game guest-drive test now checks the measured arrival cadence as well as car motion, orientation, seats, exits, and frame rate.
 
 This is an incremental smoothness improvement, not a claim of perfect vehicle synchronization. Vehicle physics and collisions can still differ between each player's local game; internet route latency is not removed by a higher snapshot rate. The Windows build and paired-game test must pass before publishing this update.
 
