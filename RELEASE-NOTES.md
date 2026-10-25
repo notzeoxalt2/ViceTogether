@@ -1,3 +1,13 @@
+# ViceTogether alpha.29 — shared vehicle rotation
+
+Guest-driven cars now send their angular velocity to the host, and host-owned world vehicle snapshots include angular velocity for remote playback. This lets the other game follow turning, pitching, rolling, and settling motion instead of only copying position and orientation while losing the car's rotational momentum.
+
+Two repeated same-PC native host/guest runs passed using the actual launcher lobby and stock enter, drive, and exit controls. Both clients stayed around 143 FPS; the second run recorded 53 ms maximum sample age, 0.025 basis error p95, 0.0049 angular-velocity error p95, and 1.96 m position error p95. Position mismatch remains visible at times. The test did not cover rollovers, every vehicle type, public internet/NAT routes, or a fresh Windows install, so this is an incremental experimental fix rather than a claim of perfect synchronization.
+
+Each player must import their own legally obtained Vice City installation. No game assets are included.
+
+---
+
 # ViceTogether alpha.28 — guest-driven vehicle replication
 
 Guest driver updates include the car’s health and visual state, and the guest sends driver motion at 20 Hz instead of 10 Hz. The host accepts motion only after the lobby validates an exclusive driver claim. The native bridge now tolerates the short interval where Vice City has granted that claim but its stock seat task has not attached the remote player to `pDriver`; it still refuses to overwrite a locally driven car or an unrelated driver. Wreck status stays authoritative across later cosmetic updates.
