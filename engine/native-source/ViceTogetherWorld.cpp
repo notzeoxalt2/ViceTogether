@@ -64,7 +64,23 @@ bool guest() { const char* role=getenv("VT_WORLD_HOST");return role && atoi(role
 int menuSpawnModel=-1;uint32 menuSpawnTime=0,menuLastSpawn=0;CVehicle* menuSpawned[8]={};const char* menuStatus="";bool menuSpawnHasPosition=false;CVector menuSpawnPosition;float menuSpawnHeading=0;
 const int allowedVehicleModels[]={130,135,141,145,155,159,166,176,182,190,191,192,193,203,217};
 bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehicleModels+15,model)!=allowedVehicleModels+15;}
-CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);const uint32 flags=handling?handling->Flags:0;if(flags&HANDLING_IS_HELI)return new CHeli(model,MISSION_VEHICLE);if(flags&HANDLING_IS_PLANE)return new CPlane(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BOAT)return new CBoat(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BIKE)return new CBike(model,MISSION_VEHICLE);switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return new CHeli(model,MISSION_VEHICLE);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
+CHeli* createMultiplayerHeli(int model){
+    CHeli* heli=new CHeli(model,MISSION_VEHICLE);
+    // CHeli's constructor leaves mission-only AI fields uninitialized because
+    // the stock game fills them in GenerateHeli(). Network-spawned vehicles
+    // use a separate factory, so set deterministic, non-police defaults here.
+    heli->m_heliType=HELI_TYPE_RANDOM;
+    heli->m_pathState=0;
+    heli->m_nExplosionTimer=0;
+    heli->m_fTargetZ=0.0f;
+    heli->m_fSearchLightIntensity=0.0f;
+    heli->m_nShootTimer=CTimer::GetTimeInMilliseconds();
+    heli->m_fTargetOffset=0.0f;
+    heli->m_numSwat=0;
+    for(int i=0;i<4;i++)heli->m_aSwatState[i]=0;
+    return heli;
+}
+CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);const uint32 flags=handling?handling->Flags:0;if(flags&HANDLING_IS_HELI)return createMultiplayerHeli(model);if(flags&HANDLING_IS_PLANE)return new CPlane(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BOAT)return new CBoat(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BIKE)return new CBike(model,MISSION_VEHICLE);switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return createMultiplayerHeli(model);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
 int testMeleeStage=0,testMeleeTarget=-1;float testMeleeLocalDistance=-1,testMeleeRemoteDistance=-1;
 void applyDoorAngles(CAutomobile* car,const float* angles){const int nodes[]={CAR_BONNET,CAR_BOOT,CAR_DOOR_LF,CAR_DOOR_RF,CAR_DOOR_LR,CAR_DOOR_RR};for(int i=0;i<6;i++){if(!car->m_aCarNodes[nodes[i]])continue;const float closed=car->Doors[i].RetAngleWhenClosed(),open=car->Doors[i].RetAngleWhenOpen(),span=open-closed;if(fabsf(span)<0.001f)continue;const float ratio=std::max(0.0f,std::min(1.0f,(angles[i]-closed)/span));car->OpenDoor(nodes[i],(eDoors)i,ratio);}}
 void doorMatrices(CAutomobile* car){float angles[6];for(int i=0;i<6;i++)angles[i]=car->Doors[i].m_fAngle;applyDoorAngles(car,angles);}

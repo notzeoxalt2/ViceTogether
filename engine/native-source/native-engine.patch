@@ -566,7 +566,7 @@ index 3e7a26c..bed7dcf 100644
  /*
   *****************************************************************************
   */
-+static LONG WINAPI ViceTogetherTestException(EXCEPTION_POINTERS* info){if(info->ExceptionRecord->ExceptionCode==0xc0000005){FILE* f=fopen("native-exception.log","a");if(f){const DWORD operation=info->ExceptionRecord->NumberParameters>0?DWORD(info->ExceptionRecord->ExceptionInformation[0]):0xffffffff;const DWORD target=info->ExceptionRecord->NumberParameters>1?DWORD(info->ExceptionRecord->ExceptionInformation[1]):0;fprintf(f,"rva=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx esp=%08lx ebp=%08lx access=%lu target=%08lx\n",DWORD(info->ExceptionRecord->ExceptionAddress)-DWORD(GetModuleHandle(nil)),info->ContextRecord->Eax,info->ContextRecord->Ebx,info->ContextRecord->Ecx,info->ContextRecord->Edx,info->ContextRecord->Esi,info->ContextRecord->Edi,info->ContextRecord->Esp,info->ContextRecord->Ebp,operation,target);fclose(f);}}return EXCEPTION_CONTINUE_SEARCH;}
++static LONG WINAPI ViceTogetherTestException(EXCEPTION_POINTERS* info){if(info->ExceptionRecord->ExceptionCode==0xc0000005){FILE* f=fopen("native-exception.log","a");if(f){const DWORD operation=info->ExceptionRecord->NumberParameters>0?DWORD(info->ExceptionRecord->ExceptionInformation[0]):0xffffffff;const DWORD target=info->ExceptionRecord->NumberParameters>1?DWORD(info->ExceptionRecord->ExceptionInformation[1]):0;fprintf(f,"rva=%08lx eax=%08lx ebx=%08lx ecx=%08lx edx=%08lx esi=%08lx edi=%08lx esp=%08lx ebp=%08lx access=%lu target=%08lx",DWORD(info->ExceptionRecord->ExceptionAddress)-DWORD(GetModuleHandle(nil)),info->ContextRecord->Eax,info->ContextRecord->Ebx,info->ContextRecord->Ecx,info->ContextRecord->Edx,info->ContextRecord->Esi,info->ContextRecord->Edi,info->ContextRecord->Esp,info->ContextRecord->Ebp,operation,target);DWORD stack[16]={};SIZE_T bytesRead=0;ReadProcessMemory(GetCurrentProcess(),reinterpret_cast<LPCVOID>(info->ContextRecord->Esp),stack,sizeof(stack),&bytesRead);for(DWORD i=0;i<bytesRead/sizeof(DWORD);i++)fprintf(f," s%02lu=%08lx",i,stack[i]);fprintf(f,"\n");fclose(f);}}return EXCEPTION_CONTINUE_SEARCH;}
  int PASCAL
  WinMain(HINSTANCE instance, 
  		HINSTANCE prevInstance	__RWUNUSED__, 
@@ -830,4 +830,46 @@ index cada168..2a0c141 100644
 +	ViceTogetherReportShot(shooter,m_eWeaponType,source,victim?point.point:target,victim!=nil,victim?point.normal:CVector(0,0,0),victim?(victim->IsPed()?1:2):0);
  
  	CVector bulletPos;
+
+diff --git a/src/vehicles/Heli.cpp b/src/vehicles/Heli.cpp
+index f51c8481..64bf095a 100644
+--- a/src/vehicles/Heli.cpp
++++ b/src/vehicles/Heli.cpp
+@@ -564,21 +564,27 @@ CHeli::Render(void)
+ 	CMatrix mat;
+ 	CVector pos;
  
+-	mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_TOPROTOR]));
+-	pos = mat.GetPosition();
+-	mat.SetRotateZ(m_fRotorRotation);
+-	mat.Translate(pos);
+-	mat.UpdateRW();
++	// Some legal Vice City model sets omit one or both named rotor frames.
++	// Keep the helicopter body renderable instead of dereferencing a null frame.
++	if(m_aHeliNodes[HELI_TOPROTOR]){
++		mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_TOPROTOR]));
++		pos = mat.GetPosition();
++		mat.SetRotateZ(m_fRotorRotation);
++		mat.Translate(pos);
++		mat.UpdateRW();
++	}
+ 
+ 	m_fRotorRotation += 3.14f/6.5f;
+ 	if(m_fRotorRotation > 6.28f)
+ 		m_fRotorRotation -= 6.28f;
+ 
+-	mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_BACKROTOR]));
+-	pos = mat.GetPosition();
+-	mat.SetRotateX(m_fRotorRotation);
+-	mat.Translate(pos);
+-	mat.UpdateRW();
++	if(m_aHeliNodes[HELI_BACKROTOR]){
++		mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_BACKROTOR]));
++		pos = mat.GetPosition();
++		mat.SetRotateX(m_fRotorRotation);
++		mat.Translate(pos);
++		mat.UpdateRW();
++	}
+ 
+ 	CEntity::Render();
+ }
