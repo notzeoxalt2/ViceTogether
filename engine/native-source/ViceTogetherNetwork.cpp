@@ -213,10 +213,10 @@ void ViceTogetherNetworkTick() {
     reportPerformance(now);
     static DWORD lastWorld=0,lastDriver=0;
     if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);lastWorld=now;}
-    // Driver ownership is a small, replaceable state packet. Send it twice as
-    // often as the full ambient-world snapshot so passengers see a steady car
-    // instead of the old 10 Hz transform cadence.
-    if(now-lastDriver>=50){ViceTogetherCaptureDriver(sendWorld);lastDriver=now;}
+    // Driver ownership is a small, replaceable state packet. Send it about
+    // three times as often as the ambient-world snapshot so the other client
+    // gets smaller motion steps without making every world frame a driver packet.
+    if(now-lastDriver>=33){ViceTogetherCaptureDriver(sendWorld);lastDriver=now;}
     for(int count=0;count<512;count++) {
         Wire wire;sockaddr_in source={};int sourceSize=sizeof(source);
         const int size=recvfrom(bridge,(char*)&wire,sizeof(wire),0,(sockaddr*)&source,&sourceSize);
