@@ -274,6 +274,14 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
     if((player->m_objective==OBJECTIVE_ENTER_CAR_AS_DRIVER || player->m_objective==OBJECTIVE_ENTER_CAR_AS_PASSENGER) && player->m_carInObjective==car){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=7;return;}
     if(seat==-1){
         if(car->pDriver && car->pDriver!=player){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=8;return;}
+        if(car->IsBoat()){
+            // Vice City boards boats through SetEnterCar; the generic enter-car
+            // objective does not run the boat's stock access animation/task.
+            player->m_vehDoor=0;
+            player->SetEnterCar(car,player->m_vehDoor);
+            if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=12;
+            return;
+        }
         // Vice City's native objective handles walking to the driver's door,
         // door interaction, entry animation, and seat attachment.
         player->SetObjective(OBJECTIVE_ENTER_CAR_AS_DRIVER,car);
