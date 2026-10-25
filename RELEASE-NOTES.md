@@ -1,3 +1,11 @@
+# ViceTogether alpha.22 — centered player labels
+
+Player names and their health lines now use one measured center point, with the text drawn left-aligned at that calculated position. This corrects the offset visible in the two-window screenshot while keeping the label background transparent.
+
+The screenshot's player-to-player screen gap is nearly the same in both views. Each view follows a different player, so character size and scenery perspective still differ. In the alpha.21 same-PC native run, source-to-remote position error was about 0.10 m p95; that does not test internet paths.
+
+---
+
 # ViceTogether alpha.21 — player labels and nearby vehicle blast
 
 The floating player label is now transparent, and multiplayer snapshot validation no longer drops vehicle updates when an older engine includes unsupported civilian peds in the same frame. The Ctrl+I menu adds a **Nearby Big Bang (35 m)** action for either player; the host checks the guest's recent living position and performs the blast in the authoritative game world.

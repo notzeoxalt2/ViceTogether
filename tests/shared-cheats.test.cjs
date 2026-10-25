@@ -49,3 +49,13 @@ test('transient complete-frame omissions keep vehicle and police replicas briefl
  assert.match(world,/map==&vehicles \|\| \(map==&pedestrians && int\(it->second\.target\[1\]\)==PEDTYPE_COP\)/);
  assert.match(world,/now-it->second\.received<2000/);
 });
+
+test('floating player names and health lines share one transparent centered anchor',()=>{
+ const cpp=fs.readFileSync(path.join(__dirname,'..','engine/native-source/ViceTogether.cpp'),'utf8');
+ const draw=cpp.slice(cpp.indexOf('void ViceTogetherDrawNames()'),cpp.indexOf('\nvoid ViceTogetherTick()'));
+ assert.match(draw,/CFont::SetCentreOff\(\)/);
+ assert.match(draw,/const float labelLeft=screen\.x-labelWidth\*0\.5f/);
+ assert.match(draw,/CFont::PrintString\(labelLeft,screen\.y,text\)/);
+ assert.match(draw,/healthLeft=screen\.x-healthWidth\*0\.5f/);
+ assert.doesNotMatch(draw,/CRGBA\(13,17,23/,'name text has no dark backing rectangle');
+});

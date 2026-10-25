@@ -516,8 +516,8 @@ bool ViceTogetherRenderBody(CPed* ped) {
 void ViceTogetherDrawNames() {
     if(!enabled) return;
     const CFontDetails saved=CFont::Details;
-    CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(0.31f), SCREEN_SCALE_Y(0.58f));
-    CFont::SetCentreOn(); CFont::SetCentreSize(SCREEN_WIDTH); CFont::SetJustifyOff();
+    CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(0.34f), SCREEN_SCALE_Y(0.64f));
+    CFont::SetCentreOff(); CFont::SetJustifyOff();
     CFont::SetRightJustifyOff(); CFont::SetBackgroundOff(); CFont::SetPropOn();
     CFont::SetAlphaFade(255.0f); CFont::SetDropShadowPosition(1); CFont::SetDropColor(CRGBA(0,0,0,230));
     for(int i=0;i<7;i++) {
@@ -531,11 +531,13 @@ void ViceTogetherDrawNames() {
         const char* label=peers[i].name;
         if(!label || !label[0]) label="Player";
         wchar text[32]; AsciiToUnicode(label,text);
-        const float labelHalf=std::max(SCREEN_SCALE_X(12.0f),CFont::GetStringWidth(text,true)*0.5f+SCREEN_SCALE_X(2));
+        const float labelWidth=std::max(SCREEN_SCALE_X(12.0f),CFont::GetStringWidth(text,true));
+        const float labelLeft=screen.x-labelWidth*0.5f;
         CFont::SetColor(CRGBA(230,244,240,255));
-        CFont::PrintString(screen.x,screen.y,text);
-        const float half=labelHalf, y=screen.y+SCREEN_SCALE_Y(10.0f), height=SCREEN_SCALE_Y(2.0f);
-        CSprite2d::DrawRect(CRect(screen.x-half,y,screen.x-half+2*half*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f)),y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
+        CFont::PrintString(labelLeft,screen.y,text);
+        const float healthWidth=labelWidth*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f));
+        const float healthLeft=screen.x-healthWidth*0.5f, y=screen.y+SCREEN_SCALE_Y(10.0f), height=SCREEN_SCALE_Y(2.0f);
+        CSprite2d::DrawRect(CRect(healthLeft,y,healthLeft+healthWidth,y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
     }
     CFont::Details=saved;
     drawModMenu();
