@@ -12,6 +12,27 @@ test('network HUD preserves unknown ping and rejects malformed status',()=>{
  assert.equal(packets.length,2);assert.equal(packets[0].readUInt32LE(4),49);assert.equal(packets[0].readFloatLE(12),-1);
  assert.deepEqual([12,16,20].map(offset=>packets[1].readFloatLE(offset)),[151,32,1]);
 });
+test('host-only vehicle spawn bridge creates an authoritative native spawn packet',()=>{
+ const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
+ const request={model:217,position:[12,34,5],heading:1.25};
+ engine.authoritativeWorld=false;assert.equal(engine.spawnVehicle(request),false);
+ engine.authoritativeWorld=true;assert.equal(engine.spawnVehicle({...request,model:999}),false);
+ assert.equal(engine.spawnVehicle(request),true);assert.equal(packets.length,1);assert.equal(packets[0].readUInt32LE(4),56);
+ assert.deepEqual([0,1,2,3,4].map(i=>packets[0].readFloatLE(12+i*4)),[217,12,34,5,1.25]);
+ assert.equal(engine.spawnVehicle({...request,position:[Infinity,0,0]}),false);
+});
+test('only the host can return a shared Come Fly With Me toggle to the native game',()=>{
+ const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
+ engine.authoritativeWorld=false;assert.equal(engine.toggleSharedCheat(1),false);
+ engine.authoritativeWorld=true;assert.equal(engine.toggleSharedCheat(99),false);assert.equal(engine.toggleSharedCheat(1),true);
+ assert.equal(packets.length,1);assert.equal(packets[0].readUInt32LE(4),58);assert.equal(packets[0].readFloatLE(12),1);
+});
+test('shared Come Fly With Me state survives the native world bridge transaction',()=>{
+ const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;engine.authoritativeWorld=false;
+ const environment=[12,0,0,0,0,0,...Array(13).fill(0),1];
+ assert.equal(engine.remoteWorld({seq:1,environment,entities:[],glass:[],explosions:[]}),true);
+ assert.equal(packets[0].readUInt32LE(4),19);assert.equal(packets[0].readFloatLE(12+23*4),1);
+});
 test('late reliable snapshots cannot undo newer authoritative death/health updates',()=>{
  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
  const state=[0,0,10,0,0,0,0,1,0,0];engine.frame([{id:'me',self:true,seq:20,state}]);engine.frame([{id:'me',self:true,seq:19,state:[...state.slice(0,8),100,0]}]);

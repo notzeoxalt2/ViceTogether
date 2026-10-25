@@ -9,8 +9,14 @@
 #include "ModelInfo.h"
 #include "PedModelInfo.h"
 #include "VehicleModelInfo.h"
+#include "Vehicle.h"
+#include "Automobile.h"
+#include "Hud.h"
+#include "Text.h"
 #include "Bike.h"
 #include "Boat.h"
+#include "Heli.h"
+#include "Plane.h"
 #include "Population.h"
 #include "CarCtrl.h"
 #include "PathFind.h"
@@ -54,7 +60,10 @@ void retainGlass(const GlassState& state){for(auto& item:glass)if(sameGlass(item
 void applyGlass(CObject* object,const float* d){if(d[1]==2 && !object->bGlassBroken){replayingGlass=true;CGlass::WindowRespondsToCollision(object,d[11],CVector(d[5],d[6],d[7]),CVector(d[8],d[9],d[10]),d[12]!=0);replayingGlass=false;}else if(d[1]>=1)object->bGlassCracked=true;}
 bool host() { const char* role=getenv("VT_WORLD_HOST");return role && atoi(role)==1; }
 bool guest() { const char* role=getenv("VT_WORLD_HOST");return role && atoi(role)==0; }
-int menuSpawnModel=-1;uint32 menuSpawnTime=0,menuLastSpawn=0;CVehicle* menuSpawned[8]={};const char* menuStatus="";
+int menuSpawnModel=-1;uint32 menuSpawnTime=0,menuLastSpawn=0;CVehicle* menuSpawned[8]={};const char* menuStatus="";bool menuSpawnHasPosition=false;CVector menuSpawnPosition;float menuSpawnHeading=0;
+const int allowedVehicleModels[]={130,135,141,145,155,159,166,176,182,190,191,192,193,203,217};
+bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehicleModels+15,model)!=allowedVehicleModels+15;}
+CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return new CHeli(model,MISSION_VEHICLE);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
 int testMeleeStage=0,testMeleeTarget=-1;float testMeleeLocalDistance=-1,testMeleeRemoteDistance=-1;
 void doorMatrices(CAutomobile* car){const int nodes[]={CAR_BONNET,CAR_BOOT,CAR_DOOR_LF,CAR_DOOR_RF,CAR_DOOR_LR,CAR_DOOR_RR};for(int i=0;i<6;i++){RwFrame* frame=car->m_aCarNodes[nodes[i]];if(!frame || car->Doors[i].m_nAxis<0 || car->Doors[i].m_nAxis>2)continue;CMatrix matrix(RwFrameGetMatrix(frame));const CVector position=matrix.GetPosition();float axes[3]={};axes[car->Doors[i].m_nAxis]=car->Doors[i].m_fAngle;matrix.SetRotate(axes[0],axes[1],axes[2]);matrix.Translate(position);matrix.UpdateRW();}}
 void pose(CPed* ped,const float* data) {
@@ -95,8 +104,16 @@ void commit() {
         std::memcpy(replica.target,state.data,sizeof(replica.target));replica.received=CTimer::GetTimeInMilliseconds();replica.generation=generation;
         if(state.hasVisual){std::memcpy(replica.previousVisual,replica.hasVisual?replica.visual:state.visual,sizeof(replica.visual));std::memcpy(replica.visual,state.visual,sizeof(replica.visual));replica.hasVisual=true;}
     }
+    const uint32 now=CTimer::GetTimeInMilliseconds();
     for(auto* map:{&pedestrians,&vehicles})for(auto it=map->begin();it!=map->end();) {
-        if(it->second.generation!=generation){remove(it->second);it=map->erase(it);}else ++it;
+        if(it->second.generation!=generation){
+            // Complete snapshots can omit entities when an unreliable frame is
+            // delayed or an actor briefly falls outside the host's interest set.
+            // Keep vehicles and police replicas briefly to avoid visible pop-out.
+            const bool keepVisible=(map==&vehicles || (map==&pedestrians && int(it->second.target[1])==PEDTYPE_COP)) && now-it->second.received<2000;
+            if(keepVisible){++it;continue;}
+            remove(it->second);it=map->erase(it);
+        }else ++it;
     }
 }
 }
@@ -105,6 +122,7 @@ void ViceTogetherWorldReset(){
     const bool wasGuest=guest();
     if(wasGuest){
         CPopulation::PedDensityMultiplier=1.0f;CCarCtrl::CarDensityMultiplier=1.0f;
+        CVehicle::bAllDodosCheat=false;
         CPlayerPed* player=FindPlayerPed();
         if(player&&player->bInVehicle&&player->m_pMyVehicle){CVehicle* car=player->m_pMyVehicle;const CVector exit=car->GetPosition()+car->GetRight()*2.0f;if(car->pDriver==player)car->RemoveDriver();else car->RemovePassenger(player);player->m_pMyVehicle=nil;player->bInVehicle=false;player->bUsesCollision=true;player->ClearObjective();player->SetIdle();player->Teleport(exit);}
     }
@@ -117,19 +135,32 @@ void ViceTogetherWorldMenuAction(int action){
     if(guest()){menuStatus="Only the host changes the shared world";return;}
     CPlayerPed* player=FindPlayerPed();if(!player||!player->m_rwObject||player->DyingOrDead())return;
     if(action>=2000){if(action==2000)CClock::SetGameClock(9,0);else if(action==2001)CClock::SetGameClock(22,0);else if(action==2002)CWeather::ForceWeatherNow(WEATHER_SUNNY);else if(action==2003)CWeather::ForceWeatherNow(WEATHER_RAINY);else if(action==2004)player->SetWantedLevel(0);else if(action==2005){for(auto& car:menuSpawned){if(!car||car->pDriver)continue;bool occupied=false;for(int seat=0;seat<8;seat++)if(car->pPassengers[seat])occupied=true;if(!occupied){CWorld::Remove(car);delete car;car=nil;}}}menuStatus="Applied";return;}
-    const int model=action-1000;const int allowed[]={130,135,141,145,155,159,166,176,182,190,191,192,193,203,217};if(std::find(allowed,allowed+15,model)==allowed+15)return;
+    const int model=action-1000;if(!allowedVehicle(model))return;
     if(menuSpawnModel>=0 || menuLastSpawn && CTimer::GetTimeInMilliseconds()-menuLastSpawn<3000){menuStatus="Wait a moment before spawning another vehicle";return;}
-    menuSpawnModel=model;menuSpawnTime=CTimer::GetTimeInMilliseconds();CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);menuStatus="Loading vehicle...";
+    menuSpawnHasPosition=false;menuSpawnModel=model;menuSpawnTime=CTimer::GetTimeInMilliseconds();CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);menuStatus="Loading vehicle...";
+}
+extern "C" void VT_SendVehicleSpawnRequest(int model);
+void ViceTogetherWorldRequestVehicle(int model){if(!guest()||!allowedVehicle(model)){menuStatus="This vehicle cannot be requested";return;}VT_SendVehicleSpawnRequest(model);menuStatus="Vehicle request sent to host...";}
+void ViceTogetherWorldSpawnVehicle(int model,float x,float y,float z,float heading){
+    if(!host()||!allowedVehicle(model)||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(heading)||fabsf(x)>=10000||fabsf(y)>=10000||fabsf(z)>=3000)return;
+    if(menuSpawnModel>=0||menuLastSpawn&&CTimer::GetTimeInMilliseconds()-menuLastSpawn<3000){menuStatus="Wait a moment before spawning another vehicle";return;}
+    menuSpawnModel=model;menuSpawnHasPosition=true;menuSpawnPosition=CVector(x,y,z);menuSpawnHeading=heading;menuSpawnTime=CTimer::GetTimeInMilliseconds();CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);menuStatus="Preparing guest vehicle...";
+}
+bool ViceTogetherWorldToggleFlyCheat(){
+    if(!host())return false;
+    CVehicle::bAllDodosCheat=!CVehicle::bAllDodosCheat;
+    CHud::SetHelpMessage(TheText.Get(CVehicle::bAllDodosCheat?"CHEAT1":"CHEATOF"),true);
+    return true;
 }
 void ViceTogetherWorldMenuTick(){
     if(menuSpawnModel<0)return;const uint32 now=CTimer::GetTimeInMilliseconds();if(guest()||now-menuSpawnTime>15000){menuSpawnModel=-1;menuStatus="Vehicle loading failed";return;}
     if(!CStreaming::HasModelLoaded(menuSpawnModel))return;CPlayerPed* player=FindPlayerPed();if(!player||!player->m_rwObject)return;
     int slot=-1;for(int i=0;i<8;i++)if(!menuSpawned[i]){slot=i;break;}if(slot<0){menuSpawnModel=-1;menuStatus="Eight spawned vehicles already exist";return;}
-    const int model=menuSpawnModel;CVector position=player->GetPosition()+player->GetForward()*6.0f;const bool boat=CModelInfo::IsBoatModel(model);float water=0;
+    const int model=menuSpawnModel;CVector position=menuSpawnHasPosition?menuSpawnPosition:player->GetPosition()+player->GetForward()*6.0f;const float heading=menuSpawnHasPosition?menuSpawnHeading:player->m_fRotationCur;const bool boat=CModelInfo::IsBoatModel(model);float water=0;
     if(boat){if(!CWaterLevel::GetWaterLevel(position.x,position.y,position.z,&water,true)){menuSpawnModel=-1;menuStatus="Move beside open water to spawn a boat / Skimmer";return;}position.z=water+0.5f;}
-    else {bool found=false;const float ground=CWorld::FindGroundZFor3DCoord(position.x,position.y,position.z+4,&found);if(found)position.z=ground+1.0f;else{const int road=ThePaths.FindNodeClosestToCoors(player->GetPosition(),PATH_CAR,40.0f);if(road<0){menuSpawnModel=-1;menuStatus="Move to clear ground before spawning";return;}position=ThePaths.m_pathNodes[road].GetPosition()+CVector(0,0,1);}}
-    CVehicle* car=boat?(CVehicle*)new CBoat(model,MISSION_VEHICLE):CModelInfo::IsBikeModel(model)?(CVehicle*)new CBike(model,MISSION_VEHICLE):(CVehicle*)new CAutomobile(model,MISSION_VEHICLE);
-    car->SetPosition(position);car->SetHeading(player->m_fRotationCur);car->SetStatus(STATUS_ABANDONED);car->SetMoveSpeed(0,0,0);car->bEngineOn=false;CWorld::Add(car);menuSpawned[slot]=car;car->RegisterReference((CEntity**)&menuSpawned[slot]);menuLastSpawn=now;menuSpawnModel=-1;menuStatus="Spawned nearby - F: drive / G: passenger";
+    else {bool found=false;const float ground=CWorld::FindGroundZFor3DCoord(position.x,position.y,position.z+10,&found);if(found)position.z=ground+1.0f;else if(!menuSpawnHasPosition){const int road=ThePaths.FindNodeClosestToCoors(player->GetPosition(),PATH_CAR,40.0f);if(road<0){menuSpawnModel=-1;menuStatus="Move to clear ground before spawning";return;}position=ThePaths.m_pathNodes[road].GetPosition()+CVector(0,0,1);}}
+    CVehicle* car=createMultiplayerVehicle(model);if(!car){menuSpawnModel=-1;menuStatus="This vehicle type is not supported yet";return;}
+    car->m_fHealth=1000.0f;car->SetPosition(position);car->SetHeading(heading);car->SetStatus(STATUS_ABANDONED);car->SetMoveSpeed(0,0,0);car->bEngineOn=false;CWorld::Add(car);menuSpawned[slot]=car;car->RegisterReference((CEntity**)&menuSpawned[slot]);menuLastSpawn=now;menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Spawned nearby - F: drive / G: passenger";
 }
 void ViceTogetherWorldExplosion(CEntity* victim,int type,const CVector& pos,unsigned lifetime,bool sound){if(!host() || (victim && victim->IsVehicle()))return;ExplosionState event={};event.time=CTimer::GetTimeInMilliseconds();event.data[0]=float(++explosionSequence);event.data[1]=float(type);event.data[2]=pos.x;event.data[3]=pos.y;event.data[4]=pos.z;event.data[5]=float(lifetime);event.data[6]=sound?1:0;if(explosions.size()>=32)explosions.erase(explosions.begin());explosions.push_back(event);}
 void ViceTogetherWorldGlass(CEntity* entity,float amount,const CVector& speed,const CVector& point,bool explosion,bool broken){if(replayingGlass || !entity || !entity->IsObject() || !IsGlass(entity->GetModelIndex()))return;GlassState pane={};float* d=pane.data;d[0]=entity->GetModelIndex();d[1]=broken?2:1;const CVector pos=entity->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;d[5]=speed.x;d[6]=speed.y;d[7]=speed.z;d[8]=point.x;d[9]=point.y;d[10]=point.z;d[11]=std::max(0.0f,std::min(10000.0f,amount));d[12]=explosion?1:0;if(host())retainGlass(pane);else if(guest())VT_SendGlassRequest(d);}
@@ -219,7 +250,7 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
     // selects an available passenger seat and runs the game's entry sequence.
     player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);
 }
-void ViceTogetherCaptureDriver(VTWorldSender send){if(!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->bInVehicle||!p->m_pMyVehicle||p->m_pMyVehicle->pDriver!=p)return;CVehicle* car=p->m_pMyVehicle;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;float d[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);send(43,unsigned(id),d);}
+void ViceTogetherCaptureDriver(VTWorldSender send){if(!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->bInVehicle||!p->m_pMyVehicle||p->m_pMyVehicle->pDriver!=p)return;CVehicle* car=p->m_pMyVehicle;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;float d[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);send(43,unsigned(id),d);}
 void ViceTogetherApplyDriver(unsigned id,const float* d){if(!host())return;CVehicle* car=ViceTogetherWorldFindVehicle(id);if(!car||car->GetModelIndex()!=int(d[0])||car->GetStatus()==STATUS_WRECKED||car->pDriver && car->pDriver->IsPlayer())return;for(int i=0;i<17;i++)if(!std::isfinite(d[i]))return;CWorld::Remove(car);car->SetPosition(d[2],d[3],d[4]);CMatrix& m=car->GetMatrix();m.GetRight()=CVector(d[5],d[6],d[7]);m.GetForward()=CVector(d[8],d[9],d[10]);m.GetUp()=CVector(d[11],d[12],d[13]);car->SetMoveSpeed(d[14],d[15],d[16]);car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;CWorld::Add(car);if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;m.UpdateRW();car->UpdateRwFrame();delegatedVehicles[id]=CTimer::GetTimeInMilliseconds();}
 extern "C" int VT_ReadRemoteVehicle(int slot);
 void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)return;CPad* pad=CPad::GetPad(0);memset(&pad->NewState,0,sizeof(pad->NewState));
@@ -235,12 +266,13 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
                 if(CModelInfo::IsBoatModel(model)){
                     bool found=false;for(int radius=20;radius<=140&&!found;radius+=20)for(int angle=0;angle<16;angle++){const float a=angle*6.2831853f/16;CVector candidate=player->GetPosition()+CVector(cosf(a)*radius,sinf(a)*radius,0);float water;bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,100,&groundFound);if(CWaterLevel::GetWaterLevel(candidate.x,candidate.y,candidate.z,&water,true)&&(!groundFound || ground<water+0.1f)){location=CVector(candidate.x,candidate.y,water+0.5f);heading=a;found=true;break;}}if(!found)return;
                     testCar=new CBoat(model,MISSION_VEHICLE);
-                }else{if(road>=0){const CVector roadPosition=ThePaths.m_pathNodes[road].GetPosition();if((roadPosition-player->GetPosition()).MagnitudeSqr()<900.0f){location=roadPosition+CVector(0,0,1);if(ThePaths.m_pathNodes[road].numLinks){const CVector direction=ThePaths.m_pathNodes[ThePaths.ConnectedNode(ThePaths.m_pathNodes[road].firstLink)].GetPosition()-location;heading=atan2f(-direction.x,direction.y);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}testCar=CModelInfo::IsBikeModel(model)?(CVehicle*)new CBike(model,MISSION_VEHICLE):(CVehicle*)new CAutomobile(model,MISSION_VEHICLE);}
+                }else{if(road>=0){const CVector roadPosition=ThePaths.m_pathNodes[road].GetPosition();if((roadPosition-player->GetPosition()).MagnitudeSqr()<900.0f){location=roadPosition+CVector(0,0,1);if(ThePaths.m_pathNodes[road].numLinks){const CVector direction=ThePaths.m_pathNodes[ThePaths.ConnectedNode(ThePaths.m_pathNodes[road].firstLink)].GetPosition()-location;heading=atan2f(-direction.x,direction.y);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}testCar=createMultiplayerVehicle(model);if(!testCar)return;}
                 testCar->RegisterReference((CEntity**)&testCar);testCar->m_fHealth=1000.0f;testCar->SetPosition(location);testCar->SetHeading(heading);player->Teleport(location+CVector(6,0,0));testCar->SetStatus(STATUS_ABANDONED);testCar->SetMoveSpeed(0,0,0);CWorld::Add(testCar);
             }
             if(player->bInVehicle){if(!hostBoardedAt)hostBoardedAt=now;if(!hostExitSent&&now-hostBoardedAt>18000){pad->NewState.Triangle=255;hostExitSent=true;}}
             else if(hostExitSent&&hostBoardedAt&&now-hostBoardedAt>22000)hostExited=true;
-            if(!hostExited&&!hostExitSent&&(testCar->pDriver || testCar->IsBoat())&&!player->bInVehicle)ViceTogetherGrantPassenger(unsigned(CPools::GetVehicleRef(testCar)),0);
+            const unsigned testCarId=unsigned(CPools::GetVehicleRef(testCar));const auto delegated=delegatedVehicles.find(testCarId);const bool guestDriving=delegated!=delegatedVehicles.end()&&now-delegated->second<1500;
+            if(!hostExited&&!hostExitSent&&(testCar->pDriver || guestDriving || testCar->IsBoat())&&!player->bInVehicle)ViceTogetherGrantPassenger(testCarId,0);
             if(getenv("VT_TEST_CAR_BLAST") && now-started>12000 && testCar->GetStatus()!=STATUS_WRECKED)testCar->BlowUpCar(player);
             return;
         }
@@ -329,7 +361,7 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
     std::vector<std::pair<float,CVehicle*>> nearbyCars;
     std::vector<std::vector<std::pair<float,CVehicle*>>> carsByCenter(centers.size());
     for(int i=0;i<cars->GetSize();i++){
-        CVehicle* car=cars->GetSlot(i);if(!car || !car->m_rwObject || (!car->IsCar() && !car->IsBike() && !car->IsBoat()))continue;
+        CVehicle* car=cars->GetSlot(i);if(!car || !car->m_rwObject || (!car->IsCar() && !car->IsBike() && !car->IsBoat() && !car->IsHeli() && !car->IsPlane()))continue;
         float nearest=worldCaptureRadiusSqr+1.0f;const CVector position=car->GetPosition();
         for(size_t zone=0;zone<centers.size();zone++){const float distance=(position-centers[zone]).MagnitudeSqr();if(distance<=worldCaptureRadiusSqr){carsByCenter[zone].emplace_back(distance,car);nearest=std::min(nearest,distance);}}
         if(nearest<=worldCaptureRadiusSqr)nearbyCars.emplace_back(nearest,car);
@@ -343,7 +375,7 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
     }
     for(const auto& entry:nearbyCars){if(selectedCars.size()>=32)break;if(std::find(selectedCars.begin(),selectedCars.end(),entry.second)==selectedCars.end())selectedCars.push_back(entry.second);}
     for(CVehicle* car:selectedCars) {
-        EntityState e={};e.type=22;e.id=CPools::GetVehicleRef(car);e.data[0]=car->GetModelIndex();e.data[1]=car->IsBike()?1:car->IsBoat()?2:0;
+        EntityState e={};e.type=22;e.id=CPools::GetVehicleRef(car);e.data[0]=car->GetModelIndex();e.data[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;
         const CVector p=car->GetPosition();e.data[2]=p.x;e.data[3]=p.y;e.data[4]=p.z;
         const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};
         for(int j=0;j<4;j++){e.data[5+j*3]=basis[j].x;e.data[6+j*3]=basis[j].y;e.data[7+j*3]=basis[j].z;}
@@ -359,6 +391,7 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
     header[8]=CWeather::Rain;header[9]=CWeather::WetRoads;header[10]=CWeather::CloudCoverage;header[11]=CWeather::Wind;header[12]=CWeather::WindClipped;header[13]=CWeather::Foggyness;header[14]=CWeather::ExtraSunnyness;header[15]=CWeather::Rainbow;header[16]=CWeather::SunGlare;header[17]=CWeather::TrafficLightBrightness;header[18]=CWeather::ForcedWeatherType;header[19]=CWeather::bScriptsForceRain;header[20]=CWeather::LightningFlash;
     header[21]=float(nearbyGlass.size());
     header[22]=float(explosions.size());
+    header[23]=CVehicle::bAllDodosCheat?1.0f:0.0f;
     send(19,0,header);
     for(const auto& entity:frame){send(entity.type,entity.id,entity.data);if(entity.hasVisual)send(35,entity.id,entity.visual);}
     for(unsigned i=0;i<nearbyGlass.size();i++)send(37,i,nearbyGlass[i].data);
@@ -368,7 +401,7 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
 void ViceTogetherWorldPacket(unsigned type,unsigned id,const float* state) {
     if(!guest())return;
     for(int i=0;i<34;i++)if(!std::isfinite(state[i]))return;
-    if(type==19){receiving=state[0]>generation && state[0]>0 && state[1]>=0 && state[1]<=80 && state[21]>=0 && state[21]<=128 && state[22]>=0 && state[22]<=32;pendingSequence=unsigned(state[0]);expected=unsigned(state[1]);expectedGlass=unsigned(state[21]);expectedExplosions=unsigned(state[22]);std::memcpy(pendingEnvironment,state+2,19*sizeof(float));pending.clear();pendingGlass.clear();pendingExplosions.clear();return;}
+    if(type==19){receiving=state[0]>generation && state[0]>0 && state[1]>=0 && state[1]<=80 && state[21]>=0 && state[21]<=128 && state[22]>=0 && state[22]<=32 && (state[23]==0 || state[23]==1);pendingSequence=unsigned(state[0]);expected=unsigned(state[1]);expectedGlass=unsigned(state[21]);expectedExplosions=unsigned(state[22]);std::memcpy(pendingEnvironment,state+2,19*sizeof(float));pendingEnvironment[21]=state[23];pending.clear();pendingGlass.clear();pendingExplosions.clear();return;}
     if(!receiving)return;
     if(type==35){for(auto& e:pending)if(e.type==22 && e.id==id){std::memcpy(e.visual,state,sizeof(e.visual));e.hasVisual=true;return;}return;}
     if(type==37){if(pendingGlass.size()<expectedGlass){GlassState pane={};std::memcpy(pane.data,state,sizeof(pane.data));pendingGlass.push_back(pane);}return;}
@@ -383,6 +416,7 @@ bool ViceTogetherWorldApplyEnvironment() {
     if(!guest() || !active)return false;
     if(environment[0]>=0 && environment[0]<24 && environment[1]>=0 && environment[1]<60 && environment[2]>=0 && environment[2]<60){CClock::ms_nGameClockHours=uint8(environment[0]);CClock::ms_nGameClockMinutes=uint8(environment[1]);CClock::ms_nGameClockSeconds=uint16(environment[2]);}
     if(environment[3]>=0 && environment[3]<WEATHER_TOTAL && environment[4]>=0 && environment[4]<WEATHER_TOTAL && environment[5]>=0 && environment[5]<=1){CWeather::OldWeatherType=int16(environment[3]);CWeather::NewWeatherType=int16(environment[4]);CWeather::InterpolationValue=environment[5];}
+    const bool flyCheat=environment[21]==1.0f;if(CVehicle::bAllDodosCheat!=flyCheat){CVehicle::bAllDodosCheat=flyCheat;CHud::SetHelpMessage(TheText.Get(flyCheat?"CHEAT1":"CHEATOF"),true);}
     CWeather::Rain=environment[6];CWeather::WetRoads=environment[7];CWeather::CloudCoverage=environment[8];CWeather::Wind=environment[9];CWeather::WindClipped=environment[10];CWeather::Foggyness=environment[11];CWeather::ExtraSunnyness=environment[12];CWeather::Rainbow=environment[13];CWeather::SunGlare=environment[14];CWeather::TrafficLightBrightness=environment[15];CWeather::ForcedWeatherType=int16(environment[16]);CWeather::bScriptsForceRain=environment[17]!=0;CWeather::LightningFlash=environment[18]!=0;
     return true;
 }
@@ -405,7 +439,7 @@ void ViceTogetherWorldTick() {
         if(map==&vehicles && r.entity && ((CVehicle*)r.entity)->pDriver==FindPlayerPed() && FindPlayerPed()->bInVehicle){((CVehicle*)r.entity)->m_fHealth=d[17];if(d[17]>0 && (!r.hasVisual || unsigned(r.visual[31])!=STATUS_WRECKED))continue;}
         if(!r.entity){CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(model))continue;
             if(map==&pedestrians){CPed* p=new CPed((ePedType)std::max(0,std::min(21,int(d[1]))));p->SetModelIndex(model);p->CharCreatedBy=MISSION_CHAR;p->bRespondsToThreats=false;r.entity=p;}
-            else {auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(info->m_vehicleType==VEHICLE_TYPE_BIKE)r.entity=new CBike(model,MISSION_VEHICLE);else if(info->m_vehicleType==VEHICLE_TYPE_BOAT)r.entity=new CBoat(model,MISSION_VEHICLE);else if(info->m_vehicleType==VEHICLE_TYPE_CAR)r.entity=new CAutomobile(model,MISSION_VEHICLE);else continue;}
+            else {r.entity=createMultiplayerVehicle(model);if(!r.entity)continue;}
             r.entity->RegisterReference(&r.entity);r.entity->SetPosition(d[2],d[3],d[4]);CWorld::Add(r.entity);
         }
         const float t=std::min(1.0f,float(CTimer::GetTimeInMilliseconds()-r.received)/100.0f);

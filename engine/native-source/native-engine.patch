@@ -147,7 +147,7 @@ index 4248f14..42c9473 100644
  }
  
 diff --git a/src/core/Pad.cpp b/src/core/Pad.cpp
-index 9530f9e..b7b2721 100644
+index 9530f9e7..ff1e8bb2 100644
 --- a/src/core/Pad.cpp
 +++ b/src/core/Pad.cpp
 @@ -12,6 +12,7 @@
@@ -158,7 +158,16 @@ index 9530f9e..b7b2721 100644
  #include "ControllerConfig.h"
  #include "Timer.h"
  #include "Frontend.h"
-@@ -922,6 +923,10 @@ void CPad::UpdateMouse()
+@@ -507,6 +508,8 @@ void OnlyRenderWheelsCheat()
+ 
+ void ChittyChittyBangBangCheat()
+ {
++	if ( ViceTogetherInterceptFlyCheat() )
++		return;
+ #ifdef BETTER_ALLCARSAREDODO_CHEAT
+ 	CHud::SetHelpMessage(TheText.Get(!CVehicle::bAllDodosCheat ? "CHEAT1" : "CHEATOF"), true);
+ #else
+@@ -922,6 +925,10 @@ void CPad::UpdateMouse()
  
  			PCTempMouseControllerState.x = (float)(signX * state.lX);
  			PCTempMouseControllerState.y = (float)(signy * state.lY);
@@ -169,7 +178,7 @@ index 9530f9e..b7b2721 100644
  			PCTempMouseControllerState.LMB = state.rgbButtons[0] & 128;
  			PCTempMouseControllerState.RMB = state.rgbButtons[1] & 128;
  			PCTempMouseControllerState.MMB = state.rgbButtons[2] & 128;
-@@ -2265,6 +2270,13 @@ int16 CPad::GetCarGunUpDown(void)
+@@ -2265,6 +2272,13 @@ int16 CPad::GetCarGunUpDown(void)
  {
  	if ( ArePlayerControlsDisabled() )
  		return 0;

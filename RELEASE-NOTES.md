@@ -1,4 +1,19 @@
-# ViceTogether alpha.16 — experimental
+# ViceTogether alpha.18 — experimental
+
+This update builds on alpha.17's host-authoritative guest vehicle requests, helicopter/plane replication, and rejoin control. It stabilizes the displayed ping, reduces brief pop-out of shared vehicles and police, and makes Come Fly With Me a shared on/off toggle.
+
+- The ping shown in the HUD uses the median of recent direct game-channel probes instead of the most recent spike; it reports measured route latency and does not reduce the ISP path's physical delay.
+- Vehicles and existing police replicas are retained for up to two seconds after a complete world snapshot omits them. This absorbs brief snapshot gaps; it cannot preserve actors after the host engine streams them out.
+- Host and guest Come Fly With Me inputs toggle one host-owned flag. All clients see its current on/off state and matching help message. Other cheat effects remain local until individually synchronized.
+- Guests can request an allow-listed car, bike, boat, helicopter, or plane; the host creates the shared vehicle near the guest. Helicopter and plane classes are included in world frames.
+- A guest who leaves can choose **Rejoin last lobby** while the host's original room remains open. A closed host room still needs a new invitation.
+- Vehicle spawning, aircraft visibility and rejoin remain experimental and were not re-run in the native game this turn.
+
+This remains experimental and the game windows were not launched for this update. Passenger pose/audio, rotor and flight control behavior, police AI, general NPC synchronization, and full damage synchronization remain unfinished. The launcher installer contains no Vice City game assets; each player imports their own legally obtained copy.
+
+---
+
+## Previous release: alpha.16
 
 This update makes the weapon-cheat menu available to both players in a multiplayer session.
 

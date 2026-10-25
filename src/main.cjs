@@ -118,6 +118,8 @@ async function start() {
   nativeEngine.on('glass-request',state=>win?.webContents.send('local-glass-request',state));
   nativeEngine.on('seat-state',seat=>win?.webContents.send('local-seat-state',seat));
   nativeEngine.on('seat-request',request=>win?.webContents.send('local-seat-request',request));
+  nativeEngine.on('vehicle-spawn-request',model=>win?.webContents.send('local-vehicle-spawn-request',model));
+  nativeEngine.on('shared-cheat-request',cheatId=>win?.webContents.send('local-shared-cheat-request',cheatId));
   nativeEngine.on('melee-request',request=>win?.webContents.send('local-melee-request',request));
   nativeEngine.on('problem', message => win?.webContents.send('game-error', message));
   nativeEngine.on('ended', ({ code }) => { if(code) win?.webContents.send('game-error', 'The game stopped unexpectedly. Your imported files are kept. Try Check & repair.'); });
@@ -212,6 +214,8 @@ async function start() {
   ipc('remote-driver-state',update=>nativeEngine.driverState(update));
   ipc('network-status',status=>nativeEngine.networkStatus(status));
   ipc('seat-grant',claim=>nativeEngine.seatGrant(claim));
+  ipc('vehicle-spawn',request=>nativeEngine.spawnVehicle(request));
+  ipc('shared-cheat-toggle',cheatId=>nativeEngine.toggleSharedCheat(cheatId));
   ipc('glass-request',state=>nativeEngine.glassRequest(state));
   ipc('melee-grant',request=>nativeEngine.meleeGrant(request));
   ipcMain.on('local-state', (event, state) => {

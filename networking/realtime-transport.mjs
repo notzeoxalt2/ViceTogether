@@ -40,10 +40,11 @@ export class RealtimeTransport {
     entry.lastProbe=now;entry.probe={seq:++entry.probeSequence,at:now};
     try{channel.send(JSON.stringify({v:1,kind:'probe',seq:entry.probe.seq}));return true;}catch{entry.probe=null;return false;}
   }
-  latency(id){const e=this.peers.get(id);if(!e?.samples.length||this.now()-e.measuredAt>10000)return {rttMs:null,p50Ms:null,p95Ms:null,jitterMs:null};
-    const values=[...e.samples].sort((a,b)=>a-b),round=n=>Math.round(n*10)/10;
+  latency(id){const e=this.peers.get(id);if(!e?.samples.length||this.now()-e.measuredAt>10000)return {rttMs:null,latestRttMs:null,p50Ms:null,p95Ms:null,jitterMs:null};
+    const recent=e.samples.slice(-5),values=[...e.samples].sort((a,b)=>a-b),round=n=>Math.round(n*10)/10;
+    const stable=[...recent].sort((a,b)=>a-b),middle=Math.floor(stable.length/2);
     const diffs=e.samples.slice(1).map((v,i)=>Math.abs(v-e.samples[i]));
-    return {rttMs:round(e.samples.at(-1)),p50Ms:round(values[Math.floor((values.length-1)*0.5)]),p95Ms:round(values[Math.ceil((values.length-1)*0.95)]),jitterMs:round(diffs.length?diffs.reduce((a,b)=>a+b,0)/diffs.length:0)};
+    return {rttMs:round(stable.length%2?stable[middle]:(stable[middle-1]+stable[middle])/2),latestRttMs:round(e.samples.at(-1)),p50Ms:round(values[Math.floor((values.length-1)*0.5)]),p95Ms:round(values[Math.ceil((values.length-1)*0.95)]),jitterMs:round(diffs.length?diffs.reduce((a,b)=>a+b,0)/diffs.length:0)};
   }
   seen(id,kind){return !!this.peers.get(id)?.seen.has(kind);}
   send(id,kind,data){const entry=this.peers.get(id),channel=entry?.channel;if(!channel||channel.readyState!=='open'||!this.kinds.has(kind))return false;
@@ -52,7 +53,7 @@ export class RealtimeTransport {
     if(channel.bufferedAmount>32768){entry.dropped++;return true;}
     try{channel.send(packet);entry.sent++;return true;}catch{return false;}
   }
-  report(){return [...this.peers.values()].map(e=>({state:e.channel?.readyState||'waiting',ordered:e.channel?.ordered,retransmits:e.channel?.maxRetransmits,sent:e.sent,received:e.received,dropped:e.dropped,buffered:e.channel?.bufferedAmount||0,...this.latency(e.id),probeSamples:e.samples.length,probeLost:e.probeLost}));}
+  report(){return [...this.peers.values()].map(e=>({peerId:e.id,state:e.channel?.readyState||'waiting',ordered:e.channel?.ordered,retransmits:e.channel?.maxRetransmits,sent:e.sent,received:e.received,dropped:e.dropped,buffered:e.channel?.bufferedAmount||0,...this.latency(e.id),probeSamples:e.samples.length,probeLost:e.probeLost}));}
   remove(id){const entry=this.peers.get(id);entry?.channel?.close();this.peers.delete(id);}
   close(){for(const id of [...this.peers.keys()])this.remove(id);}
 }

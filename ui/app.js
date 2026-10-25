@@ -3,8 +3,9 @@ import { setupFriends } from './social-ui.js';
 import { localSeatAction } from './seat-actions.mjs';
 const $ = id => document.getElementById(id);
 for(const operation of ['minimize','maximize','close'])$('window-'+operation).addEventListener('click',()=>call(window.desktop.windowAction(operation)).catch(error=>notice(error.message)));
-let state, invitation, lobbyInfo, deferredInvite, latestDetected;
+let state, invitation, lobbyInfo, deferredInvite, latestDetected, lastGuestInvitation;
 let social;
+const median=values=>{const sorted=values.filter(Number.isFinite).sort((a,b)=>a-b);if(!sorted.length)return -1;const middle=Math.floor(sorted.length/2);return Math.round((sorted.length%2?sorted[middle]:(sorted[middle-1]+sorted[middle])/2)*10)/10;};
 function showDetected(found) {
   $('detected').replaceChildren(); $('detected').hidden = !found.length;
   for(let i=0;i<found.length;i++) { const option=document.createElement('option');option.value=i;option.textContent=found[i].root;$('detected').append(option); }
@@ -12,7 +13,7 @@ function showDetected(found) {
 window.desktop.on('detected', found => { latestDetected = found; if(state) { state.detected=found;showDetected(found); } });
 const lobby = new PrivateLobby();
 let networkStatusBusy=false;
-setInterval(async()=>{if(!window.desktop.sendNetworkStatus||networkStatusBusy||!lobby.room)return;networkStatusBusy=true;try{const report=await lobby.connectionReport();const rtt=report.peers.map(p=>p.route?.rttMs).filter(Number.isFinite),fastRtt=report.snapshotChannels.map(p=>p.rttMs).filter(Number.isFinite),messages=fastRtt.length?fastRtt:Object.values(lobby.pings).filter(Number.isFinite);await call(window.desktop.sendNetworkStatus({ping:messages.length?Math.max(...messages):-1,transportPing:rtt.length?Math.max(...rtt):-1,peers:Math.min(7,report.peers.length)}));}catch{}finally{networkStatusBusy=false;}},3000);
+setInterval(async()=>{if(!window.desktop.sendNetworkStatus||networkStatusBusy||!lobby.room)return;networkStatusBusy=true;try{const report=await lobby.connectionReport();const rtt=report.peers.map(p=>p.route?.rttMs),fastRtt=report.snapshotChannels.map(p=>p.rttMs),messages=fastRtt.some(Number.isFinite)?fastRtt:Object.values(lobby.pings);await call(window.desktop.sendNetworkStatus({ping:median(messages),transportPing:median(rtt),peers:Math.min(7,report.peers.length)}));}catch{}finally{networkStatusBusy=false;}},3000);
 const copyConnection=document.createElement('button');copyConnection.type='button';copyConnection.textContent='Copy connection details';$('copy-code').parentElement.append(copyConnection);
 copyConnection.onclick=async()=>{try{await call(window.desktop.copyText(JSON.stringify({version:state.version,...await lobby.connectionReport()})));notice('Connection details copied. Share these to diagnose lag; no invite or IP addresses included.');}catch(e){notice(e.message)}};
 const debugPanel=document.createElement('details');debugPanel.className='panel';const debugTitle=document.createElement('summary');debugTitle.textContent='Troubleshooting';const debugReadout=document.createElement('pre');debugReadout.style.cssText='white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px';const debugRefresh=document.createElement('button');debugRefresh.textContent='Refresh diagnostics';const debugCopy=document.createElement('button');debugCopy.textContent='Copy report';debugPanel.append(debugTitle,debugRefresh,debugCopy,debugReadout);$('page-settings').append(debugPanel);
@@ -81,7 +82,7 @@ async function importGame() {
 }
 async function join(invite) {
   await lobby.join(invite, state.settings.name, { iceServers: state.config.iceServers,relayUrls:state.config.signalingRelayUrls });
-  invitation = invite; $('lobby').hidden = false; page('host');
+  invitation = invite; if(!lobby.isHost){lastGuestInvitation=invite;$('retry').textContent='Rejoin last lobby';} $('lobby').hidden = false; page('host');
   social?.update(state.settings.name, 'In private lobby');
   $('room-code').textContent=invite.code||'Legacy invite';
   notice('Looking for your friend… Keep their lobby open.');
@@ -111,6 +112,10 @@ window.desktop.on('local-seat-state',seat=>{
   }
 });
 window.desktop.on('local-seat-request',request=>lobby.sendSeat(request));
+window.desktop.on('local-vehicle-spawn-request',model=>lobby.sendVehicleSpawnRequest(model));
+lobby.addEventListener('vehicle-spawn-approved',async event=>{try{if(!await call(window.desktop.spawnVehicle(event.detail)))notice('The host game is not ready to spawn a vehicle yet.');}catch(error){notice(error.message);}});
+window.desktop.on('local-shared-cheat-request',cheatId=>lobby.sendSharedCheatToggle(cheatId));
+lobby.addEventListener('shared-cheat-toggle-request',async event=>{try{if(!await call(window.desktop.toggleSharedCheat(event.detail.cheatId)))notice('The shared cheat could not reach the host game.');}catch(error){notice(error.message);}});
 lobby.addEventListener('npc-melee',event=>window.desktop.applyMeleeRequest(event.detail));
 window.desktop.on('local-melee-request',request=>lobby.sendNpcMeleeRequest(request));
 lobby.addEventListener('seat-grant',event=>window.desktop.seatGrant(event.detail));
@@ -133,6 +138,7 @@ action('import-game', importGame);
 action('lobby-import', importGame);
 action('play', async () => { if (!state.assets.gameReady) await importGame(); else await call(window.desktop.play()); });
 action('host', async () => {
+  lastGuestInvitation=null;$('retry').textContent='Retry connection';
   const invite = await call(window.desktop.createInvite());
   invitation = await lobby.host(invite, state.settings.name, { iceServers: state.config.iceServers,relayUrls:state.config.signalingRelayUrls });
   social?.update(state.settings.name, 'In private lobby', invitation.code ? `vicetogether://join/${invitation.code}` : null);
@@ -145,8 +151,8 @@ action('join', async () => join(await call(window.desktop.parseInvite($('invite-
 action('multiplayer', () => lobby.startGame());
 action('copy', async () => { await call(window.desktop.copyInvite(invitation)); notice(state.config.inviteBaseUrl ? 'Invite copied. Send it to your friend.' : 'Invite copied. Your friend needs this alpha installed, then can paste the link into Join. The install-from-link website is not published yet.'); });
 action('copy-code',async()=>{await call(window.desktop.copyCode(invitation));notice('Room code copied. Your friend can paste it into Join.');});
-action('retry', async () => { if (lobbyInfo?.isHost) notice('The host lobby is open. Ask your friend to retry their invite.'); else if (invitation) await join(invitation); });
-action('leave', async () => { await lobby.leave(); invitation = null; social?.update(state.settings.name, 'In launcher'); $('lobby').hidden = true; notice('You left the lobby.'); });
+action('retry', async () => { if (lobbyInfo?.isHost && lobby.room) notice('The host lobby is open. Ask your friend to retry their invite.'); else if (invitation && lobby.room) await join(invitation); else if(lastGuestInvitation){await join(lastGuestInvitation);notice('Rejoining your last lobby…');} else notice('This host lobby has closed. Create a new lobby and send a fresh invite.'); });
+action('leave', async () => { if(lobby.isHost)lastGuestInvitation=null;await lobby.leave(); invitation = null; social?.update(state.settings.name, 'In launcher'); $('lobby').hidden = true; $('retry').textContent=lastGuestInvitation?'Rejoin last lobby':'Retry connection'; notice(lastGuestInvitation?'You left the lobby. Rejoin is ready if your friend is still hosting.':'You left the lobby. The host must create a new invite before anyone can rejoin.'); });
 action('save', async () => {
   state.settings = await call(window.desktop.saveSettings({ name: $('name').value, fps: Number($('fps').value), fullscreen: $('fullscreen').checked,mouseSensitivity:Number($('mouse-sensitivity').value) }));
   $('profile').firstChild.textContent = state.settings.name;

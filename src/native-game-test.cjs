@@ -199,6 +199,12 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const exits=localSeats.map((seats,i)=>{const entered=seats.findIndex(s=>s.id>=0);const exit=seats.findIndex((s,n)=>n>entered&&s.id<0);assert.ok(entered>=0&&exit>entered,`${i?'Guest':'Host'} did not exit the shared vehicle normally`);assert.ok(seats.slice(exit).every(s=>s.id<0),`${i?'Guest':'Host'} was silently re-seated after exiting`);return {enteredSamples:entered,exitSamples:exit};});
       return {success:true,scenario:'Guest driver and host passenger walk into a shared car, drive, and exit through stock controls',vehicleModel:model,distance,guestDriverSamples:guestDriver.length,hostPassengerSamples:hostPassenger.length,sharedVehicleId:guestDriver.at(-1).id,exits,samePC:true,internetTested:false};
     }
+    if(process.env.VT_TEST_GUEST_SPAWN==='1'){
+      await waitFor(()=>vehicleModels.every(models=>models.has(217)), 'Guest menu helicopter request did not produce a shared helicopter on both native clients',35000);
+      assert.ok(menuObserved.some(state=>state?.[1]===0 && (state[0]&64)!==0),'Guest could not select the helicopter from their vehicle menu');
+      const result={success:true,scenario:'Guest selects helicopter in native menu; host validates/spawns it near guest; both native worlds render model 217',helicopterVisible:vehicleModels.map(models=>models.has(217)),guestMenuSelection:menuObserved.find(state=>state?.[1]===0 && (state[0]&64)!==0),samePC:true,internetTested:false};
+      await fs.writeFile(path.join(out,'guest-heli-spawn.json'),JSON.stringify(result,null,2));return result;
+    }
     if(process.env.VT_TEST_CAR_BLAST==='1'){
       assert.equal(errors.length,0,errors.join('; '));
       const driver=localSeats[0].find(s=>s.id>=0 && s.seat===-1);

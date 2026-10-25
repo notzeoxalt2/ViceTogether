@@ -7,7 +7,7 @@ test('movement-channel RTT uses matched echoes, bounds probes, expires stale val
  assert.equal(transport.probe('peer'),true);assert.equal(transport.probe('peer'),false);
  receive({kind:'echo',seq:999});assert.equal(transport.latency('peer').rttMs,null);
  now=18;receive({kind:'echo',seq:1,timestamp:-9999});assert.equal(transport.latency('peer').rttMs,18);
- now=1001;transport.probe('peer');now=1031;receive({kind:'echo',seq:2});assert.deepEqual(transport.latency('peer'),{rttMs:30,p50Ms:18,p95Ms:30,jitterMs:12});
+ now=1001;transport.probe('peer');now=1031;receive({kind:'echo',seq:2});assert.deepEqual(transport.latency('peer'),{rttMs:24,latestRttMs:30,p50Ms:18,p95Ms:30,jitterMs:12});
  // Reflections cannot amplify a flood; probes contain only a tiny sequence.
  const count=sent.length;for(let i=0;i<50;i++)receive({kind:'probe',seq:i+1});assert.equal(sent.length,count+1);
  now=2100;transport.probe('peer');now=4201;transport.probe('peer');assert.equal(transport.report()[0].probeLost,1);

@@ -28,7 +28,7 @@ Build a private free-roam session for 2–8 players. Each player runs the native
 
 - Use the stock Vice City enter and exit tasks so players walk to doors, play the entry/exit animations, and attach through the engine’s normal seat callbacks.
 - Reserve a seat once, retain it while the entry task is active, and release it on every exit, death, disconnect, and failed entry.
-- Test cars, bikes, boats, driver and passenger positions, a moving-car exit, and an occupied seat. A remote passenger must remain attached to the correct vehicle and use the correct pose.
+- Test cars, bikes, boats, helicopters, aircraft, driver and passenger positions, a moving-car exit, and an occupied seat. A remote passenger must remain attached to the correct vehicle and use the correct pose.
 
 **Current change:** multiplayer seat grants no longer call `WarpPedIntoCar` or edit passenger arrays after the grant. Host and guest seat reservations now release when the local player exits. The automated test guards this regression; a rebuilt native two-game test is still required before calling the visual behavior verified.
 
@@ -36,16 +36,18 @@ Build a private free-roam session for 2–8 players. Each player runs the native
 
 - Define an explicit driver owner for each moving vehicle. Only that peer sends motion; the other peer interpolates the received snapshots and never writes competing physics.
 - Add bounded handoff when the driver exits, changes seat, crashes, or disconnects.
-- Verify steering, suspension, wheels, doors, damage, fire, explosion, engine state, sirens, and spatial audio independently.
+- Verify steering, suspension, wheels, doors, damage, fire, explosion, engine state, sirens, rotor/propeller motion, and spatial audio independently. Passenger audio must not create a second radio stream; start with vehicle radio off and add an explicit in-game toggle.
+- Keep vehicle replicas briefly when a complete unreliable world snapshot omits them; this hides short packet/interest-set gaps, but cannot recreate an actor the host game has streamed out.
 
 **Acceptance:** both game processes see the same vehicle, occupied seat, and damage state while parked, driving, colliding, stopping, and changing drivers. Visual and audio effects must be checked in the game, not inferred from packet tests.
 
 ### 5. NPC, police, and traffic authority
 
 - Do NPC simulation in the native game process. A cloud service cannot create or render Vice City models, run its animation graph, or call its local physics and AI routines.
+- Keep the current work scoped to existing police replicas; do not increase ambient NPC counts. Police copied from a host snapshot have no guest-side AI, so shared wanted level does not yet guarantee a shared chase or identical police behavior.
 - Give each nearby world region a single simulation owner. That owner sends stable entity IDs, transforms, animation, health, vehicle/seat state, and discrete events such as damage, death, police response, pickup, and vehicle destruction.
 - Each player needs a populated local area. For players far apart, peers can own their own nearby regions and replicate those entities to the other peer. Region handoff must avoid duplicate NPCs and conflicting updates.
-- Synchronize important events, not every private AI implementation detail. Story missions and arbitrary script state are not automatically co-op just because free-roam actors are synchronized.
+- Synchronize important events, not every private AI implementation detail. Police must attribute a shared chase to either player who caused it and follow the same suspect/vehicle; unrelated distant wanted levels must stay local. Story missions and arbitrary script state are not automatically co-op just because free-roam actors are synchronized.
 
 Cloudflare Durable Objects can coordinate real-time room state or WebSocket clients, but they would add a cloud path and do not run the local game simulation. Cloudflare TURN is a packet relay for difficult NAT routes; it does not lower the physical route latency and is not enabled because this project requires no possible metered overage. Current peer connectivity can therefore fail on restrictive networks.
 
@@ -54,8 +56,9 @@ Cloudflare Durable Objects can coordinate real-time room state or WebSocket clie
 ### 6. Combat and world interactions
 
 - Validate guest attacks against recent host-approved transforms and weapon limits.
+- Synchronize only explicitly whitelisted toggle cheats through the host. Come Fly With Me is the first global toggle; weapon, health, and other built-in cheats remain local until each effect has its own safe, tested replication rule.
 - Synchronize target health, reactions, death animation, drops, and hit effects exactly once.
-- Verify punches, firearms, bikes, vehicles, glass, explosions, police response, and reconnect after death separately.
+- Verify punches, each firearm class, bikes, vehicles, glass, explosions, police response, and reconnect after death separately. Preserve normal local health, police/car collision damage, fall and bike rider-ejection rules; do not make players immortal or use a kill cheat to escape a broken seat.
 
 ### 7. Release gate
 
@@ -94,4 +97,12 @@ Cloudflare Durable Objects can coordinate real-time room state or WebSocket clie
 | G. Release | Versioned protocol compatibility, installer/portable, auto-update feed, asset import/repair, compact invite/deep link, diagnostics export | Fresh Windows account receives invite, installs, imports owned game assets once, joins, starts a tested scenario, updates without losing cache/saves |
 
 Stages can be parallelized only after their protocol ownership is agreed. A feature is done when the native engine behavior and second client's result are both checked; packet receipt alone is not sufficient. The current repository is at the early part of Stage C: authority-level capacity checks and a stock engine entry task are in place, while the rebuilt-engine visual entry/exit test is still a release blocker.
+
+### Newly reported acceptance checks
+
+- Guest menu vehicle requests go through host validation and create one shared entity near the requesting guest. The native world stream must include helicopter and aircraft vehicle classes; passing a packet test alone is not enough to prove either model renders or flies correctly.
+- A guest who leaves can rejoin the same still-open host lobby from the existing Retry/Rejoin control. A host who closes their room must create a new invite.
+- Car passenger position/pose and audio must remain attached to the moving car. The driver should be the only player hearing radio by default; passengers should have a simple opt-in radio control.
+- Test local player damage separately from shared NPC damage: police, vehicle impacts, bullets, and bike crashes must apply the stock rules once, while local cheat effects remain local.
+- The current rebuilt guest-driving run proved that the guest driver could enter and drive, but it failed the host-passenger check. The harness was exposing a stale condition: guest-owned car motion does not set a local native `pDriver` pointer on the host. The test now checks the delegated driver lease instead. This is a harness correction, not a verified passenger fix.
 

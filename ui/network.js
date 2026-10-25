@@ -14,6 +14,8 @@ import { validWorldFrame } from '../engine/world.cjs';
 import { SeatAuthority } from '../engine/seats.cjs';
 import { validWeapon } from '../engine/weapons.cjs';
 import { GlassAuthority,validGlass } from '../engine/glass.cjs';
+import { VEHICLE_MODELS, acceptVehicleSpawn } from '../engine/vehicle-spawn.cjs';
+import { SHARED_CHEATS, acceptSharedCheatToggle } from '../engine/shared-cheats.cjs';
 const encoder = new TextEncoder();
 const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 const unb64 = text => Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
@@ -72,6 +74,12 @@ export class PrivateLobby extends EventTarget {
     this.seats=new SeatAuthority();this.seatInput=this.room.makeAction('seat-input');this.seatOutput=this.room.makeAction('seat-output');
     this.vehicleInput=this.room.makeAction('driver-state');this.vehicleInput.onReceive=({byteLength})=>byteLength<2048;
     this.vehicleInput.onMessage=(update,{peerId,realtime})=>{if(!this.isHost||!this.players.has(peerId)||(!realtime&&this.fast.seen(peerId,'driver')))return;const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',approved);};
+    this.vehicleSpawnCooldowns=new Map();this.vehicleSpawnAction=this.room.makeAction('vehicle-spawn');
+    this.vehicleSpawnAction.onReceive=({byteLength})=>byteLength<128;
+    this.vehicleSpawnAction.onMessage=(request,{peerId})=>{if(!this.isHost)return;const approved=acceptVehicleSpawn(peerId,request?.model,{players:this.players,states:this.states,cooldowns:this.vehicleSpawnCooldowns,now:performance.now()});if(approved)this.emit('vehicle-spawn-approved',approved);};
+    this.sharedCheatCooldowns=new Map();this.sharedCheatAction=this.room.makeAction('shared-cheat-toggle');
+    this.sharedCheatAction.onReceive=({byteLength})=>byteLength<64;
+    this.sharedCheatAction.onMessage=(request,{peerId})=>{if(!this.isHost)return;const accepted=acceptSharedCheatToggle(peerId,request?.cheatId,{players:this.players,cooldowns:this.sharedCheatCooldowns,now:performance.now()});if(accepted)this.emit('shared-cheat-toggle-request',accepted);};
     this.seatInput.onReceive=({byteLength})=>byteLength<256;
     this.seatOutput.onReceive=({byteLength})=>byteLength<256;
     this.seatInput.onMessage=(request,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptSeat(peerId,request);};
@@ -198,7 +206,7 @@ export class PrivateLobby extends EventTarget {
       this.fast.remove(id);
       this.handshakeProfiles.delete(id);
       for(const kind of ['movement','players','ambient','driver']){const key=kind+':'+id;this.snapshotSenders.get(key)?.close();this.snapshotSenders.delete(key);}
-      this.pending.delete(id); this.players.delete(id);this.wantedLevels.delete(id); this.combat.remove(id);this.npcMeleeAuthority.remove(id);this.seats.release(id); delete this.pings[id];
+      this.pending.delete(id); this.players.delete(id);this.wantedLevels.delete(id);this.vehicleSpawnCooldowns?.delete(id);this.sharedCheatCooldowns?.delete(id); this.combat.remove(id);this.npcMeleeAuthority.remove(id);this.seats.release(id); delete this.pings[id];
       if (this.isHost) this.broadcastRoster().catch(() => {});
       else if (id === this.hostId) {
         this.hostId = null;
@@ -338,6 +346,8 @@ export class PrivateLobby extends EventTarget {
   }
   sendSeat(request){if(!this.room)return;if(this.isHost)this.acceptSeat(selfId,request);else if(this.hostId)this.seatInput.send(request,{target:this.hostId}).catch(()=>{});}
   sendVehicle(update){if(this.room&&!this.isHost&&this.hostId)this.sendSnapshot('driver',this.vehicleInput,update,[this.hostId]);}
+  sendVehicleSpawnRequest(model){if(!this.room||this.isHost||!this.hostId||!VEHICLE_MODELS.includes(model))return false;this.vehicleSpawnAction.send({model},{target:this.hostId}).catch(()=>{});return true;}
+  sendSharedCheatToggle(cheatId){if(!this.room||this.isHost||!this.hostId||!SHARED_CHEATS.includes(cheatId))return false;this.sharedCheatAction.send({cheatId},{target:this.hostId}).catch(()=>{});return true;}
   async startGame() {
     if (!this.isHost || !this.room) throw new Error('Only the host can start the session.');
     if(this.sessionStarted)return;

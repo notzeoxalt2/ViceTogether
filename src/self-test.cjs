@@ -67,8 +67,9 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
       try{await waitFor(()=>hostLaunches===1 && guestLaunches===1,'Start did not reach both validated launch handlers');}
       catch(error){result.launchDiagnostics={hostLaunches,guestLaunches,host:await win.webContents.executeJavaScript("({notice:document.getElementById('notice').textContent,started:testLobby.sessionStarted,ready:testLobby.ready})"),guest:await uiGuest.webContents.executeJavaScript("({notice:document.getElementById('notice').textContent,started:testLobby.sessionStarted,ready:testLobby.ready})")};throw error;}
       await win.webContents.executeJavaScript('testLobby.startGame()');await delay(300);assert.equal(hostLaunches,1);assert.equal(guestLaunches,1);
-      await uiGuest.webContents.executeJavaScript('testLobby.leave()');
-      await uiGuest.webContents.executeJavaScript(`testLobby.join(${JSON.stringify(require('./invite.cjs').decodeInvite(code))},'Reconnect')`);
+      await uiGuest.webContents.executeJavaScript("document.getElementById('leave').click()");
+      await waitFor(()=>uiGuest.webContents.executeJavaScript("!testLobby.room && document.getElementById('retry').textContent==='Rejoin last lobby'"),'Leave did not preserve the guest rejoin invitation');
+      await uiGuest.webContents.executeJavaScript("document.getElementById('retry').click()");
       await waitFor(()=>guestLaunches===2,'Rejoining an active lobby did not automatically prepare the guest');
       await win.webContents.executeJavaScript('testLobby.leave()');await uiGuest.webContents.executeJavaScript('testLobby.leave()');uiGuest.close();uiGuest=null;
       result.tests.push('Hidden actual launcher profile navigation, public-signaling Host/Join, launch handlers, duplicate Start protection and active-lobby rejoin pass (game launch stubbed; no game or input control)');

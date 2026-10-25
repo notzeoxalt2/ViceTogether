@@ -38,3 +38,18 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(harness,/did not exit the shared vehicle normally/);
   assert.match(harness,/silently re-seated after exiting/);
 });
+
+test('native world creates supported helicopter/plane replicas and guest menu requests pass through host authority',()=>{
+  const root=path.join(__dirname,'..');
+  const world=fs.readFileSync(path.join(root,'engine','native-source','ViceTogetherWorld.cpp'),'utf8');
+  const menu=fs.readFileSync(path.join(root,'engine','native-source','ViceTogether.cpp'),'utf8');
+  const network=fs.readFileSync(path.join(root,'engine','native-source','ViceTogetherNetwork.cpp'),'utf8');
+  const lobby=fs.readFileSync(path.join(root,'ui','network.js'),'utf8');
+  assert.match(world,/#include "Heli.h"/);assert.match(world,/#include "Plane.h"/);
+  assert.match(world,/case VEHICLE_TYPE_HELI:return new CHeli/);assert.match(world,/case VEHICLE_TYPE_PLANE:return new CPlane/);
+  assert.match(world,/!car->IsHeli\(\) && !car->IsPlane\(\)/);
+  assert.match(world,/IsHeli\(\)\?3:car->IsPlane\(\)\?4:0/);
+  assert.match(menu,/else if\(action<2000\)ViceTogetherWorldRequestVehicle\(action-1000\)/);
+  assert.match(network,/sendWorld\(55,0,state\)/);assert.match(network,/wire\.type==56[^\n]*ViceTogetherWorldSpawnVehicle/);
+  assert.match(lobby,/acceptVehicleSpawn\(peerId,request\?\.model/);
+});

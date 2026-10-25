@@ -74,7 +74,7 @@ bool ViceTogetherMenuKey(int key,bool control){
     int count;const MenuItem* rows=menuItems(count);
     if(key==38||key=='W')modMenuRow=(modMenuRow+count-1)%count;
     else if(key==40||key=='S')modMenuRow=(modMenuRow+1)%count;
-    else if(key==13||key==39||key=='D'){const int action=rows[modMenuRow].action;if(action==-99)modMenuOpen=false;else if(action==-100){modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}else if(action<0){modMenuPage=-action;modMenuRow=0;}else if(action<1000||menuHost())modMenuAction=action;}
+    else if(key==13||key==39||key=='D'){const int action=rows[modMenuRow].action;if(action==-99)modMenuOpen=false;else if(action==-100){modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}else if(action<0){modMenuPage=-action;modMenuRow=0;}else if(action<1000||menuHost()||action<2000)modMenuAction=action;}
     else if(key==8||key==37||key=='A'){if(!modMenuPage||modMenuPage==8)modMenuOpen=false;else{modMenuPage=modMenuPage>=3&&modMenuPage<=7?2:0;modMenuRow=0;}}
     else if(key==27)modMenuOpen=false;
     return true;
@@ -91,6 +91,12 @@ static void drawModMenu(){
 bool ViceTogetherMenuTest(float* state){
     if(!getenv("VT_TEST_WALK")||CTimer::GetFrameCounter()<500||!FindPlayerPed()||!FindPlayerPed()->m_rwObject)return false;
     static int stage=0,flags=0;static uint32 started=0;if(stage==2)return false;
+    if(getenv("VT_TEST_GUEST_SPAWN")&&menuHost())return false;
+    if(getenv("VT_TEST_GUEST_SPAWN")&&!menuHost()){
+        ViceTogetherMenuKey('O',true);ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(13,false);
+        ViceTogetherMenuKey('S',false);ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(13,false);ViceTogetherMenuKey(13,false);
+        if(modMenuAction==1217)flags|=64;ViceTogetherMenuKey(27,false);state[0]=float(flags);state[1]=0;stage=2;return true;
+    }
     if(stage==0){started=CTimer::GetTimeInMilliseconds();ViceTogetherMenuKey('O',true);ViceTogetherMenuKey('W',false);if(modMenuRow==2)flags|=1;ViceTogetherMenuKey('S',false);ViceTogetherMenuKey(40,false);ViceTogetherMenuKey(13,false);if(modMenuPage==2)flags|=2;ViceTogetherMenuKey('D',false);if(modMenuPage==3)flags|=4;ViceTogetherMenuKey(13,false);if((menuHost()&&modMenuAction==1141)||(!menuHost()&&modMenuAction==-1))flags|=8;ViceTogetherMenuKey(27,false);stage=1;return false;}
     if(CTimer::GetTimeInMilliseconds()-started<4000)return false;if(menuHost()){FILE* log=fopen("native-menu.log","a");if(log){const CVector position=FindPlayerPed()->GetPosition();fprintf(log,"status=%s position=%f,%f,%f\n",ViceTogetherWorldMenuStatus(),position.x,position.y,position.z);fclose(log);}}ViceTogetherMenuKey('I',true);
     if(modMenuPage==8&&modMenuOpen)flags|=16;
@@ -126,6 +132,8 @@ struct Remote {
 };
 Remote peers[7] = {};
 bool enabled = false;
+extern "C" void VT_SendSharedCheatRequest(int cheatId);
+bool ViceTogetherInterceptFlyCheat(){if(!enabled)return false;if(menuHost()){if(!getenv("VT_PORT"))return false;ViceTogetherWorldToggleFlyCheat();return true;}VT_SendSharedCheatRequest(1);return true;}
 bool loadoutGiven=false;
 static int localWantedLevel=-1,lastAppliedWantedLevel=-1;
 int localColor=0;
@@ -535,7 +543,7 @@ void ViceTogetherDrawNames() {
 }
 
 void ViceTogetherTick() {
-    if(modMenuAction>=0){const int action=modMenuAction;modMenuAction=-1;if(action==0)WeaponCheat1();else if(action==1)WeaponCheat2();else if(action==2)WeaponCheat3();else if(menuHost())ViceTogetherWorldMenuAction(action);}
+    if(modMenuAction>=0){const int action=modMenuAction;modMenuAction=-1;if(action==0)WeaponCheat1();else if(action==1)WeaponCheat2();else if(action==2)WeaponCheat3();else if(menuHost())ViceTogetherWorldMenuAction(action);else if(action<2000)ViceTogetherWorldRequestVehicle(action-1000);}
     ViceTogetherWorldMenuTick();
     ViceTogetherNetworkTick();
     ViceTogetherWorldTick();
