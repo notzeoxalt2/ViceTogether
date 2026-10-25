@@ -156,6 +156,10 @@ bool remoteTagProjection(CPed* ped,RwV3d* screen){
     RwV3d world={head.x,head.y,head.z};float width,height;
     return CSprite::CalcScreenCoors(world,screen,&width,&height,true);
 }
+struct RemoteTagLayout {float centerX,nameY,healthY,headY;};
+RemoteTagLayout remoteTagLayout(const RwV3d& head){
+    return {head.x,head.y-remoteTagLineHeight()-SCREEN_SCALE_Y(2.0f),head.y-SCREEN_SCALE_Y(1.0f),head.y};
+}
 }
 
 // This hook is called by the patched game cheat function from another
@@ -386,7 +390,7 @@ int VT_ReadRemoteSkeleton(int slot,float* out) {
     out[0]=(head-left).Magnitude();out[1]=(head-right).Magnitude();out[2]=(left-right).Magnitude();
     out[3]=p->m_fHealth;out[4]=0;out[5]=0;
     out[17]=head.x;out[18]=head.y;out[19]=head.z;
-    RwV3d tagScreen;if(remoteTagProjection(p,&tagScreen)){out[20]=tagScreen.x;out[21]=tagScreen.y-remoteTagLineHeight()-SCREEN_SCALE_Y(2.0f);out[22]=tagScreen.y-SCREEN_SCALE_Y(1.0f);out[23]=1.0f;}
+    RwV3d tagScreen;if(remoteTagProjection(p,&tagScreen)){const RemoteTagLayout tag=remoteTagLayout(tagScreen);out[20]=tag.centerX;out[21]=tag.nameY;out[22]=tag.healthY;out[23]=1.0f;out[24]=tag.centerX;out[25]=tag.centerX;out[26]=tag.headY;}
     out[9]=peers[slot].aim[0];out[10]=peers[slot].aim[1];out[11]=peers[slot].aim[2];
     const int color=peers[slot].color;out[6]=float(color);out[7]=float(outfitDraws[color]);out[8]=float(outfitTexels[color]);
     out[12]=0;
@@ -529,9 +533,9 @@ void ViceTogetherDrawNames() {
     if(!enabled) return;
     const CFontDetails saved=CFont::Details;
     CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(remoteTagScaleX), SCREEN_SCALE_Y(remoteTagScaleY));
-    CFont::SetCentreOff(); CFont::SetJustifyOff();
+    CFont::SetCentreOn(); CFont::SetCentreSize(SCREEN_WIDTH); CFont::SetJustifyOff();
     CFont::SetRightJustifyOff(); CFont::SetBackgroundOff(); CFont::SetPropOn();
-    CFont::SetAlphaFade(255.0f); CFont::SetDropShadowPosition(1); CFont::SetDropColor(CRGBA(0,0,0,230));
+    CFont::SetAlphaFade(255.0f); CFont::SetDropShadowPosition(0);
     for(int i=0;i<7;i++) {
         CPed* ped=peers[i].ped;
         if(!ped || !peers[i].active) continue;
@@ -543,14 +547,12 @@ void ViceTogetherDrawNames() {
         if(!label || !label[0]) label="Player";
         wchar text[32]; AsciiToUnicode(label,text);
         const float labelWidth=std::max(SCREEN_SCALE_X(12.0f),CFont::GetStringWidth(text,true));
-        const float labelLeft=screen.x-labelWidth*0.5f;
-        const float lineHeight=remoteTagLineHeight();
-        const float labelY=screen.y-lineHeight-SCREEN_SCALE_Y(2.0f);
-        if(labelLeft<0 || labelLeft+labelWidth>SCREEN_WIDTH || labelY<0)continue;
+        const RemoteTagLayout tag=remoteTagLayout(screen);
+        if(tag.centerX-labelWidth*0.5f<0 || tag.centerX+labelWidth*0.5f>SCREEN_WIDTH || tag.nameY<0)continue;
         CFont::SetColor(CRGBA(230,244,240,255));
-        CFont::PrintString(labelLeft,labelY,text);
+        CFont::PrintString(tag.centerX,tag.nameY,text);
         const float healthWidth=labelWidth*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f));
-        const float healthLeft=screen.x-healthWidth*0.5f, y=screen.y-SCREEN_SCALE_Y(1.0f), height=SCREEN_SCALE_Y(2.0f);
+        const float healthLeft=tag.centerX-healthWidth*0.5f, y=tag.healthY, height=SCREEN_SCALE_Y(2.0f);
         CSprite2d::DrawRect(CRect(healthLeft,y,healthLeft+healthWidth,y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
     }
     CFont::Details=saved;

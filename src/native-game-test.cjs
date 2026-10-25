@@ -275,6 +275,9 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const projectedTags=upright.filter(s=>s.state[23]===1&&s.state.slice(20,23).every(Number.isFinite));
       assert.ok(projectedTags.length>20,`Engine ${i} did not project the remote player's head-anchored name tag`);
       assert.ok(projectedTags.every(s=>s.state[22]>s.state[21]&&s.state[22]-s.state[21]<25),`Engine ${i} name and health line did not stay tightly aligned to the head projection`);
+      const tagAlignmentErrors=projectedTags.map(s=>Math.max(Math.abs(s.state[24]-s.state[25]),Math.abs(s.state[24]-s.state[20]))).sort((a,b)=>a-b);
+      assert.ok(tagAlignmentErrors.length>20&&tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)]<0.01,`Engine ${i} name and health line centers drifted apart`);
+      assert.ok(projectedTags.every(s=>s.state[26]>s.state[22]&&s.state[26]-s.state[22]<3),`Engine ${i} health line moved away from the animated head anchor`);
       const colored=upright.filter(s=>s.state[6]>0 && s.state[7]>0);
       assert.ok(colored.length>10 && colored.some(s=>s.state[8]>100), `Engine ${i} remote shirt recoloring was not applied during native rendering`);
       const gunAimSamples=upright.filter(s=>s.state[9]===1);
@@ -316,6 +319,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         maximumRenderPositionErrorMetres:Math.max(...renderErrors),pauseMenuObserved:remote[i].some(s=>s.state[9]===1),
         skeletonSamples:upright.length,minimumHeadToFootMetres:Math.min(...heights),maximumHeadToFootMetres:Math.max(...heights),
         animatedHeadSpacingErrorP95Metres:headPositionErrors[Math.floor(headPositionErrors.length*.95)],projectedNameTagSamples:projectedTags.length,
+        nameHealthCenterErrorP95Pixels:tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)],
         coloredRemoteDraws:Math.max(0,...upright.map(s=>s.state[7])),recoloredTexturePixels:Math.max(0,...upright.map(s=>s.state[8])),
         replicatedGunAimSamples:gunAimSamples.length,
         replicatedJumpSamples:jumpSamples.length,
