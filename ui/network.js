@@ -342,6 +342,8 @@ export class PrivateLobby extends EventTarget {
     if(request?.release===true){this.seats.release(id);return;}
     if(id===selfId && request?.driver===true){this.seats.driver(id,request.car,this.states.get(id),true);return;}
     if(!Number.isSafeInteger(request?.id) || request.id<0)return;
+    const existing=this.seats.claims.get(id);
+    if(existing?.id===request.id && (request.driver===true?existing.seat===-1:existing.seat>=0))return;
     const claim=request?.driver===true?this.seats.requestDriver(id,request.id,this.states.get(id),performance.now()):this.seats.request(id,request.id,this.states.get(id),performance.now());
     if(!claim)return;
     if(id===selfId)this.emit('seat-grant',claim);else this.seatOutput.send(claim,{target:id}).catch(()=>{});

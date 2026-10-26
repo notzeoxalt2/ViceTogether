@@ -13,6 +13,21 @@ test('host and guest release seat reservations when they exit a vehicle',async()
   assert.equal(localSeatAction(true,{id:-1,seat:-1},-1),null);
 });
 
+test('repeated F/seat requests do not queue duplicate grants that can re-seat a player after exit',async()=>{
+  const {PrivateLobby}=await import('../ui/network.js');
+  const {SeatAuthority}=require('../engine/seats.cjs');
+  const car=Array(34).fill(0);car[17]=1000;car[22]=2;
+  const player={state:[0,0,0,0,0,0,0,1,100,0],time:performance.now()};
+  const lobby={seats:new SeatAuthority(),states:new Map([['guest',player]]),seatOutput:{send:async claim=>sent.push(claim)}};
+  const sent=[];lobby.seats.world({entities:[{id:12,type:22,state:car}]});
+  PrivateLobby.prototype.acceptSeat.call(lobby,'guest',{id:12,driver:true});
+  PrivateLobby.prototype.acceptSeat.call(lobby,'guest',{id:12,driver:true});
+  assert.deepEqual(sent,[{id:12,seat:-1}]);
+  PrivateLobby.prototype.acceptSeat.call(lobby,'guest',{release:true});
+  PrivateLobby.prototype.acceptSeat.call(lobby,'guest',{id:12,driver:true});
+  assert.deepEqual(sent,[{id:12,seat:-1},{id:12,seat:-1}]);
+});
+
 test('native multiplayer seat grants use Vice City enter tasks instead of teleporting into seats',()=>{
   const file=path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp');
   const source=fs.readFileSync(file,'utf8');
