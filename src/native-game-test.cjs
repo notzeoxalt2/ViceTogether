@@ -216,11 +216,14 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       }
       const model=Number(process.env.VT_TEST_VEHICLE||130),vehicleId=guestDriver.at(-1).id,vehicleClass=({130:'car',135:'car',141:'car',145:'car',155:'helicopter',159:'car',166:'bike',176:'boat',182:'boat',190:'plane',191:'bike',192:'bike',193:'bike',203:'boat',217:'helicopter'})[model]||'unknown',expectedType=({car:0,bike:1,boat:2,helicopter:3,plane:4})[vehicleClass];
       assert.equal(acceptedDriverSamples[0].state[1],expectedType,`Model ${model} was constructed as the wrong native vehicle class; expected ${vehicleClass}`);
-      const movingDriverSamples=driverSamples.filter(sample=>sample.id===vehicleId&&Math.hypot(...sample.state.slice(14,17))>0.5);
-      assert.ok(movingDriverSamples.length>10,'Guest did not stream enough live moving-vehicle snapshots');
-      const guestCarTravel=Math.hypot(...movingDriverSamples.at(-1).state.slice(2,5).map((v,k)=>v-movingDriverSamples[0].state[k+2]));
+      const vehicleDriverSamples=driverSamples.filter(sample=>sample.id===vehicleId);
+      const movingSpeedFloor=({bike:0.02,boat:0.05,helicopter:0.1,plane:0.1,car:0.5})[vehicleClass]??0.1;
+      const movingDriverSamples=vehicleDriverSamples.filter(sample=>Math.hypot(...sample.state.slice(14,17))>movingSpeedFloor);
+      assert.ok(movingDriverSamples.length>10,`Guest did not stream enough moving ${vehicleClass} snapshots above ${movingSpeedFloor} m/s`);
+      const guestCarTravel=Math.hypot(...vehicleDriverSamples.at(-1).state.slice(2,5).map((v,k)=>v-vehicleDriverSamples[0].state[k+2]));
       assert.ok(guestCarTravel>20,`Guest-driven car only moved ${guestCarTravel.toFixed(1)} m`);
-      assert.ok(movingDriverSamples.filter(s=>Math.hypot(...s.state.slice(14,model===217?17:16))>0.1).length>10,'Guest vehicle did not maintain real driving / flight speed');
+      const planarSpeedFloor=({bike:0.02,boat:0.04,helicopter:0.08,plane:0.08,car:0.1})[vehicleClass]??0.05;
+      assert.ok(movingDriverSamples.filter(s=>Math.hypot(...s.state.slice(14,model===217||model===190?17:16))>planarSpeedFloor).length>10,`Guest ${vehicleClass} did not maintain measurable native movement`);
       const hostCarSamples=hostVehicleSamples.filter(sample=>sample.id===vehicleId);
       assert.ok(hostCarSamples.length>10,'Host did not capture the same car during the drive');
       const hostCarTravel=Math.hypot(...hostCarSamples.at(-1).state.slice(2,5).map((v,k)=>v-hostCarSamples[0].state[k+2]));

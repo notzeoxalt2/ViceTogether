@@ -69,7 +69,10 @@ CHeli* createMultiplayerHeli(int model){
     // CHeli's constructor leaves mission-only AI fields uninitialized because
     // the stock game fills them in GenerateHeli(). Network-spawned vehicles
     // use a separate factory, so set deterministic, non-police defaults here.
-    heli->m_heliType=HELI_TYPE_RANDOM;
+    // Network-spawned helicopters are player vehicles, not ambient police
+    // traffic. RANDOM assigns an autonomous target altitude and makes an
+    // unoccupied helicopter climb away before a player can board it.
+    heli->m_heliType=HELI_TYPE_SCRIPT;
     heli->m_pathState=0;
     heli->m_nExplosionTimer=0;
     heli->m_fTargetZ=0.0f;
