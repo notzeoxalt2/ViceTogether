@@ -37,6 +37,7 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(world,/testCar->m_fHealth=1000\.0f/);
   assert.match(harness,/did not exit the shared vehicle normally/);
   assert.match(harness,/silently re-seated after exiting/);
+  assert.match(world,/!guestDriverRequestSent&&now-last>500/);
 });
 
 test('native world creates supported helicopter/plane replicas and guest menu requests pass through host authority',()=>{

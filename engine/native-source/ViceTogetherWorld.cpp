@@ -352,7 +352,7 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
         static int warmup=0;if(++warmup<500 || !player->m_rwObject)return;
         const int model=getenv("VT_TEST_VEHICLE")?atoi(getenv("VT_TEST_VEHICLE")):130;
         if(model!=130 && model!=191 && model!=217 && model!=182 && model!=190)return;
-        static CVehicle* testCar=nil;static CVehicle* testBarrier=nil;static uint32 last=0,started=0,guestBoardedAt=0,hostBoardedAt=0,guestExitAt=0,hostExitAt=0;static bool guestPositioned=false,guestExitSent=false,guestExited=false,hostExitSent=false,hostExited=false,hostBoatPassengerRequested=false;static CVector boatApproach;static bool boatApproachFound=false;const uint32 now=CTimer::GetTimeInMilliseconds();if(!started)started=now;
+        static CVehicle* testCar=nil;static CVehicle* testBarrier=nil;static uint32 last=0,started=0,guestBoardedAt=0,hostBoardedAt=0,guestExitAt=0,hostExitAt=0;static bool guestPositioned=false,guestDriverRequestSent=false,guestExitSent=false,guestExited=false,hostExitSent=false,hostExited=false,hostBoatPassengerRequested=false;static CVector boatApproach;static bool boatApproachFound=false;const uint32 now=CTimer::GetTimeInMilliseconds();if(!started)started=now;
         if(host()){
             if(!testCar){
                 CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(model))return;
@@ -377,12 +377,12 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
         }
         if(player->bInVehicle){if(!guestBoardedAt)guestBoardedAt=now;const bool guestDriving=player->m_pMyVehicle&&player->m_pMyVehicle->pDriver==player;const uint32 driveTime=now-guestBoardedAt;if(guestDriving&&driveTime>5000){pad->NewState.Cross=255;pad->NewState.RightStickY=-128;if(model==217||model==190){const uint32 flightTime=driveTime-5000;CPad::NewKeyState.UP=flightTime<1500;CPad::NewKeyState.DOWN=flightTime>=3500&&flightTime<4500;}else if(model==191){pad->NewState.LeftStickX=((now/4000)%2)?24:-24;}else if(model==130&&!getenv("VT_TEST_VEHICLE_COLLISION")){pad->NewState.LeftStickX=((now/5000)%2)?20:-20;}}if(!guestExitSent&&driveTime>18000){guestExitSent=true;guestExitAt=now;}if(guestExitSent&&now-guestExitAt<250){pad->NewState.Cross=0;pad->NewState.RightStickY=0;pad->NewState.Triangle=255;}}
         else if(guestExitSent){if(now-guestExitAt>2500)guestExited=true;}
-        else if(!guestExited&&now-last>500){
+        else if(!guestExited&&!guestDriverRequestSent&&now-last>500){
             float hostState[20]={};const bool haveHost=VT_ReadRemote(0,hostState);
             const CVector target=haveHost?CVector(hostState[0],hostState[1],hostState[2]):player->GetPosition();
             CVehicle* candidate=nil;unsigned candidateId=0;float closest=1000000.0f;
             for(const auto& entry:vehicles)if(entry.second.entity){CVehicle* car=(CVehicle*)entry.second.entity;if(car->GetModelIndex()!=model||car->m_fHealth<=0||car->pDriver)continue;const float distance=(car->GetPosition()-target).MagnitudeSqr();if(distance<closest){closest=distance;candidate=car;candidateId=entry.first;}}
-            if(candidate){if(!guestPositioned){if(candidate->IsBoat()&&haveHost)player->Teleport(CVector(hostState[0],hostState[1],hostState[2]));else player->Teleport(candidate->GetPosition()+candidate->GetRight()*3.0f);guestPositioned=true;}VT_SendDriverRequest(candidateId);}
+            if(candidate){if(!guestPositioned){if(candidate->IsBoat()&&haveHost)player->Teleport(CVector(hostState[0],hostState[1],hostState[2]));else player->Teleport(candidate->GetPosition()+candidate->GetRight()*3.0f);guestPositioned=true;}VT_SendDriverRequest(candidateId);guestDriverRequestSent=true;}
             last=now;
         }return;
     }
