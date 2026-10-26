@@ -65,6 +65,8 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   assert.match(world,/case VEHICLE_TYPE_HELI:return createMultiplayerHeli/);assert.match(world,/case VEHICLE_TYPE_PLANE:return new CPlane/);
   assert.match(world,/heli->m_heliType=HELI_TYPE_SCRIPT/);assert.match(world,/heli->m_numSwat=0/);
   assert.match(world,/RANDOM assigns an autonomous target altitude/);
+  assert.match(world,/void trackNetworkHeli\(CVehicle\* car\)/);
+  assert.match(world,/car->IsHeli\(\) && car->pDriver!=FindPlayerPed\(\).*networkHelis/);
   assert.match(world,/!car->IsHeli\(\) && !car->IsPlane\(\)/);
   assert.match(world,/IsHeli\(\)\?3:car->IsPlane\(\)\?4:0/);
   assert.match(menu,/else if\(action<2000\)ViceTogetherWorldRequestVehicle\(action-1000\)/);
