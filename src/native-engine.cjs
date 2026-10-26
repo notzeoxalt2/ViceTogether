@@ -99,7 +99,7 @@ class NativeEngine extends EventEmitter {
       env.VT_WORLD_HOST=authoritativeWorld?'1':'0';
       env.VT_SPAWN_OFFSET = String(Math.min(6, Math.max(0, Number(spawnOffset) || 0)));
       if (testWalk) env.VT_TEST_WALK = '1';
-      if(testWalk)for(const flag of ['VT_TEST_JUMP','VT_TEST_GUN_WALK','VT_TEST_SHOTS','VT_TEST_CAR','VT_TEST_GUEST_DRIVE','VT_TEST_VEHICLE','VT_TEST_CAR_BLAST','VT_TEST_VEHICLE_COLLISION','VT_TEST_WORLD_EFFECTS','VT_TEST_GUEST_FAR_WORLD','VT_TEST_GUEST_NPC_MELEE','VT_TEST_GUEST_SPAWN','VT_TEST_MENU'])if(process.env[flag]==='1'||(flag==='VT_TEST_VEHICLE'&&/^(130|182|190|191|217)$/.test(process.env[flag]||'')))env[flag]=process.env[flag];
+      if(testWalk)for(const flag of ['VT_TEST_JUMP','VT_TEST_GUN_WALK','VT_TEST_SHOTS','VT_TEST_CAR','VT_TEST_GUEST_DRIVE','VT_TEST_VEHICLE','VT_TEST_CAR_BLAST','VT_TEST_VEHICLE_COLLISION','VT_TEST_WORLD_EFFECTS','VT_TEST_GUEST_FAR_WORLD','VT_TEST_GUEST_NPC_MELEE','VT_TEST_GUEST_SPAWN','VT_TEST_MENU'])if(process.env[flag]==='1'||(flag==='VT_TEST_VEHICLE'&&/^(130|176|182|190|191|203|217)$/.test(process.env[flag]||'')))env[flag]=process.env[flag];
       if(testCombat)env.VT_TEST_COMBAT='1';
       if(testCombat && process.env.VT_TEST_GUN==='1')env.VT_TEST_GUN='1';
       if(testCombat && process.env.VT_TEST_MOVING_COMBAT==='1')env.VT_TEST_MOVING_COMBAT='1';

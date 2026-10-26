@@ -37,6 +37,6 @@ test('native car door sync uses stock OpenDoor and vehicle construction follows 
   assert.match(native,/type===62&&!this\.authoritativeWorld/);
   assert.match(native,/this\.send\(63,update\.id,state\)/);
   assert.match(native,/VT_TEST_VEHICLE_COLLISION/);
-  assert.match(native,/VT_TEST_VEHICLE.*\^\(130\|182\|190\|191\|217\)\$/);
+  assert.match(native,/VT_TEST_VEHICLE.*\^\(130\|176\|182\|190\|191\|203\|217\)\$/);
   assert.match(ui,/acceptVehicleDoors\(peerId,update\)/);
 });
