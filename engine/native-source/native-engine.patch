@@ -897,3 +897,18 @@ index 0000000..0000000 100644
  {
 +    if(ViceTogetherWorldVehicle(this))return;
  	int i;
+diff --git a/src/core/PlayerInfo.cpp b/src/core/PlayerInfo.cpp
+index 36d05b8..9ec6a16 100644
+--- a/src/core/PlayerInfo.cpp
++++ b/src/core/PlayerInfo.cpp
+@@ -327,6 +327,10 @@ CPlayerInfo::Process(void)
+ 								if (!veh->bIsInWater)
+ 									m_pPed->SetObjective(OBJECTIVE_LEAVE_CAR, veh);
+ 
++							} else if (veh->IsCar() && veh->pDriver != m_pPed && CPad::GetPad(0)->ExitVehicleJustDown()) {
++								if (!veh->bIsInWater)
++									m_pPed->SetObjective(OBJECTIVE_LEAVE_CAR, veh);
++
+ 							} else if (veh->GetStatus() != STATUS_PLAYER && veh != CGameLogic::pShortCutTaxi) {
+ 								veh->AutoPilot.m_nTempAction = TEMPACT_WAIT;
+ 								veh->AutoPilot.m_nTimeTempAction = CTimer::GetTimeInMilliseconds() + 1000;

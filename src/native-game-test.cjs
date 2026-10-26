@@ -211,6 +211,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       diagnosticBase.driverSampling={acceptedCount:acceptedDriverSamples.length,driverIntervalP50Ms,driverIntervalP95Ms,fast:authority.fast};
       await fs.writeFile(path.join(out,'guest-driver-observations.json'),JSON.stringify(diagnosticBase,null,2));
       assert.ok(driverIntervalP50Ms<=24 && driverIntervalP95Ms<=48,`Host driver snapshots arrived too slowly: p50 ${driverIntervalP50Ms} ms, p95 ${driverIntervalP95Ms} ms`);
+      const hostExitAttempt=worldStatusHistory[0].findLast(world=>world.hostExitRequested);
+      assert.ok(hostExitAttempt?.hostExitWithDriver&&hostExitAttempt.hostExitSpeed>0.1,`Host passenger exit was not tested while the guest was still driving (speed ${hostExitAttempt?.hostExitSpeed??'unknown'} m/s)`);
       if(process.env.VT_TEST_CAR_BLAST==='1'){
         assert.ok(worldStatusHistory.every(history=>history.some(world=>world.wreckedVehicles>=1)),'Shared wreck did not become wrecked in both engines');const respawns=local.map(samples=>{const dead=samples.find(sample=>sample.state[8]<=0),alive=dead&&samples.find(sample=>sample.time>dead.time+1000&&sample.state[8]>0);assert.ok(dead&&alive,'Both occupants must die and respawn after the shared car explosion');const distance=Math.hypot(...alive.state.slice(0,3).map((v,k)=>v-dead.state[k]));assert.ok(distance<110,'Respawn was not near the death location');return {distance,delayMs:alive.time-dead.time};});return {success:true,scenario:'Guest-driven car explosion, shared wreck and near-death respawn',worldObserved,maximumWrecks:worldStatusHistory.map(history=>Math.max(...history.map(world=>world.wreckedVehicles))),respawns,samePC:true,internetTested:false};
       }
