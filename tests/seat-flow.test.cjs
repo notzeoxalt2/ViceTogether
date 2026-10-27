@@ -110,3 +110,18 @@ test('guest-requested helicopters stay at player elevation and other vehicles ha
   assert.doesNotMatch(tick,/Could not find safe ground at your level nearby/);
   assert.doesNotMatch(tick,/searchRadius=menuSpawnHasPosition\?60\.0f:40\.0f/);
 });
+
+test('heli spawn verification distinguishes a new two-client spawn from an ambient rooftop helicopter',()=>{
+  const root=path.join(__dirname,'..');
+  const world=fs.readFileSync(path.join(root,'engine','native-source','ViceTogetherWorld.cpp'),'utf8');
+  const native=fs.readFileSync(path.join(root,'src','native-engine.cjs'),'utf8');
+  const harness=fs.readFileSync(path.join(__dirname,'..','src','native-game-test.cjs'),'utf8');
+  assert.match(world,/if\(getenv\("VT_TEST_GUEST_SPAWN"\)\)\{[\s\S]*car->IsHeli\(\)[\s\S]*out\[19\]\+\+/,
+    'The test telemetry must count live native Maverick instances in each game');
+  assert.match(native,/observed\.testHelicopters=\{count:state\[19\],nearest:\{position:state\.slice\(20,23\)/,
+    'Native reports must include count, nearest position, rotor rotation and health');
+  assert.match(harness,/heliBaselineCounts=worldStatusHistory\.map\(history=>history\.at\(-1\)\?\.testHelicopters\?\.count\)/,
+    'The scenario must compare post-request helicopter counts to both clients’ baseline');
+  assert.match(harness,/The approved request did not add a helicopter at the expected location to both native game worlds/,
+    'An ambient helicopter near the test must not make a failed spawn appear successful');
+});

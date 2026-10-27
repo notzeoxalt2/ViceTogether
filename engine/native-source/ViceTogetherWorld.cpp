@@ -358,6 +358,18 @@ void ViceTogetherWorldStatus(float* out) {
     out[11]=float(glass.size());out[12]=out[13]=0;auto* objects=CPools::GetObjectPool();for(int i=0;i<objects->GetSize();i++){CObject* object=objects->GetSlot(i);if(object && IsGlass(object->GetModelIndex())){if(object->bGlassBroken && !object->bIsVisible && !object->bUsesCollision)out[12]++;else if(object->bGlassCracked)out[13]++;}}out[14]=float(host()?explosionSequence:lastExplosion);
     out[16]=out[17]=0;auto* pedPool=CPools::GetPedPool();for(int i=0;i<pedPool->GetSize();i++){CPed* ped=pedPool->GetSlot(i);if(ped && !ped->IsPlayer() && !ViceTogetherIsRemote(ped) && !ViceTogetherWorldPed(ped) && ped->CharCreatedBy==RANDOM_CHAR)out[16]++;}auto* carPool=CPools::GetVehiclePool();for(int i=0;i<carPool->GetSize();i++){CVehicle* car=carPool->GetSlot(i);if(car && car->VehicleCreatedBy==RANDOM_VEHICLE)out[17]++;}out[18]=guestOwnsNearbyPopulation()?1.0f:0.0f;
     if(getenv("VT_TEST_GUEST_NPC_MELEE")){out[19]=float(testMeleeStage);out[20]=float(testMeleeTarget);out[21]=testMeleeLocalDistance;out[22]=testMeleeRemoteDistance;}
+    if(getenv("VT_TEST_GUEST_SPAWN")){
+        CPlayerPed* player=FindPlayerPed();out[19]=0.0f;out[20]=out[21]=out[22]=out[23]=out[24]=out[25]=out[26]=0.0f;
+        float nearest=1.0e30f;auto* pool=CPools::GetVehiclePool();
+        for(int i=0;i<pool->GetSize();i++){
+            CVehicle* car=pool->GetSlot(i);if(!car||!car->IsHeli()||car->GetModelIndex()!=217||!car->m_rwObject)continue;
+            out[19]++;
+            const CVector position=car->GetPosition();const CVector delta=player?position-player->GetPosition():position;
+            const float distance=delta.MagnitudeSqr();if(distance>=nearest)continue;nearest=distance;
+            out[20]=position.x;out[21]=position.y;out[22]=position.z;out[23]=float(CPools::GetVehicleRef(car));
+            out[24]=((CHeli*)car)->m_fRotorRotation;out[25]=float(car->GetModelIndex());out[26]=car->m_fHealth;
+        }
+    }
     if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217){out[32]=((CHeli*)car)->m_fRotorRotation;out[33]=217.0f;break;}}}
 }
 bool ViceTogetherWorldVehicle(const CVehicle* car) {
