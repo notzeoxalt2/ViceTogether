@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { VEHICLE_MODELS, acceptVehicleSpawn } = require('../engine/vehicle-spawn.cjs');
+const { VEHICLE_MODELS, vehicleSpawnClearance, acceptVehicleSpawn } = require('../engine/vehicle-spawn.cjs');
 const { validWorldFrame } = require('../engine/world.cjs');
 
 function fixture() {
@@ -8,12 +8,23 @@ function fixture() {
   return { peer, players: new Map([[peer, {}]]), states: new Map([[peer, { time: 1000, state: [10, 20, 3, Math.PI / 2, 0, 0, 0, 1, 100, 0] }]]), cooldowns: new Map() };
 }
 
-test('a fresh guest can request any supported vehicle model at their authoritative position', () => {
+test('a fresh guest can request any supported vehicle model near their authoritative position', () => {
   const state = fixture();
   for (const model of VEHICLE_MODELS) {
     state.cooldowns.clear();
     const result = acceptVehicleSpawn(state.peer, model, { ...state, now: 1100 });
-    assert.deepEqual(result, { model, position: [4, 20, 3], heading: Math.PI / 2, requester: state.peer });
+    const clearance=vehicleSpawnClearance(model);
+    assert.deepEqual(result, { model, position: [10-clearance, 20, 3], heading: Math.PI / 2, requester: state.peer });
+  }
+});
+
+test('helicopter requests keep the rotor disc clear of the requester',()=>{
+  const state=fixture();
+  for(const model of [155,217]){
+    state.cooldowns.clear();
+    const result=acceptVehicleSpawn(state.peer,model,{...state,now:1100});
+    assert.equal(vehicleSpawnClearance(model),18);
+    assert.ok(Math.hypot(result.position[0]-state.states.get(state.peer).state[0],result.position[1]-state.states.get(state.peer).state[1])>=18);
   }
 });
 

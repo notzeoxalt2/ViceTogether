@@ -1,5 +1,17 @@
 const VEHICLE_MODELS = Object.freeze([130, 135, 141, 145, 155, 159, 166, 176, 182, 190, 191, 192, 193, 203, 217]);
 const ALLOWED = new Set(VEHICLE_MODELS);
+const SPAWN_CLEARANCE = Object.freeze({
+  155: 18,
+  176: 10,
+  182: 10,
+  190: 10,
+  203: 10,
+  217: 18,
+});
+
+function vehicleSpawnClearance(model) {
+  return SPAWN_CLEARANCE[model] ?? 8;
+}
 
 function acceptVehicleSpawn(peerId, model, { players, states, cooldowns, now = performance.now(), cooldownMs = 5000 } = {}) {
   if (typeof peerId !== 'string' || !players?.has(peerId) || !ALLOWED.has(model)) return null;
@@ -11,7 +23,8 @@ function acceptVehicleSpawn(peerId, model, { players, states, cooldowns, now = p
   const previous = cooldowns?.get(peerId) ?? -Infinity;
   if (now - previous < cooldownMs) return null;
   cooldowns?.set(peerId, now);
-  return { model, position: [state[0] - Math.sin(state[3]) * 6, state[1] + Math.cos(state[3]) * 6, state[2]], heading: state[3], requester: peerId };
+  const clearance = vehicleSpawnClearance(model);
+  return { model, position: [state[0] - Math.sin(state[3]) * clearance, state[1] + Math.cos(state[3]) * clearance, state[2]], heading: state[3], requester: peerId };
 }
 
-module.exports = { VEHICLE_MODELS, acceptVehicleSpawn };
+module.exports = { VEHICLE_MODELS, vehicleSpawnClearance, acceptVehicleSpawn };

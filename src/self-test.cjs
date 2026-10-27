@@ -213,6 +213,12 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     await a.webContents.executeJavaScript('testLobby.startGame()');
     await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='launch')"), 'Launch broadcast did not reach the guest');
     result.tests.push('Host launch message reaches guest');
+    const launchCountBeforeRejoin=await b.webContents.executeJavaScript("testEvents.filter(e=>e.name==='launch').length");
+    await b.webContents.executeJavaScript('testLobby.leave()');
+    await waitFor(()=>a.webContents.executeJavaScript('testLobby.players.size===1'),'Host did not remove the guest who left the live session');
+    await b.webContents.executeJavaScript(`testLobby.setReady(true);testLobby.join(${JSON.stringify(invite)},'Friend',${joinOptions})`);
+    await waitFor(async()=>await a.webContents.executeJavaScript('testLobby.players.size===2')&&await b.webContents.executeJavaScript('testLobby.players.size===2&&testLobby.sessionStarted&&testEvents.filter(e=>e.name==="launch").length>='+String(launchCountBeforeRejoin+1)),'A returning guest did not rejoin the active host session and receive its launch state',60000);
+    result.tests.push('Guest leaves and rejoins the still-running private lobby; the host roster and session launch state recover over public signaling');
     if (process.argv.includes('--native-test') && !result.gameplayTested) {
       await a.webContents.executeJavaScript('testLobby.states.clear()');
       await b.webContents.executeJavaScript('testLobby.states.clear()');

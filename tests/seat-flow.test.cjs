@@ -47,6 +47,7 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   const world=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const harness=fs.readFileSync(path.join(__dirname,'..','src','native-game-test.cjs'),'utf8');
   assert.match(network,/if\(getenv\("VT_TEST_GUEST_DRIVE"\)\)\{ViceTogetherWorldTestDrive\(\);return;\}/);
+  assert.match(network,/if\(getenv\("VT_TEST_MENU"\)\|\|getenv\("VT_TEST_GUEST_SPAWN"\)\)/,'The hidden helicopter spawn scenario must drive the actual native menu path');
   assert.match(world,/pad->NewState\.Triangle=255/);
   assert.match(world,/roadPosition-player->GetPosition\(\)\)\.MagnitudeSqr\(\)<900\.0f/);
   assert.match(world,/if\(candidate->IsBoat\(\)\)\{for\(int radius=3;radius<=10/);
@@ -78,4 +79,14 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   assert.match(menu,/else if\(action<2000\)ViceTogetherWorldRequestVehicle\(action-1000\)/);
   assert.match(network,/sendWorld\(55,0,state\)/);assert.match(network,/wire\.type==56[^\n]*ViceTogetherWorldSpawnVehicle/);
   assert.match(lobby,/acceptVehicleSpawn\(peerId,request\?\.model/);
+});
+
+test('guest-requested land vehicles fall back to a nearby path node when host collision is not loaded',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
+  const start=source.indexOf('void ViceTogetherWorldMenuTick()');
+  const end=source.indexOf('void ViceTogetherWorldExplosion(',start);
+  const tick=source.slice(start,end);
+  assert.match(tick,/FindGroundZFor3DCoord\(position\.x,position\.y,position\.z\+10,&found\)/);
+  assert.match(tick,/else \{const float searchRadius=menuSpawnHasPosition\?60\.0f:40\.0f;const int road=ThePaths\.FindNodeClosestToCoors\(position,PATH_CAR,searchRadius\)/);
+  assert.match(tick,/Could not find safe ground nearby\. Move to an open area and try again\./);
 });
