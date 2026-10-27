@@ -160,13 +160,12 @@ void applyGuestDriverMotion(){
         if(motion.settled){++it;continue;}
         const float t=std::min(1.0f,float(now-motion.received)/std::max(1u,motion.duration));
         const auto blend=[&](int i){return motion.from[i]+(motion.target[i]-motion.from[i])*t;};
-        CWorld::Remove(car);
         car->SetPosition(blend(0),blend(1),blend(2));
         CMatrix& matrix=car->GetMatrix();
         CVector right(blend(3),blend(4),blend(5)),forward(blend(6),blend(7),blend(8));
         right.Normalise();forward.Normalise();CVector up=CrossProduct(right,forward);up.Normalise();forward=CrossProduct(up,right);forward.Normalise();
         matrix.GetRight()=right;matrix.GetForward()=forward;matrix.GetUp()=up;
-        CWorld::Add(car);matrix.UpdateRW();car->UpdateRwFrame();
+        matrix.UpdateRW();car->UpdateRwFrame();
         if(getenv("VT_TEST_GUEST_DRIVE"))testDriverMotionFrames++;
         if(t>=1.0f)motion.settled=true;
         ++it;
@@ -348,11 +347,12 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     if(car->GetStatus()==STATUS_WRECKED)return;
     DriverMotion& motion=driverMotions[id];const uint32 now=CTimer::GetTimeInMilliseconds();
     const CVector position=car->GetPosition();const CMatrix& current=car->GetMatrix();const CVector basis[]={current.GetRight(),current.GetForward(),current.GetUp()};
+    CWorld::Remove(car);
     motion.from[0]=position.x;motion.from[1]=position.y;motion.from[2]=position.z;
     for(int j=0;j<3;j++){motion.from[3+j*3]=basis[j].x;motion.from[4+j*3]=basis[j].y;motion.from[5+j*3]=basis[j].z;}
     for(int j=0;j<12;j++)motion.target[j]=d[2+j];
     const uint32 interval=motion.initialized?now-motion.received:16;motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.initialized=true;motion.settled=false;
-    car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE"))testDriverMotionPackets++;
+    car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE"))testDriverMotionPackets++;
 }
 void ViceTogetherApplyDriverVisual(unsigned id,const float* v){
     if(!host())return;
