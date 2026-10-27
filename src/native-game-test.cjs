@@ -343,7 +343,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const requesterState=heliApproval?.requesterState;
       const approvalClearance=requesterState&&Array.isArray(heliApproval.position)?Math.hypot(heliApproval.position[0]-requesterState[0],heliApproval.position[1]-requesterState[1]):null;
       const approvedHeliSamples=hostVehicleSamples.filter(sample=>sample.state[0]===217&&heliApproval&&Math.hypot(sample.state[2]-heliApproval.position[0],sample.state[3]-heliApproval.position[1])<=4);
-      const nativeClearanceSamples=approvedHeliSamples.map(sample=>({time:sample.time,id:sample.id,horizontalDistance:Math.hypot(sample.state[2]-requesterState[0],sample.state[3]-requesterState[1]),requesterPosition:requesterState.slice(0,3),vehiclePosition:sample.state.slice(2,5)}));
+      const nativeClearanceSamples=approvedHeliSamples.map(sample=>({time:sample.time,id:sample.id,horizontalDistance:Math.hypot(sample.state[2]-requesterState[0],sample.state[3]-requesterState[1]),verticalDistance:sample.state[4]-requesterState[2],requesterPosition:requesterState.slice(0,3),vehiclePosition:sample.state.slice(2,5)}));
       assert.ok(heliApproval&&requesterState,'Host approval did not retain the fresh guest position used to calculate helicopter placement');
       assert.ok(approvedHeliSamples.length>0,'Both clients saw a helicopter, but the host world stream did not show the approved spawn at its approved location');
       assert.ok(approvalClearance>=12,`Host approval placed the helicopter ${approvalClearance} m from the requester; minimum is 12 m`);

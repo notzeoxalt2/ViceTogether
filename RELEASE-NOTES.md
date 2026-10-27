@@ -1,8 +1,8 @@
-# ViceTogether alpha.41 — safe helicopter placement fallback
+# ViceTogether alpha.42 — level-locked Maverick spawn
 
-Guest-requested helicopters search nearby for ground on the requester’s current level and reject unrelated upper-floor or overpass path nodes. When streamed collision and path data cannot identify a floor, the host now uses the fresh, authenticated requester elevation instead of silently dropping the spawn request. The helicopter still spawns at least 18 m ahead, preserving rotor clearance while avoiding the previous ~20 m vertical error.
+Guest-requested Maverick helicopters now bypass road and flight-path altitude selection entirely. The host places them 1 m above the fresh requester elevation, 18 m ahead, so an unrelated airport/bridge node cannot put the helicopter on another floor. The paired native test now records an explicit vertical delta instead of relying on a missing field.
 
-The first alpha.39 paired run proved the previous spawn was 18 m away horizontally but about 20.5 m above the guest. Alpha.40 then exposed the complementary failure: when nearby floor data was unavailable, the spawn never appeared. Alpha.41’s native two-client spawn, passenger/pilot, rotor, and same-session rejoin checks are pending. Do not publish until those checks pass. Fast snapshot transport also needs to reconfirm after rejoin; reliable movement remains the fallback.
+Alpha.41’s hidden Windows game run showed the helicopter still at about 20.5 m above the guest, and exposed a test instrumentation bug that reported NaN instead of the measured difference. Alpha.42’s native two-client spawn, passenger/pilot, rotor, and same-session rejoin checks are pending. Do not publish until those checks pass. The low-latency snapshot channel must also reconfirm after rejoin; reliable movement remains the fallback.
 
 Each player imports their own legally obtained Vice City installation; no game files are included.
 

@@ -95,7 +95,7 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   assert.match(lobby,/acceptVehicleSpawn\(peerId,request\?\.model/);
 });
 
-test('guest-requested land vehicles keep requester elevation if ground and path data are unavailable',()=>{
+test('guest-requested helicopters stay at player elevation and other vehicles have a safe fallback',()=>{
   const source=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const start=source.indexOf('void ViceTogetherWorldMenuTick()');
   const end=source.indexOf('void ViceTogetherWorldExplosion(',start);
@@ -105,6 +105,7 @@ test('guest-requested land vehicles keep requester elevation if ground and path 
   assert.match(tick,/fabsf\(ground-referenceZ\)<=4\.0f/);
   assert.match(tick,/FindNodeClosestToCoors\(candidate,PATH_CAR,6\.0f\)/);
   assert.match(tick,/fabsf\(node\.z-referenceZ\)<=4\.0f/);
+  assert.match(tick,/if\(model==217\)\{[\s\S]*groundedPosition\.z=referenceZ\+1\.0f;/);
   assert.match(tick,/if\(!safeGround\)[\s\S]*groundedPosition=position;[\s\S]*groundedPosition\.z=referenceZ\+1\.0f;/);
   assert.doesNotMatch(tick,/Could not find safe ground at your level nearby/);
   assert.doesNotMatch(tick,/searchRadius=menuSpawnHasPosition\?60\.0f:40\.0f/);

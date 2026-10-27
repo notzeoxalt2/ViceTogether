@@ -252,49 +252,50 @@ void ViceTogetherWorldMenuTick(){
     const int model=menuSpawnModel;const float spawnAhead=(model==155||model==217)?15.0f:6.0f;CVector position=menuSpawnHasPosition?menuSpawnPosition:player->GetPosition()+player->GetForward()*spawnAhead;const float heading=menuSpawnHasPosition?menuSpawnHeading:player->m_fRotationCur;const bool boat=CModelInfo::IsBoatModel(model);float water=0;
     if(boat){if(!CWaterLevel::GetWaterLevel(position.x,position.y,position.z,&water,true)){menuSpawnModel=-1;menuStatus="Move beside open water to spawn a boat / Skimmer";return;}position.z=water+0.5f;}
     else {
-        // A nearest path node can be on an overpass or an upper floor. Using
-        // it without checking height put multiplayer helicopters ~20 m above
-        // the player and made the cockpit unreachable. Search only nearby
-        // points on the requester's current ground level; keep network-spawn
-        // clearance by limiting the adjustment to 4 m.
         const float referenceZ=position.z;
-        bool safeGround=false;
         CVector groundedPosition=position;
-        const float offsets[]={0.0f,2.0f,4.0f};
-        for(float radius:offsets){
-            for(int direction=0;direction<(radius==0.0f?1:16);direction++){
-                const float angle=direction*6.2831853f/16.0f;
-                CVector candidate=position+CVector(cosf(angle)*radius,sinf(angle)*radius,0.0f);
-                bool found=false;
-                const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,referenceZ+5.0f,&found);
-                if(found&&std::isfinite(ground)&&fabsf(ground-referenceZ)<=4.0f){
-                    candidate.z=ground+1.0f;
-                    groundedPosition=candidate;
-                    safeGround=true;
-                    break;
-                }
-                const int road=ThePaths.FindNodeClosestToCoors(candidate,PATH_CAR,6.0f);
-                if(road>=0){
-                    const CVector node=ThePaths.m_pathNodes[road].GetPosition();
-                    const float dx=node.x-position.x,dy=node.y-position.y;
-                    if(dx*dx+dy*dy<=25.0f&&fabsf(node.z-referenceZ)<=4.0f){
-                        groundedPosition=node+CVector(0,0,1);
+        if(model==217){
+            // Maverick road/path data can resolve to a different storey or to
+            // an airport flight node. Keep it on the authenticated player's
+            // exact elevation, with the usual vehicle-origin offset. Its
+            // approved XY position is already 18 m ahead, outside rotor reach.
+            groundedPosition.z=referenceZ+1.0f;
+        }else{
+            // A nearest path node can be on an overpass or an upper floor.
+            // Search nearby ground and reject nodes on a different level.
+            bool safeGround=false;
+            const float offsets[]={0.0f,2.0f,4.0f};
+            for(float radius:offsets){
+                for(int direction=0;direction<(radius==0.0f?1:16);direction++){
+                    const float angle=direction*6.2831853f/16.0f;
+                    CVector candidate=position+CVector(cosf(angle)*radius,sinf(angle)*radius,0.0f);
+                    bool found=false;
+                    const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,referenceZ+5.0f,&found);
+                    if(found&&std::isfinite(ground)&&fabsf(ground-referenceZ)<=4.0f){
+                        candidate.z=ground+1.0f;
+                        groundedPosition=candidate;
                         safeGround=true;
                         break;
                     }
+                    const int road=ThePaths.FindNodeClosestToCoors(candidate,PATH_CAR,6.0f);
+                    if(road>=0){
+                        const CVector node=ThePaths.m_pathNodes[road].GetPosition();
+                        const float dx=node.x-position.x,dy=node.y-position.y;
+                        if(dx*dx+dy*dy<=25.0f&&fabsf(node.z-referenceZ)<=4.0f){
+                            groundedPosition=node+CVector(0,0,1);
+                            safeGround=true;
+                            break;
+                        }
+                    }
                 }
+                if(safeGround)break;
             }
-            if(safeGround)break;
-        }
-        if(!safeGround){
-            // Collision and path data can be missing at the edge of the streamed
-            // map (and the nearest path may belong to a bridge far above us).
-            // The host approved this point from a fresh on-foot player state, so
-            // retain that player's elevation rather than failing or borrowing an
-            // unrelated road node. Keep the vehicle's normal one-metre ground
-            // offset; the point is already placed ahead of the requester.
-            groundedPosition=position;
-            groundedPosition.z=referenceZ+1.0f;
+            if(!safeGround){
+                // Collision and path data can be missing at the edge of the
+                // streamed map. Keep the authenticated requester elevation.
+                groundedPosition=position;
+                groundedPosition.z=referenceZ+1.0f;
+            }
         }
         position=groundedPosition;
     }
