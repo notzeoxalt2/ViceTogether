@@ -83,8 +83,8 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   const lobby=fs.readFileSync(path.join(root,'ui','network.js'),'utf8');
   assert.match(world,/#include "Heli.h"/);assert.match(world,/#include "Plane.h"/);
   assert.match(world,/case VEHICLE_TYPE_HELI:return createMultiplayerHeli/);assert.match(world,/case VEHICLE_TYPE_PLANE:return new CPlane/);
-  assert.match(world,/heli->m_heliType=HELI_TYPE_SCRIPT/);assert.match(world,/heli->m_numSwat=0/);
-  assert.match(world,/RANDOM assigns an autonomous target altitude/);
+  assert.match(world,/heli->m_heliType=HELI_TYPE_CATALINA/);assert.match(world,/heli->m_pathState=7/);assert.match(world,/heli->m_numSwat=0/);
+  assert.match(world,/stationary route state/);assert.match(world,/if\(occupied\|\|remotePilot\)/);
   assert.match(world,/void trackNetworkHeli\(CVehicle\* car\)/);
   assert.match(world,/const_cast<CVehicle\*>\(car\)->IsHeli\(\) && car->pDriver!=FindPlayerPed\(\).*networkHelis/);
   assert.match(world,/!car->IsHeli\(\) && !car->IsPlane\(\)/);

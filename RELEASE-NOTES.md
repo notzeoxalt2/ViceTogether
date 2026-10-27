@@ -1,3 +1,13 @@
+# ViceTogether alpha.39 — stable multiplayer helicopters
+
+Network Mavericks now use the native stationary helicopter route while nobody is piloting, instead of the script route that follows the local player and climbs. Empty replicas are corrected only after measurable drift; the game is left alone while a seat is occupied or a remote pilot is sending movement. Local menu spawns place helicopters 15 m ahead, and guest requests retain the host's 18 m clearance.
+
+The hidden two-client test now records seat-claim decisions and helicopter health/position after spawn, checks requester clearance, and can reset/rejoin the guest's native world during the same session. The Windows native-engine build and paired flight/rejoin checks are pending; this alpha will not be published until those checks pass.
+
+Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.36 — higher-rate vehicle motion
 
 The native driver-state stream now targets 90 updates per second instead of 60, reducing the motion step size guests see between game frames. The transport and host validation limits were adjusted to accept this rate while keeping snapshot traffic bounded and dropping stale/reordered updates.

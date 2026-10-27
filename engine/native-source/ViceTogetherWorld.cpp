@@ -51,6 +51,8 @@ std::map<unsigned,Replica> pedestrians,vehicles;
 std::map<unsigned,DriverMotion> driverMotions;
 uint32 testDriverMotionFrames=0,testDriverMotionPackets=0;
 CVehicle* networkHelis[16]={};
+CVector networkHeliAnchors[16];
+float networkHeliHeadings[16]={};
 std::map<unsigned,uint32> delegatedVehicles;
 std::map<unsigned,std::deque<PedShotSample>> pedShotHistory;
 std::map<unsigned,uint32> priorityPeds;
@@ -70,14 +72,12 @@ const int allowedVehicleModels[]={130,135,141,145,155,159,166,176,182,190,191,19
 bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehicleModels+15,model)!=allowedVehicleModels+15;}
 CHeli* createMultiplayerHeli(int model){
     CHeli* heli=new CHeli(model,MISSION_VEHICLE);
-    // CHeli's constructor leaves mission-only AI fields uninitialized because
-    // the stock game fills them in GenerateHeli(). Network-spawned vehicles
-    // use a separate factory, so set deterministic, non-police defaults here.
-    // Network-spawned helicopters are player vehicles, not ambient police
-    // traffic. RANDOM assigns an autonomous target altitude and makes an
-    // unoccupied helicopter climb away before a player can board it.
-    heli->m_heliType=HELI_TYPE_SCRIPT;
-    heli->m_pathState=0;
+    // The constructor initializes the physics fields, but a script-type heli
+    // still runs player-following AI and climbs while nobody is piloting it.
+    // Catalina path state 7 is the engine's stationary route state: the rotor
+    // and normal vehicle physics remain active, without the ambient chase AI.
+    heli->m_heliType=HELI_TYPE_CATALINA;
+    heli->m_pathState=7;
     heli->m_nExplosionTimer=0;
     heli->m_fTargetZ=0.0f;
     heli->m_fSearchLightIntensity=0.0f;
@@ -88,7 +88,34 @@ CHeli* createMultiplayerHeli(int model){
     return heli;
 }
 CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);const uint32 flags=handling?handling->Flags:0;if(flags&HANDLING_IS_HELI)return createMultiplayerHeli(model);if(flags&HANDLING_IS_PLANE)return new CPlane(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BOAT)return new CBoat(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BIKE)return new CBike(model,MISSION_VEHICLE);switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return createMultiplayerHeli(model);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
-void trackNetworkHeli(CVehicle* car){if(!car||!car->IsHeli())return;for(auto& heli:networkHelis)if(heli==car)return;for(auto& heli:networkHelis)if(!heli){heli=car;car->RegisterReference((CEntity**)&heli);return;}}
+void trackNetworkHeli(CVehicle* car){if(!car||!car->IsHeli())return;for(int i=0;i<16;i++)if(networkHelis[i]==car){networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=car->GetHeading();return;}for(int i=0;i<16;i++)if(!networkHelis[i]){networkHelis[i]=car;networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=car->GetHeading();car->RegisterReference((CEntity**)&networkHelis[i]);return;}}
+void stabilizeUnpilotedNetworkHelis(){
+    if(!host()&&!guest())return;
+    const uint32 now=CTimer::GetTimeInMilliseconds();
+    for(int i=0;i<16;i++){
+        CVehicle* heli=networkHelis[i];if(!heli||!heli->IsHeli())continue;
+        const unsigned id=unsigned(CPools::GetVehicleRef(heli));
+        const auto delegated=delegatedVehicles.find(id);
+        const bool remotePilot=delegated!=delegatedVehicles.end()&&now-delegated->second<1500;
+        bool occupied=heli->pDriver!=nil;
+        for(int seat=0;seat<8&&!occupied;seat++)occupied=heli->pPassengers[seat]!=nil;
+        if(occupied||remotePilot){networkHeliAnchors[i]=heli->GetPosition();networkHeliHeadings[i]=heli->GetHeading();continue;}
+        const CVector offset=heli->GetPosition()-networkHeliAnchors[i];
+        const float headingDelta=atan2f(sinf(heli->GetHeading()-networkHeliHeadings[i]),cosf(heli->GetHeading()-networkHeliHeadings[i]));
+        if(offset.MagnitudeSqr()<0.0625f&&heli->GetMoveSpeed().MagnitudeSqr()<0.0064f&&fabsf(headingDelta)<0.04f)continue;
+        // Keep an empty network helicopter at its last safe point if engine
+        // idle physics drifts it. Do not touch transforms while a native seat
+        // is occupied or during a delegated pilot update.
+        CWorld::Remove(heli);
+        heli->SetPosition(networkHeliAnchors[i]);
+        heli->SetHeading(networkHeliHeadings[i]);
+        heli->SetMoveSpeed(0.0f,0.0f,0.0f);
+        heli->m_vecTurnSpeed=CVector(0.0f,0.0f,0.0f);
+        CWorld::Add(heli);
+        heli->GetMatrix().UpdateRW();
+        heli->UpdateRwFrame();
+    }
+}
 int testMeleeStage=0,testMeleeTarget=-1;float testMeleeLocalDistance=-1,testMeleeRemoteDistance=-1;
 int testSeatGrantStatus=0;
 int testSeatGrantCalls=0;
@@ -220,11 +247,11 @@ void ViceTogetherWorldMenuTick(){
     if(menuSpawnModel<0)return;const uint32 now=CTimer::GetTimeInMilliseconds();if(guest()||now-menuSpawnTime>15000){menuSpawnModel=-1;menuStatus="Vehicle loading failed";return;}
     if(!CStreaming::HasModelLoaded(menuSpawnModel))return;CPlayerPed* player=FindPlayerPed();if(!player||!player->m_rwObject)return;
     int slot=-1;for(int i=0;i<8;i++)if(!menuSpawned[i]){slot=i;break;}if(slot<0){menuSpawnModel=-1;menuStatus="Eight spawned vehicles already exist";return;}
-    const int model=menuSpawnModel;CVector position=menuSpawnHasPosition?menuSpawnPosition:player->GetPosition()+player->GetForward()*6.0f;const float heading=menuSpawnHasPosition?menuSpawnHeading:player->m_fRotationCur;const bool boat=CModelInfo::IsBoatModel(model);float water=0;
+    const int model=menuSpawnModel;const float spawnAhead=(model==155||model==217)?15.0f:6.0f;CVector position=menuSpawnHasPosition?menuSpawnPosition:player->GetPosition()+player->GetForward()*spawnAhead;const float heading=menuSpawnHasPosition?menuSpawnHeading:player->m_fRotationCur;const bool boat=CModelInfo::IsBoatModel(model);float water=0;
     if(boat){if(!CWaterLevel::GetWaterLevel(position.x,position.y,position.z,&water,true)){menuSpawnModel=-1;menuStatus="Move beside open water to spawn a boat / Skimmer";return;}position.z=water+0.5f;}
     else {bool found=false;const float ground=CWorld::FindGroundZFor3DCoord(position.x,position.y,position.z+10,&found);if(found)position.z=ground+1.0f;else {const float searchRadius=menuSpawnHasPosition?60.0f:40.0f;const int road=ThePaths.FindNodeClosestToCoors(position,PATH_CAR,searchRadius);if(road<0){menuSpawnModel=-1;menuStatus="Could not find safe ground nearby. Move to an open area and try again.";return;}position=ThePaths.m_pathNodes[road].GetPosition()+CVector(0,0,1);}}
     CVehicle* car=createMultiplayerVehicle(model);if(!car){menuSpawnModel=-1;menuStatus="This vehicle type is not supported yet";return;}
-    trackNetworkHeli(car);car->m_fHealth=1000.0f;car->SetPosition(position);car->SetHeading(heading);car->SetStatus(STATUS_ABANDONED);car->SetMoveSpeed(0,0,0);car->bEngineOn=false;CWorld::Add(car);menuSpawned[slot]=car;car->RegisterReference((CEntity**)&menuSpawned[slot]);menuLastSpawn=now;menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Spawned nearby - F: drive / G: passenger";
+    car->m_fHealth=1000.0f;car->SetPosition(position);car->SetHeading(heading);car->SetStatus(STATUS_ABANDONED);car->SetMoveSpeed(0,0,0);car->bEngineOn=false;CWorld::Add(car);trackNetworkHeli(car);menuSpawned[slot]=car;car->RegisterReference((CEntity**)&menuSpawned[slot]);menuLastSpawn=now;menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Spawned nearby - F: drive / G: passenger";
 }
 void ViceTogetherWorldExplosion(CEntity* victim,int type,const CVector& pos,unsigned lifetime,bool sound){if(!host() || (victim && victim->IsVehicle()))return;ExplosionState event={};event.time=CTimer::GetTimeInMilliseconds();event.data[0]=float(++explosionSequence);event.data[1]=float(type);event.data[2]=pos.x;event.data[3]=pos.y;event.data[4]=pos.z;event.data[5]=float(lifetime);event.data[6]=sound?1:0;if(explosions.size()>=32)explosions.erase(explosions.begin());explosions.push_back(event);}
 void ViceTogetherWorldGlass(CEntity* entity,float amount,const CVector& speed,const CVector& point,bool explosion,bool broken){if(replayingGlass || !entity || !entity->IsObject() || !IsGlass(entity->GetModelIndex()))return;GlassState pane={};float* d=pane.data;d[0]=entity->GetModelIndex();d[1]=broken?2:1;const CVector pos=entity->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;d[5]=speed.x;d[6]=speed.y;d[7]=speed.z;d[8]=point.x;d[9]=point.y;d[10]=point.z;d[11]=std::max(0.0f,std::min(10000.0f,amount));d[12]=explosion?1:0;if(host())retainGlass(pane);else if(guest())VT_SendGlassRequest(d);}
@@ -421,7 +448,7 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
                     for(int radius=3;radius<=10&&!boatApproachFound;radius++)for(int angle=0;angle<32;angle++){const float a=angle*6.2831853f/32;const float x=location.x+cosf(a)*radius,y=location.y+sinf(a)*radius;bool dryGroundFound=false;const float dryGround=CWorld::FindGroundZFor3DCoord(x,y,100,&dryGroundFound);float nearbyWater=0;const bool wet=CWaterLevel::GetWaterLevel(x,y,location.z,&nearbyWater,true);if(dryGroundFound&&(!wet||dryGround>nearbyWater+0.65f)){boatApproach=CVector(x,y,dryGround+0.5f);boatApproachFound=true;break;}}if(!boatApproachFound)return;
                     testCar=new CBoat(model,MISSION_VEHICLE);
                 }else{if(road>=0){const CVector roadPosition=ThePaths.m_pathNodes[road].GetPosition();if((roadPosition-player->GetPosition()).MagnitudeSqr()<900.0f){location=roadPosition+CVector(0,0,1);if(ThePaths.m_pathNodes[road].numLinks){const CVector direction=ThePaths.m_pathNodes[ThePaths.ConnectedNode(ThePaths.m_pathNodes[road].firstLink)].GetPosition()-location;heading=atan2f(-direction.x,direction.y);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}testCar=createMultiplayerVehicle(model);if(!testCar)return;}
-                trackNetworkHeli(testCar);testCar->RegisterReference((CEntity**)&testCar);testCar->m_fHealth=1000.0f;testCar->SetPosition(location);testCar->SetHeading(heading);player->Teleport(testCar->IsBoat()?boatApproach:location+testCar->GetRight()*3.0f);testCar->SetStatus(STATUS_ABANDONED);testCar->SetMoveSpeed(0,0,0);CWorld::Add(testCar);
+                testCar->RegisterReference((CEntity**)&testCar);testCar->m_fHealth=1000.0f;testCar->SetPosition(location);testCar->SetHeading(heading);player->Teleport(testCar->IsBoat()?boatApproach:location+testCar->GetRight()*3.0f);testCar->SetStatus(STATUS_ABANDONED);testCar->SetMoveSpeed(0,0,0);CWorld::Add(testCar);trackNetworkHeli(testCar);
             }
             if(getenv("VT_TEST_VEHICLE_COLLISION") && model==130 && !testBarrier){CStreaming::RequestModel(135,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(135))return;testBarrier=createMultiplayerVehicle(135);if(testBarrier){const CVector forward=testCar->GetForward();testBarrier->RegisterReference((CEntity**)&testBarrier);testBarrier->m_fHealth=1000.0f;testBarrier->SetPosition(testCar->GetPosition()+forward*45.0f);testBarrier->SetHeading(atan2f(-forward.x,forward.y));testBarrier->SetStatus(STATUS_ABANDONED);testBarrier->SetMoveSpeed(0,0,0);testBarrier->bEngineOn=false;CWorld::Add(testBarrier);}}
             if(player->bInVehicle){if(!hostBoardedAt)hostBoardedAt=now;if(!hostExitSent&&now-hostBoardedAt>14000){hostExitAt=now;hostExitSent=true;testHostExitSpeed=testCar->GetMoveSpeed().Magnitude();testHostExitWithDriver=testCar->pDriver&&testCar->pDriver!=player;}if(hostExitSent&&now-hostExitAt<250)pad->NewState.Triangle=255;}
@@ -586,7 +613,7 @@ bool ViceTogetherWorldApplyEnvironment() {
     return true;
 }
 void ViceTogetherWorldTick() {
-    if(host()){applyDriverMotion();return;}
+    if(host()){applyDriverMotion();stabilizeUnpilotedNetworkHelis();return;}
     if(!ViceTogetherWorldApplyEnvironment())return;
     const bool guestPopulation=guestOwnsNearbyPopulation();float hostState[20]={};const bool haveHost=guest() && VT_ReadRemote(0,hostState);const CVector hostPosition(haveHost?hostState[0]:0,haveHost?hostState[1]:0,haveHost?hostState[2]:0);
     // Preserve stock population on the authority. Guests suppress only their
@@ -608,7 +635,7 @@ void ViceTogetherWorldTick() {
         if(!r.entity){CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(model))continue;
             if(map==&pedestrians){CPed* p=new CPed((ePedType)std::max(0,std::min(21,int(d[1]))));p->SetModelIndex(model);p->CharCreatedBy=MISSION_CHAR;p->bRespondsToThreats=false;r.entity=p;}
             else {r.entity=createMultiplayerVehicle(model);if(!r.entity)continue;}
-            r.entity->RegisterReference(&r.entity);r.entity->SetPosition(d[2],d[3],d[4]);CWorld::Add(r.entity);
+            r.entity->RegisterReference(&r.entity);r.entity->SetPosition(d[2],d[3],d[4]);CWorld::Add(r.entity);trackNetworkHeli((CVehicle*)r.entity);
         }
         const float t=std::min(1.0f,float(CTimer::GetTimeInMilliseconds()-r.received)/100.0f);
         if(!fastDrivenVehicle){CWorld::Remove(r.entity);r.entity->SetPosition(r.previous[2]+(d[2]-r.previous[2])*t,r.previous[3]+(d[3]-r.previous[3])*t,r.previous[4]+(d[4]-r.previous[4])*t);CWorld::Add(r.entity);}
@@ -644,6 +671,7 @@ void ViceTogetherWorldTick() {
         r.entity->GetMatrix().UpdateRW();r.entity->UpdateRwFrame();
     }
     applyDriverMotion();
+    stabilizeUnpilotedNetworkHelis();
     if(guest() && getenv("VT_TEST_GUEST_NPC_MELEE")) {
         if(testMeleeStage<1)testMeleeStage=1;
         static int targetId=-1;static bool positioned=false,requested=false;static uint32 nearSince=0;

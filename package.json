@@ -1,6 +1,6 @@
 {
   "name": "vice-together",
-  "version": "0.3.0-alpha.38",
+  "version": "0.3.0-alpha.39",
   "description": "Experimental native Vice City on-foot WebRTC multiplayer launcher",
   "author": "ViceTogether contributors",
   "license": "MIT",
