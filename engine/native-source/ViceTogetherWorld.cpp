@@ -71,10 +71,18 @@ int menuSpawnModel=-1;uint32 menuSpawnTime=0,menuLastSpawn=0;CVehicle* menuSpawn
 unsigned testGuestSpawnCalls=0;int testGuestSpawnStage=0;CVehicle* testGuestSpawnVehicle=nil;
 const int allowedVehicleModels[]={130,135,141,145,155,159,166,176,182,190,191,192,193,203,217};
 bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehicleModels+15,model)!=allowedVehicleModels+15;}
+bool multiplayerHelicopter(CVehicle* car){
+    if(!car)return false;
+    if(car->IsHeli())return true;
+    auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(car->GetModelIndex());
+    if(!info)return false;
+    if(info->m_vehicleType==VEHICLE_TYPE_HELI)return true;
+    const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);
+    return handling&&(handling->Flags&HANDLING_IS_HELI);
+}
 float networkHeliRotorAngle(CVehicle* car){
     if(!car)return 0.0f;
-    if(std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return ((CAutomobile*)car)->m_aWheelRotation[1];
-    return ((CHeli*)car)->m_fRotorRotation;
+    return car->IsHeli()?((CHeli*)car)->m_fRotorRotation:((CAutomobile*)car)->m_aWheelRotation[1];
 }
 CVehicle* createMultiplayerHeli(int model){
     // CHeli is reVC's autonomous mission/police helicopter: its ProcessControl
@@ -85,12 +93,12 @@ CVehicle* createMultiplayerHeli(int model){
 }
 CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);const uint32 flags=handling?handling->Flags:0;if(flags&HANDLING_IS_HELI)return createMultiplayerHeli(model);if(flags&HANDLING_IS_PLANE)return new CPlane(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BOAT)return new CBoat(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BIKE)return new CBike(model,MISSION_VEHICLE);switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return createMultiplayerHeli(model);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
 float networkHeliHeading(CVehicle* heli){const CVector forward=heli->GetForward();return atan2f(-forward.x,forward.y);}
-void trackNetworkHeli(CVehicle* car){if(!car||!car->IsHeli())return;for(int i=0;i<16;i++)if(networkHelis[i]==car){networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=networkHeliHeading(car);return;}for(int i=0;i<16;i++)if(!networkHelis[i]){networkHelis[i]=car;networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=networkHeliHeading(car);car->RegisterReference((CEntity**)&networkHelis[i]);return;}}
+void trackNetworkHeli(CVehicle* car){if(!multiplayerHelicopter(car))return;for(int i=0;i<16;i++)if(networkHelis[i]==car){networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=networkHeliHeading(car);return;}for(int i=0;i<16;i++)if(!networkHelis[i]){networkHelis[i]=car;networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=networkHeliHeading(car);car->RegisterReference((CEntity**)&networkHelis[i]);return;}}
 void stabilizeUnpilotedNetworkHelis(){
     if(!host()&&!guest())return;
     const uint32 now=CTimer::GetTimeInMilliseconds();
     for(int i=0;i<16;i++){
-        CVehicle* heli=networkHelis[i];if(!heli||!heli->IsHeli())continue;
+        CVehicle* heli=networkHelis[i];if(!multiplayerHelicopter(heli))continue;
         const unsigned id=unsigned(CPools::GetVehicleRef(heli));
         const auto delegated=delegatedVehicles.find(id);
         const bool remotePilot=delegated!=delegatedVehicles.end()&&now-delegated->second<1500;
@@ -359,7 +367,7 @@ void ViceTogetherWorldStatus(float* out) {
         CPlayerPed* player=FindPlayerPed();out[19]=0.0f;out[20]=out[21]=out[22]=out[23]=out[24]=out[25]=out[26]=0.0f;
         float nearest=1.0e30f;auto* pool=CPools::GetVehiclePool();
         for(int i=0;i<pool->GetSize();i++){
-            CVehicle* car=pool->GetSlot(i);if(!car||!car->IsHeli()||car->GetModelIndex()!=217||!car->m_rwObject)continue;
+            CVehicle* car=pool->GetSlot(i);if(!multiplayerHelicopter(car)||car->GetModelIndex()!=217||!car->m_rwObject)continue;
             out[19]++;
             const CVector position=car->GetPosition();const CVector delta=player?position-player->GetPosition():position;
             const float distance=delta.MagnitudeSqr();if(distance>=nearest)continue;nearest=distance;
@@ -368,10 +376,10 @@ void ViceTogetherWorldStatus(float* out) {
         }
         out[27]=float(testGuestSpawnCalls);out[28]=float(testGuestSpawnStage);out[29]=float(menuSpawnModel);out[30]=testGuestSpawnVehicle?float(testGuestSpawnVehicle->GetModelIndex()):-1.0f;out[31]=testGuestSpawnVehicle?testGuestSpawnVehicle->GetPosition().z:-1.0f;out[32]=testGuestSpawnVehicle&&testGuestSpawnVehicle->m_rwObject?1.0f:0.0f;out[33]=testGuestSpawnVehicle?float(CPools::GetVehicleRef(testGuestSpawnVehicle)):-1.0f;
     }
-    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217){out[32]=networkHeliRotorAngle(car);out[33]=217.0f;break;}}}
+    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(multiplayerHelicopter(car)&&car->GetModelIndex()==217){out[32]=networkHeliRotorAngle(car);out[33]=217.0f;break;}}}
 }
 bool ViceTogetherWorldVehicle(const CVehicle* car) {
-    if(host()){if(const_cast<CVehicle*>(car)->IsHeli() && car->pDriver!=FindPlayerPed() && std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return true;auto it=delegatedVehicles.find(unsigned(CPools::GetVehicleRef((CVehicle*)car)));return it!=delegatedVehicles.end() && CTimer::GetTimeInMilliseconds()-it->second<750;}
+    if(host()){if(multiplayerHelicopter(const_cast<CVehicle*>(car)) && car->pDriver!=FindPlayerPed() && std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return true;auto it=delegatedVehicles.find(unsigned(CPools::GetVehicleRef((CVehicle*)car)));return it!=delegatedVehicles.end() && CTimer::GetTimeInMilliseconds()-it->second<750;}
     for(const auto& entry:vehicles)if(entry.second.entity==car)return !(car->pDriver==FindPlayerPed() && FindPlayerPed()->bInVehicle);return false;
 }
 CVehicle* ViceTogetherWorldFindVehicle(unsigned id){if(host())return CPools::GetVehicle(int(id));auto found=vehicles.find(id);return found==vehicles.end()?nil:(CVehicle*)found->second.entity;}
@@ -408,7 +416,7 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
         return;
     }
     if(seat>=car->m_nNumMaxPassengers || (car->pPassengers[seat] && car->pPassengers[seat]!=player)){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=10;return;}
-    if(car->IsHeli()){
+    if(multiplayerHelicopter(car)){
         // Helicopter cockpits have no ordinary door geometry for SeekCar's
         // pathfinder to approach. Once the player is already beside the
         // cockpit, start the stock align/enter animation directly instead of
@@ -434,8 +442,8 @@ void ViceTogetherCaptureDriver(VTWorldSender send){if(!host()&&!guest())return;C
     // Entry and exit door animations happen while bInVehicle is still false.
     // Send only cosmetic angles; the host authorizes this update against the
     // sender's live seat claim before applying the stock door animation.
-    if(car->IsCar()){CAutomobile* a=(CAutomobile*)car;float doors[34]={};bool changed=false;static unsigned lastDoorId=~0u;static float lastDoorAngles[6]={};static uint32 lastDoorSent=0;const uint32 now=CTimer::GetTimeInMilliseconds();for(int j=0;j<6;j++){doors[j]=a->Doors[j].m_fAngle;if(lastDoorId!=unsigned(id)||fabsf(doors[j]-lastDoorAngles[j])>0.025f)changed=true;}if(changed||now-lastDoorSent>=250){send(62,unsigned(id),doors);lastDoorId=unsigned(id);for(int j=0;j<6;j++)lastDoorAngles[j]=doors[j];lastDoorSent=now;}}
-    if(!driver||!p->bInVehicle)return;float d[34]={},visual[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}const CVector turn=car->m_vecTurnSpeed;d[23]=turn.x;d[24]=turn.y;d[25]=turn.z;d[17]=car->m_fHealth;d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);captureVehicleVisual(car,visual);send(60,unsigned(id),visual);send(43,unsigned(id),d);}
+    if(car->IsCar()&&!multiplayerHelicopter(car)){CAutomobile* a=(CAutomobile*)car;float doors[34]={};bool changed=false;static unsigned lastDoorId=~0u;static float lastDoorAngles[6]={};static uint32 lastDoorSent=0;const uint32 now=CTimer::GetTimeInMilliseconds();for(int j=0;j<6;j++){doors[j]=a->Doors[j].m_fAngle;if(lastDoorId!=unsigned(id)||fabsf(doors[j]-lastDoorAngles[j])>0.025f)changed=true;}if(changed||now-lastDoorSent>=250){send(62,unsigned(id),doors);lastDoorId=unsigned(id);for(int j=0;j<6;j++)lastDoorAngles[j]=doors[j];lastDoorSent=now;}}
+    if(!driver||!p->bInVehicle)return;float d[34]={},visual[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:multiplayerHelicopter(car)?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}const CVector turn=car->m_vecTurnSpeed;d[23]=turn.x;d[24]=turn.y;d[25]=turn.z;d[17]=car->m_fHealth;d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);captureVehicleVisual(car,visual);send(60,unsigned(id),visual);send(43,unsigned(id),d);}
 void ViceTogetherApplyDriver(unsigned id,const float* d){
     if(!host()&&!guest())return;
     CVehicle* car=ViceTogetherWorldFindVehicle(id);
@@ -627,7 +635,7 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
     std::vector<std::pair<float,CVehicle*>> nearbyCars;
     std::vector<std::vector<std::pair<float,CVehicle*>>> carsByCenter(centers.size());
     for(int i=0;i<cars->GetSize();i++){
-        CVehicle* car=cars->GetSlot(i);if(!car || !car->m_rwObject || (!car->IsCar() && !car->IsBike() && !car->IsBoat() && !car->IsHeli() && !car->IsPlane()))continue;
+        CVehicle* car=cars->GetSlot(i);if(!car || !car->m_rwObject || (!car->IsCar() && !car->IsBike() && !car->IsBoat() && !multiplayerHelicopter(car) && !car->IsPlane()))continue;
         float nearest=worldCaptureRadiusSqr+1.0f;const CVector position=car->GetPosition();
         for(size_t zone=0;zone<centers.size();zone++){const float distance=(position-centers[zone]).MagnitudeSqr();if(distance<=worldCaptureRadiusSqr){carsByCenter[zone].emplace_back(distance,car);nearest=std::min(nearest,distance);}}
         if(nearest<=worldCaptureRadiusSqr)nearbyCars.emplace_back(nearest,car);
@@ -641,7 +649,7 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
     }
     for(const auto& entry:nearbyCars){if(selectedCars.size()>=32)break;if(std::find(selectedCars.begin(),selectedCars.end(),entry.second)==selectedCars.end())selectedCars.push_back(entry.second);}
     for(CVehicle* car:selectedCars) {
-        EntityState e={};e.type=22;e.id=CPools::GetVehicleRef(car);e.data[0]=car->GetModelIndex();e.data[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;
+        EntityState e={};e.type=22;e.id=CPools::GetVehicleRef(car);e.data[0]=car->GetModelIndex();e.data[1]=car->IsBike()?1:car->IsBoat()?2:multiplayerHelicopter(car)?3:car->IsPlane()?4:0;
         const CVector p=car->GetPosition();e.data[2]=p.x;e.data[3]=p.y;e.data[4]=p.z;
         const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};
         for(int j=0;j<4;j++){e.data[5+j*3]=basis[j].x;e.data[6+j*3]=basis[j].y;e.data[7+j*3]=basis[j].z;}

@@ -87,9 +87,9 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   assert.match(world,/return new CAutomobile\(model,MISSION_VEHICLE\)/,'Multiplayer helicopters must use reVC’s player-controllable helicopter handling');
   assert.match(world,/hard-locks Z to 31\.55m/);assert.match(world,/if\(occupied\|\|remotePilot\)/);
   assert.match(world,/void trackNetworkHeli\(CVehicle\* car\)/);
-  assert.match(world,/const_cast<CVehicle\*>\(car\)->IsHeli\(\) && car->pDriver!=FindPlayerPed\(\).*networkHelis/);
-  assert.match(world,/!car->IsHeli\(\) && !car->IsPlane\(\)/);
-  assert.match(world,/IsHeli\(\)\?3:car->IsPlane\(\)\?4:0/);
+  assert.match(world,/multiplayerHelicopter\(const_cast<CVehicle\*>\(car\)\) && car->pDriver!=FindPlayerPed\(\).*networkHelis/);
+  assert.match(world,/!multiplayerHelicopter\(car\) && !car->IsPlane\(\)/);
+  assert.match(world,/multiplayerHelicopter\(car\)\?3:car->IsPlane\(\)\?4:0/);
   assert.match(menu,/else if\(action<2000\)ViceTogetherWorldRequestVehicle\(action-1000\)/);
   assert.match(network,/sendWorld\(55,0,state\)/);assert.match(network,/wire\.type==56[^\n]*ViceTogetherWorldSpawnVehicle/);
   assert.match(lobby,/acceptVehicleSpawn\(peerId,request\?\.model/);
@@ -116,8 +116,10 @@ test('heli spawn verification requires the approved two-client spawn at the safe
   const world=fs.readFileSync(path.join(root,'engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const native=fs.readFileSync(path.join(root,'src','native-engine.cjs'),'utf8');
   const harness=fs.readFileSync(path.join(__dirname,'..','src','native-game-test.cjs'),'utf8');
-  assert.match(world,/if\(getenv\("VT_TEST_GUEST_SPAWN"\)\)\{[\s\S]*car->IsHeli\(\)[\s\S]*out\[19\]\+\+/,
-    'The test telemetry must count live native Maverick instances in each game');
+  assert.match(world,/if\(getenv\("VT_TEST_GUEST_SPAWN"\)\)\{[\s\S]*multiplayerHelicopter\(car\)[\s\S]*out\[19\]\+\+/,
+    'The test telemetry must count live player-class helicopters as well as native AI helicopters');
+  assert.match(world,/bool multiplayerHelicopter\(CVehicle\* car\)[\s\S]*m_vehicleType==VEHICLE_TYPE_HELI[\s\S]*HANDLING_IS_HELI/,
+    'Helicopter classification must use model metadata because CAutomobile helicopter replicas report IsHeli false');
   assert.match(native,/observed\.testHelicopters=\{count:state\[19\],nearest:\{position:state\.slice\(20,23\)/,
     'Native reports must include count, nearest position, rotor rotation and health');
   assert.match(native,/observed\.testSpawn=\{calls:state\[27\],stage:state\[28\],stageName:/,
