@@ -17,6 +17,16 @@ test('rejoining with a replaced peer connection discards the stale snapshot chan
  const rejoined=new transport.Peer();const entry=transport.attach('peer',rejoined);assert.equal(stale.readyState,'closed');assert.equal(entry.pc,rejoined);assert.equal(entry.channel,undefined);
  transport.initiate('peer',rejoined);assert.notEqual(entry.channel,stale);assert.equal(entry.channel.label,'vt-snapshots-v1');assert.equal(entry.confirmed,false);transport.close();
 });
+test('a reused Trystero peer routes rejoin data channels to the new session transport',async()=>{
+ const {RealtimeTransport}=await import('../networking/realtime-transport.mjs');
+ class Peer extends EventTarget{createDataChannel(label,config){const channel=new EventTarget();Object.assign(channel,{label,readyState:'open',bufferedAmount:0,...config,send(){},close(){channel.readyState='closed';channel.dispatchEvent(new Event('close'));}});return channel;}}
+ const oldTransport=new RealtimeTransport({NativePeer:Peer}),reused=new oldTransport.Peer();reused.createDataChannel('data');oldTransport.attach('peer',reused);oldTransport.close();
+ const nextTransport=new RealtimeTransport({NativePeer:Peer}),entry=nextTransport.attach('peer',reused);assert.equal(entry.channel,undefined,'A closed pre-created channel must not block the rejoin channel');
+ const incoming=new EventTarget();Object.assign(incoming,{label:'vt-snapshots-v1',readyState:'open',bufferedAmount:0,send(){},close(){this.readyState='closed';}});
+ const event=new Event('datachannel');event.channel=incoming;reused.dispatchEvent(event);
+ assert.equal(entry.incomingEvents,1);assert.equal(entry.channel,incoming);assert.equal(entry.duplicateIncomingEvents,undefined);
+ incoming.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({v:1,kind:'probe',seq:1})}));assert.equal(entry.confirmed,true);nextTransport.close();
+});
 test('Trystero snapshot channel is created with its initial reliable channel before the first offer',async()=>{
  const {RealtimeTransport}=await import('../networking/realtime-transport.mjs');const created=[];
  class Peer extends EventTarget{createDataChannel(label,config){const channel=new EventTarget();Object.assign(channel,{label,readyState:'connecting',bufferedAmount:0,...config,send(){},close(){channel.readyState='closed';channel.dispatchEvent(new Event('close'));}});created.push(channel);return channel;}}

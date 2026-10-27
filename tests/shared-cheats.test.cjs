@@ -50,17 +50,21 @@ test('transient complete-frame omissions keep vehicle and police replicas briefl
  assert.match(world,/now-it->second\.received<2000/);
 });
 
-test('floating player names and health lines share a transparent centered animated-head anchor',()=>{
+test('floating player names and health lines use a shared left edge captured by the render hook',()=>{
  const cpp=fs.readFileSync(path.join(__dirname,'..','engine/native-source/ViceTogether.cpp'),'utf8');
  const draw=cpp.slice(cpp.indexOf('void ViceTogetherDrawNames()'),cpp.indexOf('\nvoid ViceTogetherTick()'));
- assert.match(draw,/CFont::SetCentreOn\(\); CFont::SetCentreSize\(SCREEN_WIDTH\)/);
+ assert.match(draw,/CFont::SetCentreOff\(\); CFont::SetWrapx\(SCREEN_WIDTH\)/);
  assert.match(cpp,/CVector head=ped->GetNodePosition\(PED_HEAD\);head\.z\+=0\.10f/);
  assert.match(cpp,/struct RemoteTagLayout \{float centerX,nameY,healthY,headY;\}/);
- assert.match(cpp,/out\[24\]=tag\.centerX;out\[25\]=tag\.centerX/);
+ assert.match(cpp,/struct RemoteTagObservation/);
+ assert.match(cpp,/remoteTagObservations\[slot\]/);
+ assert.match(cpp,/out\[24\]=tag\.nameLeft;out\[25\]=tag\.healthLeft;out\[26\]=tag\.nameWidth/);
  assert.match(draw,/remoteTagProjection\(ped,&screen\)/);
  assert.match(draw,/const RemoteTagLayout tag=remoteTagLayout\(screen\)/);
- assert.match(draw,/CFont::PrintString\(tag\.centerX,tag\.nameY,text\)/);
- assert.match(draw,/healthLeft=tag\.centerX-healthWidth\*0\.5f, y=tag\.healthY/);
+ assert.match(draw,/const float labelLeft=tag\.centerX-labelWidth\*0\.5f/);
+ assert.match(draw,/CFont::PrintString\(labelLeft,tag\.nameY,text\)/);
+ assert.match(draw,/const float healthLeft=labelLeft/);
+ assert.match(draw,/remoteTagObservations\[i\]=\{frame,true,labelLeft,labelWidth,tag\.nameY,healthLeft,tag\.healthY,tag\.centerX,tag\.headY\}/);
  assert.match(draw,/CFont::SetDropShadowPosition\(0\)/,'tiny black shadow cannot look like a backing strip');
  assert.doesNotMatch(draw,/CRGBA\(13,17,23/,'name text has no dark backing rectangle');
 });

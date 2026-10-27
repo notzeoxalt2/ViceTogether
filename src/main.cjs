@@ -214,6 +214,7 @@ async function start() {
     nativeEngine.frame(frame);
   });
   ipc('remote-shot',shot=>{nativeEngine.remoteShot(shot);return true;});
+  ipc('player-hit',hit=>hit?.selfTarget===true?nativeEngine.playerHit(hit):false);
   ipc('remote-world',frame=>nativeEngine.remoteWorld(frame));
   ipc('remote-driver-state',function(update){
     const testHandler=testDriverStateHandlers.get(this.sender);

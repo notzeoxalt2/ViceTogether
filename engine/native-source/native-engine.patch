@@ -289,7 +289,7 @@ index aa63c324..deabfab8 100644
  	if (veh && veh->m_nGettingOutFlags && m_vehDoor) {
  
 diff --git a/src/peds/PedFight.cpp b/src/peds/PedFight.cpp
-index 8a3b971d..ab9a59a0 100644
+index 8a3b971d..4b4ee740 100644
 --- a/src/peds/PedFight.cpp
 +++ b/src/peds/PedFight.cpp
 @@ -1,4 +1,5 @@
@@ -298,7 +298,93 @@ index 8a3b971d..ab9a59a0 100644
  
  #include "main.h"
  #include "RpAnimBlend.h"
-@@ -2650,6 +2651,9 @@ CPed::ClearInvestigateEvent(void)
+@@ -2140,6 +2141,85 @@ CPed::FightStrike(CVector &touchedNodePos, bool fightWithWeapon)
+ 		}
+ 	}
+ 
++	// Remote player proxies are deliberately excluded from several stock ped
++	// queries because they are network-driven. Still resolve their contact at
++	// the original FightStrike animation window, using the same animated
++	// collision spheres and FightHitPed path as every local civilian.
++	for(int slot = 0; slot < 7; slot++) {
++		if(m_fightState == FIGHTSTATE_JUST_ATTACKED)
++			break;
++		nearPed = ViceTogetherRemotePed(slot);
++		if(!nearPed || nearPed == this || nearPed->bInVehicle || !nearPed->bUsesCollision)
++			continue;
++
++		if(!fightWithWeapon && GetWeapon()->m_eWeaponType != WEAPONTYPE_UNARMED && GetWeapon()->m_eWeaponType != WEAPONTYPE_BRASSKNUCKLE)
++			maxDistanceToBeat = nearPed->GetBoundRadius() + radius + 0.1f;
++		else
++			maxDistanceToBeat = nearPed->GetBoundRadius() + radius;
++		hisCol = ((CPedModelInfo*)CModelInfo::GetModelInfo(nearPed->GetModelIndex()))->AnimatePedColModelSkinnedWorld(nearPed->GetClump());
++		if(!hisCol)
++			continue;
++		CVector nearPedCentre = nearPed->GetBoundCentre();
++		if(sq(maxDistanceToBeat) <= (nearPedCentre - touchedNodePos).MagnitudeSqr())
++			continue;
++
++		bool pedFound = false;
++		for(int j = 0; j < hisCol->numSpheres; j++) {
++			attackDistance = hisCol->spheres[j].center - touchedNodePos;
++			if(sq(hisCol->spheres[j].radius + radius) > attackDistance.MagnitudeSqr()) {
++				FightHitPed(nearPed, touchedNodePos, attackDistance, hisCol->spheres[j].piece);
++				pedFound = true;
++				break;
++			}
++		}
++
++		// Preserve the stock extended reach used by fist moves whose hand
++		// animation passes just short of the target's animated collision hull.
++		if(!pedFound && !fightWithWeapon) {
++			extendedTouchPoint = touchedNodePos - GetPosition();
++			if(DotProduct(touchedNodePos - GetPosition(), nearPed->GetPosition() - GetPosition()) > 0.f) {
++				if(m_curFightMove == FIGHTMOVE_GROUNDKICK)
++					extendedTouchPoint += tFightMoves[FIGHTMOVE_GROUNDKICK].extendReachMultiplier * GetForward();
++				else {
++					extendedTouchPoint.x *= tFightMoves[m_curFightMove].extendReachMultiplier;
++					extendedTouchPoint.y *= tFightMoves[m_curFightMove].extendReachMultiplier;
++				}
++				extendedTouchPoint += GetPosition();
++				if(sq(maxDistanceToBeat) > (nearPedCentre - extendedTouchPoint).MagnitudeSqr()) {
++					for(int j = 0; j < hisCol->numSpheres; j++) {
++						attackDistance = hisCol->spheres[j].center - extendedTouchPoint;
++						if(sq(hisCol->spheres[j].radius + tFightMoves[m_curFightMove].strikeRadius) > attackDistance.MagnitudeSqr()) {
++							FightHitPed(nearPed, extendedTouchPoint, attackDistance, hisCol->spheres[j].piece);
++							break;
++						}
++					}
++			}
++		}
++		// Network proxies can arrive a few centimetres away from the skinned
++		// collision pose between snapshots. If the stock strike is in its real
++		// contact window, allow the same stock hit response when Tommy is close,
++		// facing the proxy, and no world geometry blocks the short reach.
++		if(!fightWithWeapon && m_fightState != FIGHTSTATE_JUST_ATTACKED) {
++			CVector targetCentre = nearPed->GetBoundCentre();
++			CVector toTarget = nearPed->GetPosition() - GetPosition();
++			const float distance = toTarget.Magnitude2D();
++			const float facing = distance > 0.001f ? DotProduct(GetForward(), toTarget) / distance : 0.0f;
++			if(distance <= 1.45f && facing > 0.25f) {
++				CColPoint obstructionPoint = {};
++				CEntity* obstruction = nil;
++				CEntity* oldIgnore = CWorld::pIgnoreEntity;
++				CWorld::pIgnoreEntity = this;
++				const bool blocked = CWorld::ProcessLineOfSight(GetPosition() + CVector(0.0f, 0.0f, 0.8f), targetCentre, obstructionPoint, obstruction, true, true, false, true, true, false);
++				CWorld::pIgnoreEntity = oldIgnore;
++				if(!blocked || !obstruction || obstruction == nearPed || (obstructionPoint.point - GetPosition()).MagnitudeSqr() >= (targetCentre - GetPosition()).MagnitudeSqr()) {
++					CVector direction = targetCentre - touchedNodePos;
++					FightHitPed(nearPed, targetCentre, direction, PEDPIECE_TORSO);
++				}
++			}
++		}
++	}
++	}
++
+ 
+ 	if (m_fightState == FIGHTSTATE_NO_MOVE)
+ 		m_fightState = FIGHTSTATE_1;
+@@ -2650,6 +2730,9 @@ CPed::ClearInvestigateEvent(void)
  bool
  CPed::InflictDamage(CEntity *damagedBy, eWeaponType method, float damage, ePedPieceTypes pedPiece, uint8 direction)
  {
@@ -923,3 +1009,18 @@ index cada1681..2a0c141b 100644
  
  	CVector bulletPos;
  
+diff --git a/src/core/PlayerInfo.cpp b/src/core/PlayerInfo.cpp
+--- a/src/core/PlayerInfo.cpp
++++ b/src/core/PlayerInfo.cpp
+@@ -321,6 +321,10 @@ CPlayerInfo::Process(void)
+ 							if (veh->m_vehType == VEHICLE_TYPE_BIKE) {
+ 								canJumpOff = veh->CanPedJumpOffBike();
+ 							} else if (veh->pDriver == m_pPed) {
+ 								canJumpOff = veh->CanPedJumpOutCar();
++							} else if (getenv("VT_PORT") && veh->m_vehType == VEHICLE_TYPE_CAR) {
++								// In a multiplayer car, passengers use the stock jump-out animation
++								// and the same safe speed window as the driver.
++								canJumpOff = veh->CanPedJumpOutCar();
+ 							}
+ 
+ 							if (canJumpOff || veh->m_vecMoveSpeed.Magnitude() < 0.1f) {

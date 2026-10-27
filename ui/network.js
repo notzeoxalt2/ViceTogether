@@ -25,7 +25,7 @@ const cleanName = name => String(name || 'Player').replace(/[\u0000-\u001f\u007f
 
 export class PrivateLobby extends EventTarget {
   constructor() { super(); this.reset(); }
-  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map();this.wantedLevels=new Map(); this.combat=new SessionCombat();this.npcMeleeAuthority=new NpcMeleeAuthority();this.npcMeleeSequence=0;this.hitSequence=0; this.generation = (this.generation || 0) + 1; }
+  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.vehicleSequence=0;this.vehicleReceiveSequences=new Map();this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map();this.wantedLevels=new Map(); this.combat=new SessionCombat();this.npcMeleeAuthority=new NpcMeleeAuthority();this.npcMeleeSequence=0;this.hitSequence=0;this.hitResultSequences=new Map(); this.generation = (this.generation || 0) + 1; }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   setReady(ready) {
     this.ready = ready === true;
@@ -75,13 +75,7 @@ export class PrivateLobby extends EventTarget {
     this.ambient=this.room.makeAction('ambient');this.ambientSequence=0;
     this.seats=new SeatAuthority();this.seatInput=this.room.makeAction('seat-input');this.seatOutput=this.room.makeAction('seat-output');
     this.vehicleInput=this.room.makeAction('driver-state');this.vehicleInput.onReceive=({byteLength})=>byteLength<2048;
-    this.vehicleInput.onMessage=(update,{peerId,realtime})=>{
-      if(!this.players.has(peerId))return;
-      if(this.isHost){
-        if(!realtime&&this.fast.seen(peerId,'driver'))return;
-        const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',approved);
-      }else if(peerId===this.hostId&&validDriverSnapshot(update))this.emit('driver-state',update);
-    };
+    this.vehicleInput.onMessage=(update,meta)=>this.acceptDriverSnapshot(update,meta);
     this.vehicleDoors=this.room.makeAction('vehicle-doors');this.vehicleDoors.onReceive=({byteLength})=>byteLength<128;
     this.vehicleDoors.onMessage=(update,{peerId})=>{if(!this.isHost||!this.players.has(peerId))return;const approved=this.seats.acceptVehicleDoors(peerId,update);if(approved)this.emit('vehicle-doors',approved);};
     this.vehicleSpawnCooldowns=new Map();this.vehicleSpawnAction=this.room.makeAction('vehicle-spawn');
@@ -102,6 +96,7 @@ export class PrivateLobby extends EventTarget {
     this.launch = this.room.makeAction('launch');
     this.readiness = this.room.makeAction('ready');
     this.hits=this.room.makeAction('hit');
+    this.hitResults=this.room.makeAction('hit-result');
     this.npcMeleeInput=this.room.makeAction('npc-melee-input');
     this.npcMeleeInput.onReceive=({byteLength})=>byteLength<256;
     this.npcMeleeInput.onMessage=(request,{peerId})=>{
@@ -129,6 +124,13 @@ export class PrivateLobby extends EventTarget {
     this.equipmentAction.onMessage=(equipment,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptEquipment(peerId,equipment);};
     this.hits.onReceive=({byteLength})=>byteLength<512;
     this.hits.onMessage=(event,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptHit(peerId,event);};
+    this.hitResults.onReceive=({byteLength})=>byteLength<512;
+    this.hitResults.onMessage=(event,{peerId})=>{
+      if(this.isHost||peerId!==this.hostId||event?.target!==selfId||!this.players.has(event?.attacker)||!Number.isSafeInteger(event?.seq)||event.seq<1||!Number.isInteger(event?.weapon)||!Number.isFinite(event?.damage)||event.damage<=0||event.damage>60||!Number.isFinite(event?.health)||event.health<0||event.health>100)return;
+      const last=this.hitResultSequences.get(event.attacker)||0;if(event.seq<=last)return;
+      this.hitResultSequences.set(event.attacker,event.seq);
+      this.emit('player-hit',{...event,selfTarget:true});
+    };
     this.readiness.onReceive = ({byteLength}) => byteLength < 128;
     this.readiness.onMessage = (data,{peerId}) => {
       if(!this.isHost || !this.players.has(peerId) || typeof data?.ready !== 'boolean')return;
@@ -282,14 +284,17 @@ export class PrivateLobby extends EventTarget {
     this.frameDispatch?.request();
   }
   acceptHit(id,event) {
+    if(!this.isHost||!this.players.has(id)||!this.players.has(event?.target))return;
     const hit=this.combat.hit(id,event,performance.now());if(!hit)return;
     const target=this.states.get(hit.target);
     if(target){target.state=[...target.state];target.state[8]=hit.health;target.seq++;}
-    this.frameDispatch?.request();this.emit('combat',hit);
+    const result={...hit,attacker:id};
+    if(hit.target!==selfId)this.hitResults?.send(result,{target:hit.target}).catch(()=>{});
+    this.frameDispatch?.request();this.emit('combat',result);this.emit('player-hit',{...result,selfTarget:hit.target===selfId});
   }
   sendHit(hit) {
     if(!this.room || typeof hit?.target!=='string')return;
-    const event={target:hit.target,weapon:hit.weapon,origin:hit.origin,impact:hit.impact,seq:++this.hitSequence};
+    const event={target:hit.target,weapon:hit.weapon,damage:hit.damage,origin:hit.origin,impact:hit.impact,seq:++this.hitSequence};
     if(this.isHost)this.acceptHit(selfId,event);
     else if(this.hostId)this.hits.send(event,{target:this.hostId}).catch(()=>{});
   }
@@ -362,8 +367,23 @@ export class PrivateLobby extends EventTarget {
   sendSeat(request){if(!this.room)return;if(this.isHost)this.acceptSeat(selfId,request);else if(this.hostId)this.seatInput.send(request,{target:this.hostId}).catch(()=>{});}
   sendVehicle(update){
     if(!this.room||!validDriverSnapshot(update))return false;
-    if(this.isHost){const targets=[...this.players.keys()].filter(id=>id!==selfId);if(!targets.length)return false;this.sendSnapshot('driver',this.vehicleInput,update,targets);return true;}
-    if(!this.hostId)return false;this.sendSnapshot('driver',this.vehicleInput,update,[this.hostId]);return true;
+    const seq=update.seq===undefined?(this.vehicleSequence>=0x7fffffff?1:this.vehicleSequence+1):update.seq;
+    this.vehicleSequence=Math.max(this.vehicleSequence,seq);
+    const sequenced=update.seq===seq?update:{...update,seq};
+    if(this.isHost){const targets=[...this.players.keys()].filter(id=>id!==selfId);if(!targets.length)return false;this.sendSnapshot('driver',this.vehicleInput,sequenced,targets);return true;}
+    if(!this.hostId)return false;this.sendSnapshot('driver',this.vehicleInput,sequenced,[this.hostId]);return true;
+  }
+  acceptDriverSnapshot(update,{peerId,realtime}={}){
+    const admitted=this.isHost?this.players.has(peerId):peerId===this.hostId;
+    if(!admitted||!validDriverSnapshot(update))return false;
+    if(update.seq!==undefined){
+      const previous=this.vehicleReceiveSequences.get(peerId)||0;
+      if(update.seq<=previous)return false;
+      this.vehicleReceiveSequences.set(peerId,update.seq);
+    }else if(this.isHost&&!realtime&&this.fast?.seen(peerId,'driver'))return false;
+    if(this.isHost){const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',approved);}
+    else this.emit('driver-state',update);
+    return true;
   }
   sendVehicleDoors(update){if(this.room&&!this.isHost&&this.hostId&&Number.isSafeInteger(update?.id)&&Array.isArray(update.doors)&&update.doors.length===6&&update.doors.every(v=>Number.isFinite(v)&&Math.abs(v)<=2.4))this.vehicleDoors.send({id:update.id,doors:update.doors},{target:this.hostId}).catch(()=>{});}
   sendVehicleSpawnRequest(model){if(!this.room||this.isHost||!this.hostId||!VEHICLE_MODELS.includes(model))return false;this.vehicleSpawnAction.send({model},{target:this.hostId}).catch(()=>{});return true;}

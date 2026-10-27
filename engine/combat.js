@@ -1,6 +1,10 @@
 // Host-owned health with bounded historical melee validation. Gunfire is a separate milestone.
 const distance=(a,b)=>Math.hypot(...a.map((v,i)=>v-b[i]));
 const point=p=>Array.isArray(p)&&p.length===3&&p.every(Number.isFinite);
+const meleeWeapon=id=>Number.isInteger(id)&&id>=0&&id<=11;
+const instantWeapon=id=>Number.isInteger(id)&&((id>=17&&id<=29)||[32,33,35].includes(id));
+const shotgun=id=>[19,20,21].includes(id);
+const shotRange=id=>id===17?30:shotgun(id)?100:1000;
 function nearHistory(player,position,now) {
   const history=player.history.filter(s=>now-s.time<=350);
   for(let i=0;i<history.length;i++) {
@@ -29,19 +33,24 @@ export class SessionCombat {
     return {...p,state:[...state.slice(0,8),p.health,...state.slice(9)]};
   }
   hit(attacker,event,now) {
-    if(!event || !Number.isSafeInteger(event.seq) || event.seq<1 || typeof event.target!=='string' || ![0,17].includes(event.weapon) || event.target===attacker)return null;
+    if(!event || !Number.isSafeInteger(event.seq) || event.seq<1 || typeof event.target!=='string' || !(meleeWeapon(event.weapon)||instantWeapon(event.weapon)) || event.target===attacker)return null;
     const a=this.players.get(attacker),b=this.players.get(event.target),last=this.attacks.get(attacker);
     if(!a?.state || !b?.state || !a.health || !b.health || now-a.time>500 || now-b.time>500)return null;
     if(a.weapon!==event.weapon)return null;
-    const spec=event.weapon===17?{range:30,damage:25,interval:450}:{range:2.4,damage:15,interval:250};
+    const melee=meleeWeapon(event.weapon),spec=melee
+      ?{range:3.3,damage:15,interval:250}
+      :{range:shotRange(event.weapon),damage:event.weapon===17?25:20,interval:event.weapon===17?150:shotgun(event.weapon)?75:45};
+    if(melee&&(a.state[9]===1||b.state[9]===1))return null;
     if(last && (event.seq<=last.seq || now-last.time<spec.interval))return null;
+    if(event.damage!==undefined&&(!Number.isFinite(event.damage)||event.damage<=0||event.damage>100))return null;
     if(event.origin!==undefined || event.impact!==undefined) {
       if(!point(event.origin)||!point(event.impact)||distance(event.origin,event.impact)>spec.range)return null;
       if(!nearHistory(a,event.origin,now)||!nearHistory(b,event.impact,now))return null;
     } else if(distance(a.state.slice(0,3),b.state.slice(0,3))>spec.range)return null;
     this.attacks.set(attacker,{seq:event.seq,time:now});
-    b.health=Math.max(0,b.health-spec.damage);if(!b.health)b.deadAt=now;
-    return {attacker,target:event.target,health:b.health,dead:!b.health};
+    const damage=event.damage===undefined?spec.damage:Math.min(60,Math.max(1,Math.round(event.damage)));
+    b.health=Math.max(0,b.health-damage);if(!b.health)b.deadAt=now;
+    return {attacker,target:event.target,weapon:event.weapon,damage,seq:event.seq,origin:event.origin,impact:event.impact,health:b.health,dead:!b.health};
   }
   worldDamage(target,amount,now) {
     const p=this.players.get(target);

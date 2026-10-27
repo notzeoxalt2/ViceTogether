@@ -61,7 +61,10 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(network,/if\(getenv\("VT_TEST_GUEST_DRIVE"\)\)\{ViceTogetherWorldTestDrive\(\);return;\}/);
   assert.match(network,/if\(getenv\("VT_TEST_MENU"\)\|\|getenv\("VT_TEST_GUEST_SPAWN"\)\)/,'The hidden helicopter spawn scenario must drive the actual native menu path');
   assert.match(world,/pad->NewState\.Triangle=255/);
-  assert.match(world,/difference\.MagnitudeSqr\(\)>=900\.0f\|\|fabsf\(roadPosition\.z-player->GetPosition\(\)\.z\)>4\.0f/);
+  assert.match(world,/difference\.MagnitudeSqr\(\)<1600\.0f&&fabsf\(roadPosition\.z-player->GetPosition\(\)\.z\)<=4\.0f/,'The driving fixture should prefer a nearby open road node over an unverified sidewalk spawn');
+  assert.match(world,/passengerExitSpeed>0\.32f&&testCar->pDriver&&testCar->pDriver!=player/,'The passenger-exit test must wait for the stock jump-out speed window with the guest still driving');
+  assert.match(world,/driveTime>30000/,'The automated driver must remain in control long enough for a moving passenger-exit check');
+  assert.match(world,/if\(!car&&p->m_carInObjective&&\(p->EnteringCar\(\)\|\|enteringObjective\)\)car=p->m_carInObjective/,'Door capture should include the stock car-entry objective before seat attachment');
   assert.match(world,/FindGroundZFor3DCoord\(candidate\.x,candidate\.y,player->GetPosition\(\)\.z\+5\.0f,&groundFound\)/);
   assert.match(world,/if\(candidate->IsBoat\(\)\)\{for\(int radius=3;radius<=10/);
   assert.match(world,/testCar->m_fHealth=1000\.0f/);
@@ -70,10 +73,17 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(world,/!guestDriverRequestSent&&now-last>500/);
   assert.match(world,/!hostPassengerRequested&&!player->bInVehicle&&testCar->m_nNumMaxPassengers>0/,'The host should finish its stock passenger entry before a helicopter departs');
   assert.match(world,/VT_ReadRemoteSkeleton\(0,hostSeatState\)/,'The helicopter driver test must inspect the remote ped seat, not unrelated movement fields');
-  assert.match(world,/model!=217\|\|\(haveHostSeat&&int\(hostSeatState\[29\]\)==int\(candidateId\)&&hostSeatState\[33\]>=0\)/,'The helicopter driver should wait until the host is actually seated');
+  assert.match(world,/!helicopter\|\|\(haveHostSeat&&int\(hostSeatState\[29\]\)==int\(candidateId\)&&hostSeatState\[33\]>=0\)/,'Each helicopter driver test should wait until the host is actually seated');
   assert.match(harness,/seat\.id>=0&&seat\.seat>=0[^;]*sendSeat[^;]*\{id:seat\.id\}/,'Host passenger occupancy must be reserved in the lobby snapshot');
   const native=fs.readFileSync(path.join(__dirname,'..','src','native-engine.cjs'),'utf8');
-  assert.match(native,/VT_TEST_VEHICLE'&&\/\^\(130\|176\|182\|190\|191\|203\|217\)\$/,'Hidden vehicle fixtures must pass supported boat models into the game');
+  assert.match(native,/Object\.assign\(env,nativeTestFlags\(\)\)/,'Hidden vehicle fixtures must pass every supported vehicle model into the game');
+});
+
+test('multiplayer car passengers use the stock jump-out animation and speed gate',()=>{
+  const patch=fs.readFileSync(path.join(__dirname,'..','engine','native-source','native-engine.patch'),'utf8');
+  assert.match(patch,/else if \(getenv\("VT_PORT"\) && veh->m_vehType == VEHICLE_TYPE_CAR\)[\s\S]*canJumpOff = veh->CanPedJumpOutCar\(\);/);
+  assert.match(patch,/if \(canJumpOff \|\| veh->m_vecMoveSpeed\.Magnitude\(\) < 0\.1f\)/,
+    'A passenger may leave slowly by the normal path or jump within the stock vehicle safety band');
 });
 
 test('native world creates supported helicopter/plane replicas and guest menu requests pass through host authority',()=>{
@@ -85,7 +95,8 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   assert.match(world,/#include "Heli.h"/);assert.match(world,/#include "Plane.h"/);
   assert.match(world,/case VEHICLE_TYPE_HELI:return createMultiplayerHeli/);assert.match(world,/case VEHICLE_TYPE_PLANE:return new CPlane/);
   assert.match(world,/return new CAutomobile\(model,MISSION_VEHICLE\)/,'Multiplayer helicopters must use reVC’s player-controllable helicopter handling');
-  assert.match(world,/hard-locks Z to 31\.55m/);assert.match(world,/if\(occupied\|\|remotePilot\)/);
+  assert.match(world,/hard-locks Z to 31\.55m/);assert.match(world,/if\(heli->pDriver!=nil\|\|remotePilot\)/,
+    'A passenger without a pilot must not keep the helicopter engine or rotor running');
   assert.match(world,/void trackNetworkHeli\(CVehicle\* car\)/);
   assert.match(world,/multiplayerHelicopter\(const_cast<CVehicle\*>\(car\)\) && car->pDriver!=FindPlayerPed\(\).*networkHelis/);
   assert.match(world,/!multiplayerHelicopter\(car\) && !car->IsPlane\(\)/);
@@ -95,23 +106,49 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   assert.match(lobby,/acceptVehicleSpawn\(peerId,request\?\.model/);
 });
 
-test('guest-requested helicopters stay at player elevation and other vehicles have a safe fallback',()=>{
+test('Maverick menu and native helicopter checks consistently use reVC model 217',()=>{
+  const root=path.join(__dirname,'..');
+  const world=fs.readFileSync(path.join(root,'engine','native-source','ViceTogetherWorld.cpp'),'utf8');
+  const menu=fs.readFileSync(path.join(root,'engine','native-source','ViceTogether.cpp'),'utf8');
+  const harness=fs.readFileSync(path.join(root,'src','native-game-test.cjs'),'utf8');
+  assert.match(menu,/\{"Maverick",1217\}/);
+  assert.match(world,/allowedVehicleModels\[\]=\{[^}]*,217\}/);
+  assert.match(world,/GetModelIndex\(\)==targetHeli/);
+  assert.match(harness,/VEHICLE_CLASSES\[model\]/);
+  assert.match(harness,/VT_TEST_VEHICLE\)===217/);
+});
+
+test('network death respawn picks a nearby safe road instead of a roof surface',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogether.cpp'),'utf8');
+  const start=source.indexOf('static bool findSafeMultiplayerRespawn(');
+  const end=source.indexOf('void VT_ApplyLocalHealth(',start);
+  const helper=source.slice(start,end);
+  assert.match(helper,/const float rings\[\]=\{10\.0f,16\.0f,22\.0f,28\.0f,34\.0f,40\.0f\}/);
+  assert.match(helper,/FindNodeClosestToCoors\(probe,PATH_CAR,24\.0f\)/);
+  assert.match(helper,/FindGroundZFor3DCoord\(node\.x,node\.y,node\.z\+5\.0f,&groundFound\)/);
+  assert.match(helper,/fabsf\(ground-node\.z\)>3\.5f/);
+  assert.match(source,/findSafeMultiplayerRespawn\(center,spawn\)&&!findSafeMultiplayerRespawn\(CVector\(-592\.0f,670\.0f,10\.0f\),spawn\)/);
+  assert.doesNotMatch(source,/FindGroundZFor3DCoord\(spawn\.x,spawn\.y,2000/,
+    'A high collision probe can pick a roof instead of a nearby street');
+});
+
+test('guest-requested helicopters find ground when requested during a fall',()=>{
   const source=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const start=source.indexOf('void ViceTogetherWorldMenuTick()');
   const end=source.indexOf('void ViceTogetherWorldExplosion(',start);
   const tick=source.slice(start,end);
   assert.match(tick,/const float referenceZ=position\.z/);
-  assert.match(tick,/FindGroundZFor3DCoord\(candidate\.x,candidate\.y,referenceZ\+5\.0f,&found\)/);
+  assert.match(tick,/if\(model==217\)[\s\S]*FindGroundZFor3DCoord\(candidate\.x,candidate\.y,referenceZ\+5\.0f,&found\)[\s\S]*referenceZ\+100\.0f/);
+  assert.match(tick,/if\(!safeGround\)\{menuSpawnModel=-1;menuStatus="No safe ground found nearby\. Move closer to a road and try again";if\(test\)testGuestSpawnStage=11;return;\}/);
   assert.match(tick,/fabsf\(ground-referenceZ\)<=4\.0f/);
   assert.match(tick,/FindNodeClosestToCoors\(candidate,PATH_CAR,6\.0f\)/);
   assert.match(tick,/fabsf\(node\.z-referenceZ\)<=4\.0f/);
-  assert.match(tick,/if\(model==217\)\{[\s\S]*groundedPosition\.z=referenceZ\+1\.0f;/);
   assert.match(tick,/if\(!safeGround\)[\s\S]*groundedPosition=position;[\s\S]*groundedPosition\.z=referenceZ\+1\.0f;/);
   assert.doesNotMatch(tick,/Could not find safe ground at your level nearby/);
   assert.doesNotMatch(tick,/searchRadius=menuSpawnHasPosition\?60\.0f:40\.0f/);
 });
 
-test('heli spawn verification requires the approved two-client spawn at the safe player-level altitude',()=>{
+test('heli spawn verification requires the approved two-client grounded, engine-off spawn',()=>{
   const root=path.join(__dirname,'..');
   const world=fs.readFileSync(path.join(root,'engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const native=fs.readFileSync(path.join(root,'src','native-engine.cjs'),'utf8');
@@ -120,8 +157,8 @@ test('heli spawn verification requires the approved two-client spawn at the safe
     'The test telemetry must count live player-class helicopters as well as native AI helicopters');
   assert.match(world,/bool multiplayerHelicopter\(CVehicle\* car\)[\s\S]*m_vehicleType==VEHICLE_TYPE_HELI[\s\S]*HANDLING_IS_HELI/,
     'Helicopter classification must use model metadata because CAutomobile helicopter replicas report IsHeli false');
-  assert.match(world,/const bool heli=multiplayerHelicopter\(car\);[\s\S]*SetStatus\(heli\?STATUS_PHYSICS:STATUS_ABANDONED\)[\s\S]*bEngineOn=heli/,
-    'Player-class helicopter spawns must run native rotor and engine processing while unpiloted');
+  assert.match(world,/const bool heli=multiplayerHelicopter\(car\);[\s\S]*SetStatus\(heli\?STATUS_PHYSICS:STATUS_ABANDONED\)[\s\S]*bEngineOn=false/,
+    'Player-class helicopter spawns must start parked with their engine off');
   assert.match(native,/observed\.testHelicopters=\{count:state\[19\],nearest:\{position:state\.slice\(20,23\)/,
     'Native reports must include count, nearest position, rotor rotation and health');
   assert.match(native,/observed\.testSpawn=\{calls:state\[27\],stage:state\[28\],stageName:/,
@@ -130,12 +167,22 @@ test('heli spawn verification requires the approved two-client spawn at the safe
     'The test must distinguish a native vehicle creation from a lobby approval');
   assert.match(world,/testGuestSpawnVehicle=car/,
     'The test must inspect the exact created vehicle instead of inferring it from a nearby city helicopter');
-  assert.match(native,/createdZ:state\[31\],createdHasRenderObject:state\[32\]===1,createdVehicleId:state\[33\]/,
-    'Native test telemetry must verify the created object’s altitude and rendered game instance');
+  assert.match(native,/groundZ:state\[29\],createdModel:state\[30\],createdZ:state\[31\],createdHasRenderObject:state\[32\]===1,createdVehicleId:state\[33\]/,
+    'Native test telemetry must verify the created object’s ground clearance and rendered game instance');
   assert.match(world,/float networkHeliRotorAngle\(CVehicle\* car\)/,
     'Rotor telemetry must read CAutomobile rotor angles for multiplayer helicopters without casting them as AI CHeli objects');
-  assert.match(harness,/Math\.abs\(sample\.testHelicopters\.nearest\.position\[2\]-requesterState\[2\]\)<=5/,
-    'The scenario must reject ambient helicopters that sit on the Catalina route altitude');
-  assert.match(harness,/hostCreatedSpawn=worldStatusTimeline\[0\]\.findLast\([\s\S]*testSpawn\?\.stageName==='created'[\s\S]*createdHasRenderObject[\s\S]*createdZ-requesterState\[2\]/,
-    'The host test must verify its exact native spawn completed and rendered at player-level height');
+  assert.match(world,/automobile->m_aWheelSpeed\[1\]=0\.0f;[\s\S]*heli->bEngineOn=false/,
+    'New player-class helicopters must start with stopped rotors and no engine audio');
+  assert.match(world,/automobile->m_aWheelSpeed\[1\]=0\.0f;[\s\S]*heli->bEngineOn=false/,
+    'Unpiloted multiplayer helicopters must stay shut down during idle stabilization');
+  assert.match(world,/model==217\?24\.0f/,
+    'The player-class Maverick must spawn with 24 m of horizontal clearance');
+  assert.match(native,/rotorSpeed:state\[16\],status:state\[17\],engineOn:state\[18\]===1/,
+    'Hidden helicopter reports must include real native rotor speed and engine status');
+  assert.match(harness,/groundClearance:heli\.position\[2\]-heli\.groundZ/,
+    'Both clients must report the spawned helicopter’s clearance from the local ground surface');
+  assert.match(harness,/hostCreatedSpawn=worldStatusTimeline\[0\]\.findLast\([\s\S]*testSpawn\?\.createdModel===217[\s\S]*createdHasRenderObject[\s\S]*createdZ-sample\.testSpawn\.groundZ/,
+    'The host test must verify the rendered model-217 spawn sits on its ground surface');
+  assert.match(harness,/Object\.values\(rotorSpeedSamples\)\.every\(samples=>samples\.length>10&&samples\.every\(speed=>Math\.abs\(speed\)<=0\.01\)\)/,
+    'An unpiloted helicopter must remain silent with its rotors stopped');
 });

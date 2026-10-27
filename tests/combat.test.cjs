@@ -51,9 +51,25 @@ test('pistol hits require equipped weapon and obey range, fire rate and shared h
   assert.equal(c.hit('a',{...hit,seq:2},500).health,50);
   c.update('a',state(0),1000);c.update('b',state(40),1000);
   assert.equal(c.hit('a',{...hit,seq:3,impact:[40,0,10]},1000),null);
-  assert.equal(c.equip('a',33),true,'minigun selection is visible even while its damage integration is unfinished');
-  assert.equal(c.hit('a',{...hit,weapon:33,seq:4},1000),null,'equipment visibility does not silently enable unsupported damage');
+  assert.equal(c.equip('a',33),true,'minigun selection is tracked for host-authoritative hit validation');
+  assert.equal(c.hit('a',{...hit,weapon:33,seq:4,impact:[40,0,10]},1000).health,30,'an equipped minigun hit uses the same shared health authority');
   assert.equal(c.equip('a',37),false,'damage-only pseudo-weapons cannot enter the inventory');
+});
+test('all instant-hit firearms can damage a player only with an equipped weapon and a verified line segment',async()=>{
+  const {SessionCombat}=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(require.resolve('../engine/combat.js'),'utf8')).toString('base64'));
+  for(const weapon of [17,18,19,20,21,22,23,24,25,26,27,28,29,32,33,35]){
+    const c=new SessionCombat(),state=x=>[x,0,10,0,0,0,0,1,100,0];
+    c.update('shooter',state(0),0);c.update('target',state(20),0);c.equip('shooter',weapon);
+    const hit=c.hit('shooter',{seq:1,target:'target',weapon,damage:10,origin:[0,0,10],impact:[20,0,10]},100);
+    assert.equal(hit?.health,90,`weapon ${weapon} did not apply authoritative health`);
+    assert.equal(hit?.damage,10);assert.equal(hit?.weapon,weapon);
+    assert.equal(c.hit('shooter',{seq:2,target:'target',weapon,damage:999,origin:[0,0,10],impact:[20,0,10]},200),null,'forged excessive damage is rejected');
+  }
+});
+test('melee hit validation rejects players seated in vehicles',async()=>{
+  const {SessionCombat}=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(require.resolve('../engine/combat.js'),'utf8')).toString('base64'));
+  const c=new SessionCombat(),state=x=>[x,0,10,0,0,0,0,1,100,1];c.update('a',state(0),0);c.update('b',state(1),0);
+  assert.equal(c.hit('a',{seq:1,target:'b',weapon:0},1),null);
 });
 test('guest NPC melee requests are sequenced, rate-limited and bounded by the host lobby',async()=>{
   const {NpcMeleeAuthority}=await import('data:text/javascript;base64,'+Buffer.from(fs.readFileSync(require.resolve('../engine/combat.js'),'utf8')).toString('base64'));

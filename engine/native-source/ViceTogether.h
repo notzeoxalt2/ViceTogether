@@ -5,6 +5,7 @@ void ViceTogetherBeforeWorld();
 void ViceTogetherNetworkTick();
 class CPed;
 bool ViceTogetherIsRemote(const CPed* ped);
+CPed* ViceTogetherRemotePed(int slot);
 void ViceTogetherDrawNames();
 bool ViceTogetherMenuKey(int key,bool control);
 bool ViceTogetherMenuOpen();

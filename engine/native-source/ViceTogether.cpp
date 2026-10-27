@@ -148,9 +148,14 @@ bool registeredAnimation(int group, int id) {
     return animations.assocList && id>=animations.firstAnimId
         && id-animations.firstAnimId<animations.numAssociations;
 }
+bool syncedHitAnimation(int id){
+    return (id>=ANIM_STD_HIGHIMPACT_FRONT&&id<=ANIM_STD_HITBYGUN_RIGHT)
+        || (id>=ANIM_STD_HIT_FRONT&&id<=ANIM_STD_HIT_BEHIND);
+}
 constexpr float remoteTagScaleX=0.34f;
 constexpr float remoteTagScaleY=0.64f;
 float remoteTagLineHeight(){return SCREEN_SCALE_Y(20.0f*remoteTagScaleY);}
+float remoteTagHeadGap(){return SCREEN_SCALE_Y(15.0f);}
 bool remoteTagProjection(CPed* ped,RwV3d* screen){
     if(!ped||!ped->m_rwObject||!ped->GetClump()||!screen)return false;
     CVector head=ped->GetNodePosition(PED_HEAD);head.z+=0.10f;
@@ -159,8 +164,15 @@ bool remoteTagProjection(CPed* ped,RwV3d* screen){
 }
 struct RemoteTagLayout {float centerX,nameY,healthY,headY;};
 RemoteTagLayout remoteTagLayout(const RwV3d& head){
-    return {head.x,head.y-remoteTagLineHeight()-SCREEN_SCALE_Y(2.0f),head.y-SCREEN_SCALE_Y(1.0f),head.y};
+    const float headGap=remoteTagHeadGap();
+    return {head.x,head.y-remoteTagLineHeight()-SCREEN_SCALE_Y(2.0f)-headGap,head.y-SCREEN_SCALE_Y(1.0f)-headGap,head.y};
 }
+struct RemoteTagObservation {
+    uint32 frame;
+    bool drawn;
+    float nameLeft,nameWidth,nameY,healthLeft,healthY,headX,headY;
+};
+RemoteTagObservation remoteTagObservations[7]={};
 }
 
 // This hook is called by the patched game cheat function from another
@@ -187,15 +199,20 @@ EMSCRIPTEN_KEEPALIVE int VT_ReadLocal(float* out) {
     out[9] = player->bInVehicle ? 1.0f : 0.0f;
     for(int i=10;i<34;i++)out[i]=0;
     CAnimBlendAssociation* best[4]={};
+    CAnimBlendAssociation* strongestHit=nil;
     for(CAnimBlendAssociation* a=RpAnimBlendClumpGetFirstAssociation(player->GetClump());a;a=RpAnimBlendGetNextAssociation(a)) {
         // Capture the engine's actual pose, including jump launch/glide/landing,
         // falls, ducking and weapon-specific directional locomotion.
         if(!registeredAnimation(a->groupId,a->animId) || a->blendAmount<=0)continue;
         // Partial upper-body poses cannot replace the full-body base skeleton.
         const int base=a->IsPartial()?2:0;
+        if(a->groupId==ASSOCGRP_STD&&syncedHitAnimation(a->animId)&&a->blendAmount>0.05f&&(!strongestHit||a->blendAmount>strongestHit->blendAmount))strongestHit=a;
         if(!best[base] || a->blendAmount>best[base]->blendAmount){best[base+1]=best[base];best[base]=a;}
         else if(!best[base+1] || a->blendAmount>best[base+1]->blendAmount)best[base+1]=a;
     }
+    // Reserve one upper-body pose slot for hit feedback even while the player
+    // is aiming, so the victim's response reaches the other native client.
+    if(strongestHit&&best[2]!=strongestHit)best[3]=strongestHit;
     for(int i=0;i<4;i++)if(best[i]) {
         const int j=10+i*5;
         out[j]=best[i]->groupId;out[j+1]=best[i]->animId;out[j+2]=best[i]->currentTime;
@@ -303,17 +320,64 @@ int VT_PlayRemoteShot(int slot,const float* data) {
     }
     return 1;
 }
-void VT_SendHit(int slot,int weapon);
+extern "C" void VT_SendHit(int slot,int weapon,float amount);
 void VT_SetRemoteHealth(int slot,float health) {if(slot>=0 && slot<7)peers[slot].health=health;}
+void VT_ApplyPlayerHit(int slot,const float* state){
+    if(!enabled||slot<0||slot>=7||!state||!std::isfinite(state[0])||!std::isfinite(state[1])||!std::isfinite(state[3])||!std::isfinite(state[4]))return;
+    const int weapon=int(state[0]);const float amount=state[1];const bool localTarget=state[3]==1.0f;
+    const int attackerSlot=int(state[4]);if(state[4]!=float(attackerSlot)||attackerSlot<0||attackerSlot>=7||attackerSlot!=slot)return;
+    const bool melee=weapon>=WEAPONTYPE_UNARMED&&weapon<=WEAPONTYPE_CHAINSAW;
+    const bool instant=weapon>=0&&weapon<WEAPONTYPE_TOTALWEAPONS&&CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_eWeaponFire==WEAPON_FIRE_INSTANT_HIT;
+    if((!melee&&!instant)||amount<=0||amount>60||state[0]!=float(weapon)||state[3]!=(localTarget?1.0f:0.0f))return;
+    CPed* attacker=peers[slot].ped;CPed* victim=nil;
+    if(!localTarget){
+        if(peers[slot].health<=0)return;
+        attacker=peers[attackerSlot].ped;victim=peers[slot].ped;
+    }else victim=FindPlayerPed();
+    if(!attacker||!victim||attacker==victim||!victim->m_rwObject||victim->DyingOrDead()||victim->bInVehicle)return;
+    const CVector2D fromAttacker(attacker->GetPosition()-victim->GetPosition());
+    const int direction=victim->GetLocalDirection(fromAttacker);
+    AnimationId animation;
+    if(instant){
+        switch(direction){case 1:animation=ANIM_STD_HITBYGUN_LEFT;break;case 2:animation=ANIM_STD_HITBYGUN_BACK;break;case 3:animation=ANIM_STD_HITBYGUN_RIGHT;break;default:animation=ANIM_STD_HITBYGUN_FRONT;break;}
+    }else{
+        switch(direction){case 1:animation=ANIM_STD_HIT_LEFT;break;case 2:animation=ANIM_STD_HIT_BACK;break;case 3:animation=ANIM_STD_HIT_RIGHT;break;default:animation=ANIM_STD_HIT_FRONT;break;}
+    }
+    CAnimBlendAssociation* reaction=CAnimManager::BlendAnimation(victim->GetClump(),ASSOCGRP_STD,animation,8.0f);
+    if(reaction){reaction->SetCurrentTime(0.0f);reaction->SetRun();reaction->flags&=~ASSOC_DELETEFADEDOUT;reaction->flags|=ASSOC_FADEOUTWHENDONE;}
+    victim->Say(SOUND_PED_DEFEND);
+}
+static bool findSafeMultiplayerRespawn(const CVector& center,CVector& spawn){
+    const float rings[]={10.0f,16.0f,22.0f,28.0f,34.0f,40.0f};
+    float bestScore=1.0e30f;bool foundSafe=false;
+    for(float radius:rings)for(int direction=0;direction<16;direction++){
+        const float angle=direction*6.2831853f/16.0f;
+        const CVector probe=center+CVector(cosf(angle)*radius,sinf(angle)*radius,0.0f);
+        const int road=ThePaths.FindNodeClosestToCoors(probe,PATH_CAR,24.0f);
+        if(road<0)continue;
+        const CVector node=ThePaths.m_pathNodes[road].GetPosition();
+        const float dx=node.x-center.x,dy=node.y-center.y;
+        const float distanceSqr=dx*dx+dy*dy;
+        if(distanceSqr<64.0f||distanceSqr>2500.0f)continue;
+        bool groundFound=false;
+        const float ground=CWorld::FindGroundZFor3DCoord(node.x,node.y,node.z+5.0f,&groundFound);
+        if(!groundFound||!std::isfinite(ground)||fabsf(ground-node.z)>3.5f)continue;
+        float water=0.0f;
+        if(CWaterLevel::GetWaterLevel(node.x,node.y,ground+1.0f,&water,true)&&ground<water+0.2f)continue;
+        const float score=distanceSqr+fabsf(ground-center.z)*0.25f;
+        if(score<bestScore){bestScore=score;spawn=CVector(node.x,node.y,ground+1.0f);foundSafe=true;}
+    }
+    return foundSafe;
+}
 void VT_ApplyLocalHealth(float health) {
     CPlayerPed* player=FindPlayerPed();if(!player || !std::isfinite(health) || health<0 || health>100)return;
     static CVector deathPosition(-592.0f,670.0f,10.0f);static bool deathRecorded=false;
     if(health<=0 && !deathRecorded){deathPosition=player->GetPosition();deathRecorded=true;}
     if(health>0 && player->DyingOrDead()) {
-        CVector spawn=deathPosition+CVector(2,0,1);
-        if(spawn.x< -2350 || spawn.x>1550 || fabsf(spawn.y)>1950 || spawn.z< -30 || spawn.z>1000)spawn=CVector(-592.0f,670.0f,10.0f);
-        bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(spawn.x,spawn.y,2000,&groundFound);float water=0;const bool unsafeWater=CWaterLevel::GetWaterLevel(spawn.x,spawn.y,spawn.z,&water,true)&&(!groundFound || ground<water+0.2f);
-        if(groundFound&&!unsafeWater)spawn.z=ground+1.0f;else{const int road=ThePaths.FindNodeClosestToCoors(deathPosition,PATH_CAR,100.0f);if(road>=0)spawn=ThePaths.m_pathNodes[road].GetPosition()+CVector(0,0,1);else spawn=CVector(-592.0f,670.0f,10.0f);}
+        CVector center=deathPosition;
+        if(center.x< -2350 || center.x>1550 || fabsf(center.y)>1950 || center.z< -30 || center.z>1000)center=CVector(-592.0f,670.0f,10.0f);
+        CVector spawn;
+        if(!findSafeMultiplayerRespawn(center,spawn)&&!findSafeMultiplayerRespawn(CVector(-592.0f,670.0f,10.0f),spawn))spawn=CVector(-592.0f,670.0f,10.0f);
         CGameLogic::RestorePlayerStuffDuringResurrection(player,spawn,0);
         player->GetPlayerInfoForThisPlayerPed()->m_WBState=WBSTATE_PLAYING;
         CPad::GetPad(0)->DisablePlayerControls=PLAYERCONTROL_ENABLED;
@@ -367,11 +431,16 @@ int VT_ReadRemote(int slot, float* out) {
     out[9]=FrontEndMenuManager.m_bMenuActive?1.0f:0.0f;
     out[8]=peers[slot].ped->m_fHealth;
     for(int i=10;i<20;i++)out[i]=0;
-    int record=0;
-    for(CAnimBlendAssociation* a=RpAnimBlendClumpGetFirstAssociation(peers[slot].ped->GetClump());a && record<2;a=RpAnimBlendGetNextAssociation(a)) {
-        if(a->IsPartial() || a->blendAmount<0.05f || (a->animId!=ANIM_STD_IDLE && a->animId!=ANIM_STD_WALK && a->animId!=ANIM_STD_RUN && a->animId!=ANIM_STD_RUNFAST))continue;
-        int j=10+(record++)*5;out[j]=a->groupId;out[j+1]=a->animId;out[j+2]=a->currentTime;out[j+3]=a->speed;out[j+4]=a->blendAmount;
+    CAnimBlendAssociation* locomotion=nil;CAnimBlendAssociation* hit=nil;CAnimBlendAssociation* fallback[2]={};int fallbackCount=0;
+    for(CAnimBlendAssociation* a=RpAnimBlendClumpGetFirstAssociation(peers[slot].ped->GetClump());a;a=RpAnimBlendGetNextAssociation(a)) {
+        if(a->blendAmount<0.05f)continue;
+        const bool isLocomotion=!a->IsPartial()&&(a->animId==ANIM_STD_IDLE||a->animId==ANIM_STD_WALK||a->animId==ANIM_STD_RUN||a->animId==ANIM_STD_RUNFAST);
+        if(isLocomotion){if(!locomotion||a->blendAmount>locomotion->blendAmount)locomotion=a;continue;}
+        if(a->groupId==ASSOCGRP_STD&&syncedHitAnimation(a->animId)){if(!hit||a->blendAmount>hit->blendAmount)hit=a;continue;}
+        if(fallbackCount<2)fallback[fallbackCount++]=a;
     }
+    CAnimBlendAssociation* selected[2]={locomotion?locomotion:fallback[0],hit?hit:fallback[locomotion?0:1]};
+    for(int record=0;record<2;record++)if(selected[record]){int j=10+record*5;out[j]=selected[record]->groupId;out[j+1]=selected[record]->animId;out[j+2]=selected[record]->currentTime;out[j+3]=selected[record]->speed;out[j+4]=selected[record]->blendAmount;}
     return 1;
 }
 int VT_ReadLocalSkeleton(float* out) {
@@ -381,6 +450,8 @@ int VT_ReadLocalSkeleton(float* out) {
     out[4]=float(p->m_nPedState);out[5]=float(p->m_objective);out[6]=p->bInVehicle?1:0;
     out[17]=head.x;out[18]=head.y;out[19]=head.z;
     out[11]=float(p->m_vehDoor);out[12]=p->m_pVehicleAnim?float(p->m_pVehicleAnim->animId):-1.0f;out[13]=p->m_pVehicleAnim?p->m_pVehicleAnim->currentTime:-1.0f;out[14]=p->m_pVehicleAnim?p->m_pVehicleAnim->blendAmount:0.0f;
+    out[15]=-1.0f;out[16]=0.0f;float strongestHit=0.05f;
+    for(CAnimBlendAssociation* a=RpAnimBlendClumpGetFirstAssociation(p->GetClump());a;a=RpAnimBlendGetNextAssociation(a))if(a->groupId==ASSOCGRP_STD&&syncedHitAnimation(a->animId)&&a->blendAmount>strongestHit){out[15]=float(a->animId);out[16]=a->currentTime;strongestHit=a->blendAmount;}
     if(p->m_pMyVehicle){CVehicle* car=p->m_pMyVehicle;out[7]=float(car->GetStatus());out[8]=car->pDriver==p?1:0;out[9]=car->m_fGasPedal;out[10]=car->GetMoveSpeed().Magnitude();if(car->IsCar())for(int i=0;i<6;i++)out[20+i]=((CAutomobile*)car)->Doors[i].m_fAngle;}
     return 1;
 }
@@ -397,7 +468,15 @@ int VT_ReadRemoteSkeleton(int slot,float* out) {
     out[0]=(head-left).Magnitude();out[1]=(head-right).Magnitude();out[2]=(left-right).Magnitude();
     out[3]=p->m_fHealth;out[4]=0;out[5]=0;
     out[17]=head.x;out[18]=head.y;out[19]=head.z;
-    RwV3d tagScreen;if(remoteTagProjection(p,&tagScreen)){const RemoteTagLayout tag=remoteTagLayout(tagScreen);out[20]=tag.centerX;out[21]=tag.nameY;out[22]=tag.healthY;out[23]=1.0f;out[24]=tag.centerX;out[25]=tag.centerX;out[26]=tag.headY;}
+    const RemoteTagObservation& tag=remoteTagObservations[slot];
+    if(tag.drawn&&uint32(CTimer::GetFrameCounter()-tag.frame)<=10){
+        // These are coordinates captured from the actual render hook, not a
+        // second projection/layout calculation. The test can therefore detect
+        // a name/bar mismatch that the renderer itself introduced.
+        out[20]=tag.nameLeft;out[21]=tag.nameY;out[22]=tag.healthY;out[23]=1.0f;
+        out[24]=tag.nameLeft;out[25]=tag.healthLeft;out[26]=tag.nameWidth;
+        if(!p->bInVehicle){out[28]=tag.headY;out[29]=tag.headX;}
+    }
     out[9]=peers[slot].aim[0];out[10]=peers[slot].aim[1];out[11]=peers[slot].aim[2];
     const int color=peers[slot].color;out[6]=float(color);out[7]=float(outfitDraws[color]);out[8]=float(outfitTexels[color]);
     out[12]=0;
@@ -413,6 +492,9 @@ int VT_ReadRemoteSkeleton(int slot,float* out) {
 bool ViceTogetherIsRemote(const CPed* ped) {
     for(int i=0;i<7;i++) if(peers[i].ped==ped) return true;
     return false;
+}
+CPed* ViceTogetherRemotePed(int slot) {
+    return slot>=0 && slot<7 && peers[slot].active ? peers[slot].ped : nil;
 }
 void ViceTogetherWeaponRendered(CPed* ped){for(auto& peer:peers)if(peer.ped==ped)peer.weaponDraws++;}
 extern "C" void VT_SendWorldDamage(int slot,float amount);
@@ -436,7 +518,9 @@ bool ViceTogetherReportDamage(CPed* victim,CEntity* attacker,int weapon,float am
         }
     }
     for(int i=0;i<7;i++)if(peers[i].ped==victim) {
-        if(attacker==FindPlayerPed() && (weapon==WEAPONTYPE_UNARMED || weapon==WEAPONTYPE_COLT45) && peers[i].health>0)VT_SendHit(i,weapon);
+        const bool melee=weapon>=WEAPONTYPE_UNARMED&&weapon<=WEAPONTYPE_CHAINSAW;
+        const bool instant=weapon>=0&&weapon<WEAPONTYPE_TOTALWEAPONS&&CWeaponInfo::GetWeaponInfo(eWeaponType(weapon))->m_eWeaponFire==WEAPON_FIRE_INSTANT_HIT;
+        if(attacker==FindPlayerPed() && (melee||instant) && peers[i].health>0 && std::isfinite(amount) && amount>0)VT_SendHit(i,weapon,amount);
         else {const char* role=getenv("VT_WORLD_HOST");if(role && atoi(role)==1 && (!attacker || !attacker->IsPed() || !ViceTogetherIsRemote((CPed*)attacker)) && (attacker!=FindPlayerPed() || weapon==WEAPONTYPE_EXPLOSION) && peers[i].health>0 && std::isfinite(amount) && amount>0)VT_SendWorldDamage(i,amount*0.33f);}
         return true;
     }
@@ -538,9 +622,11 @@ bool ViceTogetherRenderBody(CPed* ped) {
 }
 void ViceTogetherDrawNames() {
     if(!enabled) return;
+    const uint32 frame=CTimer::GetFrameCounter();
+    for(auto& observation:remoteTagObservations){observation.frame=frame;observation.drawn=false;}
     const CFontDetails saved=CFont::Details;
     CFont::SetFontStyle(FONT_STANDARD); CFont::SetScale(SCREEN_SCALE_X(remoteTagScaleX), SCREEN_SCALE_Y(remoteTagScaleY));
-    CFont::SetCentreOn(); CFont::SetCentreSize(SCREEN_WIDTH); CFont::SetJustifyOff();
+    CFont::SetCentreOff(); CFont::SetWrapx(SCREEN_WIDTH); CFont::SetJustifyOff();
     CFont::SetRightJustifyOff(); CFont::SetBackgroundOff(); CFont::SetPropOn();
     CFont::SetAlphaFade(255.0f); CFont::SetDropShadowPosition(0);
     for(int i=0;i<7;i++) {
@@ -555,12 +641,14 @@ void ViceTogetherDrawNames() {
         wchar text[32]; AsciiToUnicode(label,text);
         const float labelWidth=std::max(SCREEN_SCALE_X(12.0f),CFont::GetStringWidth(text,true));
         const RemoteTagLayout tag=remoteTagLayout(screen);
-        if(tag.centerX-labelWidth*0.5f<0 || tag.centerX+labelWidth*0.5f>SCREEN_WIDTH || tag.nameY<0)continue;
+        const float labelLeft=tag.centerX-labelWidth*0.5f;
+        if(labelLeft<0 || labelLeft+labelWidth>SCREEN_WIDTH || tag.nameY<0)continue;
         CFont::SetColor(CRGBA(230,244,240,255));
-        CFont::PrintString(tag.centerX,tag.nameY,text);
+        CFont::PrintString(labelLeft,tag.nameY,text);
         const float healthWidth=labelWidth*std::max(0.0f,std::min(1.0f,peers[i].health/100.0f));
-        const float healthLeft=tag.centerX-healthWidth*0.5f, y=tag.healthY, height=SCREEN_SCALE_Y(2.0f);
-        CSprite2d::DrawRect(CRect(healthLeft,y,healthLeft+healthWidth,y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
+        const float healthLeft=labelLeft, y=tag.healthY, height=SCREEN_SCALE_Y(2.0f);
+        if(healthWidth>0.0f)CSprite2d::DrawRect(CRect(healthLeft,y,healthLeft+healthWidth,y+height),peers[i].health<30?CRGBA(240,91,104,240):CRGBA(100,215,174,240));
+        remoteTagObservations[i]={frame,true,labelLeft,labelWidth,tag.nameY,healthLeft,tag.healthY,tag.centerX,tag.headY};
     }
     CFont::Details=saved;
     drawModMenu();

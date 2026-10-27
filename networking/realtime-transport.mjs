@@ -3,15 +3,15 @@
 const LABEL='vt-snapshots-v1',DEFAULT_KINDS=['movement','players','ambient','driver'];
 const MAX_MESSAGES_PER_SECOND=240;
 const SNAPSHOT_LIMITS={movement:90,players:90,ambient:24,driver:100};
+const PEER_OWNERS=new WeakMap(),UNATTACHED_CHANNELS=new WeakMap(),UNATTACHED_COUNTS=new WeakMap();
 export class RealtimeTransport {
   constructor({NativePeer=globalThis.RTCPeerConnection,receive,now=()=>performance.now(),kinds=DEFAULT_KINDS}={}) {
     if(!Array.isArray(kinds)||!kinds.length||kinds.length>8||kinds.some(k=>typeof k!=='string'||!/^[-a-z0-9]{1,24}$/.test(k)||['probe','echo'].includes(k)))throw new Error('Invalid snapshot kinds');this.kinds=new Set(kinds);
-    this.receive=receive;this.now=now;this.peers=new Map();this.waiting=new WeakMap();const owner=this;
+    this.receive=receive;this.now=now;this.peers=new Map();const owner=this;
     this.Peer=class extends NativePeer {
       constructor(...args){super(...args);this.addEventListener('datachannel',event=>{
         if(event.channel.label!==LABEL)return;
-        event.stopImmediatePropagation();const entry=[...owner.peers.values()].find(e=>e.pc===this);
-        if(entry){entry.incomingEvents++;entry.lastIncomingLabel=event.channel.label;owner.bind(entry,event.channel);}else {owner.waiting.set(this,event.channel);owner.unattachedIncomingEvents.set(this,(owner.unattachedIncomingEvents.get(this)||0)+1);}
+        event.stopImmediatePropagation();const current=PEER_OWNERS.get(this)||owner;current.acceptIncoming(this,event.channel);
       });}
       createDataChannel(label,options){const channel=super.createDataChannel(label,options);
         // Trystero makes its reliable "data" channel before creating the SDP
@@ -21,12 +21,12 @@ export class RealtimeTransport {
         return channel;
       }
     };
-    this.unattachedIncomingEvents=new WeakMap();
   }
-  newEntry(id,pc){return {id,pc,sequence:0,seen:new Map(),sent:0,received:0,receivedByKind:new Map(),dropped:0,rateLimited:0,probeSequence:0,samples:[],probeLost:0,lostSinceRecovery:0,recoveryAttempts:0,confirmed:false,incomingEvents:0,unattachedIncomingEvents:this.unattachedIncomingEvents.get(pc)||0,negotiationNeededEvents:0,signalingChanges:0};}
-  attach(id,pc){if(!pc)return;let entry=this.peers.get(id);if(entry&&(entry.pc!==pc||['closed','failed'].includes(pc.connectionState))){entry.channel?.close();this.peers.delete(id);entry=null;}if(!entry){entry=this.newEntry(id,pc);this.peers.set(id,entry);pc.addEventListener?.('negotiationneeded',()=>entry.negotiationNeededEvents++);pc.addEventListener?.('signalingstatechange',()=>entry.signalingChanges++);}if(pc.__vtSnapshotChannel)this.bind(entry,pc.__vtSnapshotChannel);const pending=this.waiting.get(pc);if(pending){this.waiting.delete(pc);entry.unattachedIncomingEvents=this.unattachedIncomingEvents.get(pc)||0;this.bind(entry,pending);}return entry;}
+  acceptIncoming(pc,channel){const entry=[...this.peers.values()].find(e=>e.pc===pc);if(entry){entry.incomingEvents++;entry.lastIncomingLabel=channel.label;this.bind(entry,channel);return;}const pending=UNATTACHED_CHANNELS.get(pc)||[];pending.push(channel);UNATTACHED_CHANNELS.set(pc,pending);UNATTACHED_COUNTS.set(pc,(UNATTACHED_COUNTS.get(pc)||0)+1);}
+  newEntry(id,pc){return {id,pc,sequence:0,seen:new Map(),sent:0,received:0,receivedByKind:new Map(),dropped:0,rateLimited:0,probeSequence:0,samples:[],probeLost:0,lostSinceRecovery:0,recoveryAttempts:0,confirmed:false,incomingEvents:0,unattachedIncomingEvents:UNATTACHED_COUNTS.get(pc)||0,negotiationNeededEvents:0,signalingChanges:0};}
+  attach(id,pc){if(!pc)return;PEER_OWNERS.set(pc,this);let entry=this.peers.get(id);if(entry&&(entry.pc!==pc||['closed','failed'].includes(pc.connectionState))){entry.channel?.close();this.peers.delete(id);entry=null;}if(!entry){entry=this.newEntry(id,pc);this.peers.set(id,entry);pc.addEventListener?.('negotiationneeded',()=>entry.negotiationNeededEvents++);pc.addEventListener?.('signalingstatechange',()=>entry.signalingChanges++);}if(pc.__vtSnapshotChannel&&pc.__vtSnapshotChannel.readyState!=='closed')this.bind(entry,pc.__vtSnapshotChannel);const pending=UNATTACHED_CHANNELS.get(pc);if(pending){UNATTACHED_CHANNELS.delete(pc);entry.unattachedIncomingEvents=UNATTACHED_COUNTS.get(pc)||0;for(const channel of pending)if(channel.readyState!=='closed')this.bind(entry,channel);}return entry;}
   initiate(id,pc){const entry=this.attach(id,pc);if(!entry||entry.channel&&entry.channel.readyState!=='closed')return false;if(entry.channel)entry.channel=null;entry.initiateCalls=(entry.initiateCalls||0)+1;entry.initiatedAt=this.now();this.bind(entry,pc.createDataChannel(LABEL,{ordered:false,maxRetransmits:0}));return true;}
-  bind(entry,channel){if(entry.channel&&entry.channel!==channel){entry.duplicateIncomingEvents=(entry.duplicateIncomingEvents||0)+1;channel.close();return;}entry.channel=channel;entry.channelLabel=channel.label;entry.channelBoundAt=this.now();
+  bind(entry,channel){if(entry.channel===channel)return;if(entry.channel?.readyState==='closed')entry.channel=null;if(entry.channel){entry.duplicateIncomingEvents=(entry.duplicateIncomingEvents||0)+1;channel.close();return;}entry.channel=channel;entry.channelLabel=channel.label;entry.channelBoundAt=this.now();
     channel.addEventListener('open',()=>{entry.channelOpenedAt=this.now();});
     channel.addEventListener('close',()=>{entry.channelClosedAt=this.now();if(entry.channel===channel){entry.channel=null;entry.seen.clear();entry.probe=null;entry.samples=[];}});
     channel.addEventListener('message',event=>{

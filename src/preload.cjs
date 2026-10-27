@@ -18,6 +18,7 @@ contextBridge.exposeInMainWorld('desktop', {
   play: (multiplayer,authoritativeWorld=false) => invoke('play', multiplayer,authoritativeWorld),
   sendFrame: value => invoke('remote-frame', value),
   sendShot: value => invoke('remote-shot',value),
+  applyPlayerHit: value => invoke('player-hit',value),
   sendWorld: value => invoke('remote-world',value),
   sendDriverState: value=>invoke('remote-driver-state',value),
   sendVehicleDoors: value=>invoke('remote-vehicle-doors',value),

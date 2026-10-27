@@ -29,6 +29,7 @@ void VT_SetRemoteAnimation(int slot,const float* a,const float* b,float t,float 
 void VT_SetRemoteHealth(int slot,float health);
 void VT_SetRemoteWanted(int slot,int level);
 void VT_ApplyLocalHealth(float health);
+void VT_ApplyPlayerHit(int slot,const float* state);
 int VT_ReadRemote(int slot,float* out);
 int VT_ReadRemoteSkeleton(int slot,float* out);
 int VT_ReadLocalSkeleton(float* out);
@@ -96,9 +97,9 @@ void init() {
     lastSent=clockMs();
 }
 }
-extern "C" void VT_SendHit(int slot,int weapon) {
+extern "C" void VT_SendHit(int slot,int weapon,float amount) {
     if(bridge==INVALID_SOCKET || slot<0 || slot>=7)return;
-    Wire hit={};hit.magic=MAGIC;hit.type=9;hit.slot=slot;hit.state[0]=float(weapon);
+    Wire hit={};hit.magic=MAGIC;hit.type=9;hit.slot=slot;hit.state[0]=float(weapon);hit.state[7]=amount;
     float local[34]={},remote[20]={};
     if(!VT_ReadLocal(local) || !VT_ReadRemote(slot,remote))return;
     for(int i=0;i<3;i++){hit.state[1+i]=local[i];hit.state[4+i]=remote[i];}
@@ -169,7 +170,12 @@ void ViceTogetherBeforeWorld() {
     if(getenv("VT_TEST_COMBAT")) {
         CPlayerPed* player=FindPlayerPed();if(!player)return;
         if(!testStart)testStart=clockMs();
-        const bool attacker=atof(getenv("VT_SPAWN_OFFSET"))<0.5;
+        const DWORD elapsed=clockMs()-testStart;
+        const bool originalAttacker=atof(getenv("VT_SPAWN_OFFSET"))<0.5;
+        const bool bidirectional=getenv("VT_TEST_COMBAT_BIDIRECTIONAL")!=nullptr;
+        const DWORD phase=elapsed/10000;
+        const bool attacker=bidirectional?(phase==0?originalAttacker:!originalAttacker):originalAttacker;
+        if(bidirectional&&phase>=2){CPad::GetPad(0)->NewState.Clear();return;}
         if(getenv("VT_TEST_GUN")) {
             CPad::GetPad(0)->NewState.LeftStickY=attacker?0:(((clockMs()-testStart)/1600)%2?128:-128);
             if(attacker && clockMs()-testStart>3000) {
@@ -184,19 +190,24 @@ void ViceTogetherBeforeWorld() {
             // Real pad input: the defender sidesteps back and forth while being attacked.
             CPad::GetPad(0)->NewState.LeftStickY=((clockMs()-testStart)/800)%2?128:-128;
         }
-        if(attacker && clockMs()-testStart>3000) {
-            const bool pressed=(clockMs()%800)<150;
+        const DWORD phaseElapsed=elapsed%10000;
+        if(attacker && elapsed>3000) {
+            const bool pressed=bidirectional
+                ? phaseElapsed>=2000&&phaseElapsed<9000&&((phaseElapsed-2000)%1800)<180
+                : (clockMs()%800)<150;
             static bool previousPress=false;
             if(pressed && !previousPress) {
                 // Keep this stationary combat fixture in reach after animation root motion.
                 float target[20]={};
-                if(getenv("VT_TEST_MOVING_COMBAT") && VT_ReadRemote(0,target))
-                    player->Teleport(CVector(target[0]-1.1f,target[1],player->GetPosition().z));
-                else player->Teleport(CVector(-592.0f,670.0f,player->GetPosition().z));
+                if(VT_ReadRemote(0,target)) {
+                    const float side=originalAttacker?-1.1f:1.1f;
+                    player->Teleport(CVector(target[0]+side,target[1],target[2]));
+                } else player->Teleport(CVector(-592.0f,670.0f,player->GetPosition().z));
             }
             previousPress=pressed;
-            player->m_fRotationCur=player->m_fRotationDest=-1.5707963f;
-            player->SetHeading(-1.5707963f);
+            const float heading=originalAttacker?-1.5707963f:1.5707963f;
+            player->m_fRotationCur=player->m_fRotationDest=heading;
+            player->SetHeading(heading);
             CPad::GetPad(0)->NewState.Circle=pressed?255:0;
         }
         return;
@@ -239,6 +250,7 @@ void ViceTogetherNetworkTick() {
         if(wire.type==5){char name[25]={};std::memcpy(name,wire.state,24);VT_SetRemoteName(wire.slot,name,((unsigned char*)wire.state)[24]%8);continue;}
         if(wire.type==7){if(std::isfinite(wire.state[0]) && wire.state[0]>=0 && wire.state[0]<8)VT_SetLocalColor(int(wire.state[0]));continue;}
         if(wire.type==10){VT_ApplyLocalHealth(wire.state[0]);continue;}
+        if(wire.type==17){if(wire.state[0]>=0&&wire.state[0]<WEAPONTYPE_TOTALWEAPONS&&wire.state[0]==floorf(wire.state[0])&&std::isfinite(wire.state[1])&&wire.state[1]>0&&wire.state[1]<=60&&std::isfinite(wire.state[2])&&wire.state[2]>0&&wire.state[2]<16777216&&wire.state[2]==floorf(wire.state[2])&&std::isfinite(wire.state[3])&&std::isfinite(wire.state[4]))VT_ApplyPlayerHit(wire.slot,wire.state);continue;}
         if(wire.type==13){if(std::isfinite(wire.state[0]) && wire.state[0]>=0 && wire.state[0]<WEAPONTYPE_TOTALWEAPONS && wire.state[0]==floorf(wire.state[0])){VT_SetRemoteWeapon(wire.slot,int(wire.state[0]));VT_SetRemoteWeaponVisible(wire.slot,wire.state[1]!=0);if(std::isfinite(wire.state[2]) && wire.state[2]>=0 && wire.state[2]<=6 && wire.state[2]==floorf(wire.state[2]))VT_SetRemoteWanted(wire.slot,int(wire.state[2]));}continue;}
         if(wire.type==15){if(delayedShots.size()<64)delayedShots.push_back({wire,now+100});continue;}
         if(wire.type!=2)continue;

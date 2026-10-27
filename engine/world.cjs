@@ -6,6 +6,7 @@ function validVehicleVisual(v){return Array.isArray(v)&&v.length===34&&v.every(N
 function validDriverVehicleVisual(v){return validVehicleVisual(v)&&v[31]<=5;}
 function validDriverSnapshot(update){
   const d=update?.state;
+  if(update?.seq!==undefined&&(!Number.isSafeInteger(update.seq)||update.seq<1||update.seq>0x7fffffff))return false;
   if(!Number.isSafeInteger(update?.id)||update.id<0||!Array.isArray(d)||d.length!==34||!d.every(Number.isFinite)||!Number.isInteger(d[0])||d[0]<0||d[0]>=6500||![0,1,2,3,4].includes(d[1])||d.slice(2,5).some((v,i)=>Math.abs(v)>[10000,10000,3000][i])||d.slice(5,14).some(v=>Math.abs(v)>1.1)||d.slice(14,17).some(v=>Math.abs(v)>3)||d[17]<0||d[17]>1000||!Number.isInteger(d[19])||d[19]<0||d[19]>5||d[20]!==1||d.slice(23,26).some(v=>Math.abs(v)>5))return false;
   const axes=[d.slice(5,8),d.slice(8,11),d.slice(11,14)];
   if(axes.some(axis=>Math.abs(Math.hypot(...axis)-1)>0.05))return false;

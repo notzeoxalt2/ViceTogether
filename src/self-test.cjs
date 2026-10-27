@@ -22,6 +22,22 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     assert.ok(await win.webContents.executeJavaScript("!document.getElementById('page-play').hidden"),'Library card did not open Vice City setup and play');
     await win.webContents.executeJavaScript("document.querySelector('nav [data-page=\"library\"]').click();document.getElementById('library-search').value='';document.getElementById('library-search').dispatchEvent(new Event('input'))");
     result.tests.push('Supported game library, search empty state, and Vice City setup navigation work in the sandboxed launcher');
+    // Prepare the shared game cache before opening the guest renderer. Each
+    // renderer receives readiness during init, so importing after both windows
+    // are open leaves the guest Start button disabled with a stale snapshot.
+    if(process.env.VT_TEST_UI_GAME==='1' && process.argv.includes('--native-test')) {
+      let gameStatus=await assets.status();
+      if(!gameStatus.gameReady&&process.env.VT_TEST_GAME_ROOT){
+        gameStatus=await assets.import(process.env.VT_TEST_GAME_ROOT,'game');
+        result.localGameImport={gameReady:gameStatus.gameReady,gameFiles:gameStatus.gameFiles,gameSource:gameStatus.gameSource};
+      }
+      assert.ok(gameStatus.gameReady,'UI gameplay test requires a real imported game library or VT_TEST_GAME_ROOT pointing at your original PC game folder');
+      process.env.VT_TEST_GAME_ROOT=path.join(assets.root,'game');
+      delete process.env.VT_TEST_IMPORT_CACHE;
+      await win.loadURL('vice://launcher/index.html');
+      await waitFor(()=>win.webContents.executeJavaScript('!!window.testLobby && !!window.desktop'),'Launcher did not reinitialize after the test game import');
+      result.tests.push('Actual launcher UI reinitializes against the imported local game cache');
+    }
     if((await assets.status()).gameReady && registerTestLauncher){
       let launches=0;registerTestLauncher(win,async()=>{launches++;});
       await win.webContents.executeJavaScript("document.querySelector('[data-game-id=\"vice-city\"] .primary').click()");
@@ -116,9 +132,6 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
         }catch(error){(result.captureWarnings??=[]).push(error.message);}
         if(process.env.VT_TEST_SHOW==='1')await delay(6000);
         if(process.env.VT_TEST_UI_GAME==='1' && process.argv.includes('--native-test')) {
-          assert.ok((await assets.status()).gameReady,'UI gameplay test requires a real imported game library');
-          process.env.VT_TEST_GAME_ROOT=path.join(assets.root,'game');
-          delete process.env.VT_TEST_IMPORT_CACHE;
           result.nativeGame=await require('./native-game-test.cjs').runNativeGameTest({a:win,b:uiGuest,executable:nativeExecutable,out,registerLauncher:registerTestLauncher});
           result.gameplayTested=result.nativeGame.success;
           result.tests.push('Actual Start multiplayer button launches two isolated native games through launcher IPC; actual lobby carries their movement and hits');

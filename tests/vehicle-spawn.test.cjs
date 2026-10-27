@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { VEHICLE_MODELS, vehicleSpawnClearance, acceptVehicleSpawn } = require('../engine/vehicle-spawn.cjs');
+const { VEHICLE_MODELS, VEHICLE_CLASSES, vehicleSpawnClearance, acceptVehicleSpawn } = require('../engine/vehicle-spawn.cjs');
 const { validWorldFrame } = require('../engine/world.cjs');
 
 function fixture() {
@@ -18,14 +18,35 @@ test('a fresh guest can request any supported vehicle model near their authorita
   }
 });
 
+test('every supported vehicle has a native class and testable spawn path',()=>{
+  const {nativeTestFlags}=require('../src/native-engine.cjs');
+  for(const model of VEHICLE_MODELS){
+    assert.ok(['car','bike','boat','helicopter','plane'].includes(VEHICLE_CLASSES[model]),`Missing native class for model ${model}`);
+    assert.equal(nativeTestFlags({VT_TEST_VEHICLE:String(model)}).VT_TEST_VEHICLE,String(model),`Native test launcher dropped model ${model}`);
+  }
+  assert.equal(nativeTestFlags({VT_TEST_VEHICLE:'999'}).VT_TEST_VEHICLE,undefined);
+  assert.equal(VEHICLE_CLASSES[155],'helicopter');
+  assert.equal(VEHICLE_CLASSES[190],'plane');
+});
+
 test('helicopter requests keep the rotor disc clear of the requester',()=>{
   const state=fixture();
   for(const model of [155,217]){
     state.cooldowns.clear();
     const result=acceptVehicleSpawn(state.peer,model,{...state,now:1100});
-    assert.equal(vehicleSpawnClearance(model),18);
-    assert.ok(Math.hypot(result.position[0]-state.states.get(state.peer).state[0],result.position[1]-state.states.get(state.peer).state[1])>=18);
+    const minimum=model===217?24:18;
+    assert.equal(vehicleSpawnClearance(model),minimum);
+    assert.ok(Math.hypot(result.position[0]-state.states.get(state.peer).state[0],result.position[1]-state.states.get(state.peer).state[1])>=minimum);
   }
+});
+
+test('the invite authority supports the actual Maverick model 217',()=>{
+  const state=fixture();
+  assert.ok(VEHICLE_MODELS.includes(217));
+  assert.equal(vehicleSpawnClearance(217),24);
+  const request=acceptVehicleSpawn(state.peer,217,{...state,now:1100});
+  assert.equal(request.model,217);
+  assert.ok(Math.hypot(request.position[0]-10,request.position[1]-20)>=24);
 });
 
 test('vehicle spawn rejects strangers, invalid models, stale/dead/in-vehicle players and rate spam', () => {

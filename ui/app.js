@@ -97,6 +97,7 @@ window.desktop.on('local-world-damage', event => lobby.sendWorldDamage(event));
 window.desktop.on('local-equipment',weapon=>lobby.sendEquipment(weapon));
 window.desktop.on('local-shot',shot=>lobby.sendShot(shot));
 lobby.addEventListener('shot',event=>window.desktop.sendShot(event.detail));
+lobby.addEventListener('player-hit',event=>window.desktop.applyPlayerHit(event.detail).catch(()=>{}));
 window.desktop.on('local-world',frame=>lobby.sendWorld(frame));
 window.desktop.on('local-glass-request',state=>lobby.sendGlass(state));
 lobby.addEventListener('glass-request',event=>window.desktop.glassRequest(event.detail));
