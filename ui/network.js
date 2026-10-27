@@ -356,9 +356,9 @@ export class PrivateLobby extends EventTarget {
   }
   sendSeat(request){if(!this.room)return;if(this.isHost)this.acceptSeat(selfId,request);else if(this.hostId)this.seatInput.send(request,{target:this.hostId}).catch(()=>{});}
   sendVehicle(update){
-    if(!this.room||!validDriverSnapshot(update))return;
-    if(this.isHost){const targets=[...this.players.keys()].filter(id=>id!==selfId);if(targets.length)this.sendSnapshot('driver',this.vehicleInput,update,targets);}
-    else if(this.hostId)this.sendSnapshot('driver',this.vehicleInput,update,[this.hostId]);
+    if(!this.room||!validDriverSnapshot(update))return false;
+    if(this.isHost){const targets=[...this.players.keys()].filter(id=>id!==selfId);if(!targets.length)return false;this.sendSnapshot('driver',this.vehicleInput,update,targets);return true;}
+    if(!this.hostId)return false;this.sendSnapshot('driver',this.vehicleInput,update,[this.hostId]);return true;
   }
   sendVehicleDoors(update){if(this.room&&!this.isHost&&this.hostId&&Number.isSafeInteger(update?.id)&&Array.isArray(update.doors)&&update.doors.length===6&&update.doors.every(v=>Number.isFinite(v)&&Math.abs(v)<=2.4))this.vehicleDoors.send({id:update.id,doors:update.doors},{target:this.hostId}).catch(()=>{});}
   sendVehicleSpawnRequest(model){if(!this.room||this.isHost||!this.hostId||!VEHICLE_MODELS.includes(model))return false;this.vehicleSpawnAction.send({model},{target:this.hostId}).catch(()=>{});return true;}

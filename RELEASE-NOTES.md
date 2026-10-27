@@ -1,3 +1,13 @@
+# ViceTogether alpha.35 — host-driven vehicle smoothness
+
+Host-driven vehicles now use the same high-rate native driver-state stream that already kept guest-driven vehicles smooth. Guests apply these validated snapshots to the native car replica and interpolate between samples instead of relying on the slower ambient-world update. The change covers supported cars, bikes, boats, and aircraft through the shared vehicle stream.
+
+Validation: all 74 repository tests passed. A hidden same-PC test used two native game instances and a real private WebRTC lobby for a 25-second host-driven car session. The guest received 1,171 of 1,171 host snapshots, with 14 ms median and 21 ms p95 arrival intervals; it applied 1,161 snapshots and rendered about 2.04 interpolation ticks per packet. Both local engines measured about 143 FPS. The test did not cover a passenger in the car or public internet routes; this is a smoothness improvement, not proof of perfect physics or guaranteed connectivity.
+
+Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.34 — vehicle sync verification
 
 Multiplayer vehicle construction now checks the game's handling flags, so Maverick/Hunter helicopters and the Skimmer are created with their aircraft classes instead of falling through the generic model category. Boat test setup searches farther for open water. Guest seat occupants send bounded door-angle changes during stock enter/exit tasks; the host validates the current seat claim and replays them with the native `OpenDoor` animation path.
