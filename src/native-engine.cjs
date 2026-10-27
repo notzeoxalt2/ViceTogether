@@ -81,6 +81,7 @@ class NativeEngine extends EventEmitter {
           if(process.env.VT_TEST_GUEST_SPAWN==='1'){observed.testHelicopters={count:state[19],nearest:{position:state.slice(20,23),id:state[23],rotorRotation:state[24],model:state[25],health:state[26],rotorSpeed:state[16],status:state[17],engineOn:state[18]===1,groundZ:state[29]}};observed.testSpawn={calls:state[27],stage:state[28],stageName:['idle','received','rejected','busy','streaming','expired','waiting-model','waiting-player','pool-full','unsupported','created','no-safe-ground'][state[28]]||'unknown',groundZ:state[29],createdModel:state[30],createdZ:state[31],createdHasRenderObject:state[32]===1,createdVehicleId:state[33]};}
           this.emit('world-observed',observed);
         }
+        else if(type===24&&state.every(Number.isFinite))this.emit('seat-task-diagnostic',{state});
         else if(type===28 && Number.isSafeInteger(state[0]) && Number.isInteger(state[1]))this.emit('seat-state',{id:state[0],seat:state[1]});
         else if(type===30)this.emit('seat-request',{id:slot,driver:state[0]===-1});
         else if(type===55&&!this.authoritativeWorld&&Number.isInteger(state[0])&&VEHICLE_MODELS.includes(state[0]))this.emit('vehicle-spawn-request',state[0]);

@@ -444,6 +444,42 @@ void ViceTogetherWorldStatus(float* out) {
     }
     if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;const int targetHeli=getenv("VT_TEST_VEHICLE")?atoi(getenv("VT_TEST_VEHICLE")):217;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(multiplayerHelicopter(car)&&car->GetModelIndex()==targetHeli){out[32]=networkHeliRotorAngle(car);out[33]=float(targetHeli);break;}}}
 }
+void ViceTogetherWorldSeatDiagnostic(float* out) {
+    if(!out)return;
+    for(int i=0;i<34;i++)out[i]=0.0f;
+    CPlayerPed* player=FindPlayerPed();
+    if(!player){out[0]=-1.0f;return;}
+    CVehicle* objective=player->m_carInObjective;
+    CVehicle* current=player->m_pMyVehicle;
+    const int door=int(player->m_vehDoor);
+    CAnimBlendAssociation* animation=player->m_pVehicleAnim;
+    out[0]=float(player->GetPedState());
+    out[1]=float(player->m_objective);
+    out[2]=float(player->m_prevObjective);
+    out[3]=float(door);
+    out[4]=player->EnteringCar()?1.0f:0.0f;
+    out[5]=animation?float(animation->animId):-1.0f;
+    out[6]=animation?animation->currentTime:-1.0f;
+    out[7]=animation?animation->blendAmount:-1.0f;
+    out[8]=animation?animation->blendDelta:-1.0f;
+    out[9]=objective?float(objective->GetModelIndex()):-1.0f;
+    out[10]=objective?float(CPools::GetVehicleRef(objective)):-1.0f;
+    out[11]=current?float(current->GetModelIndex()):-1.0f;
+    out[12]=player->bInVehicle?1.0f:0.0f;
+    out[13]=current?float(CPools::GetVehicleRef(current)):-1.0f;
+    out[14]=float(int32(player->m_nPedStateTimer-CTimer::GetTimeInMilliseconds()));
+    out[15]=objective?float(objective->m_nGettingInFlags):-1.0f;
+    out[16]=objective?float(objective->m_nNumGettingIn):-1.0f;
+    out[17]=objective&&objective->pPassengers[0]?float(CPools::GetPedRef(objective->pPassengers[0])):-1.0f;
+    out[18]=objective&&objective->pPassengers[1]?float(CPools::GetPedRef(objective->pPassengers[1])):-1.0f;
+    out[19]=objective&&objective->pDriver?float(CPools::GetPedRef(objective->pDriver)):-1.0f;
+    if(objective&&door>=0&&door<6){const eDoors nativeDoor=eDoors(door);out[20]=objective->IsDoorMissing(nativeDoor)?1.0f:0.0f;out[21]=objective->IsDoorReady(nativeDoor)?1.0f:0.0f;out[22]=objective->IsDoorFullyOpen(nativeDoor)?1.0f:0.0f;if(objective->IsCar())out[23]=((CAutomobile*)objective)->Doors[door].m_fAngle;}
+    const CVector playerPosition=player->GetPosition();out[24]=playerPosition.x;out[25]=playerPosition.y;out[26]=playerPosition.z;
+    if(objective){const CVector vehiclePosition=objective->GetPosition();out[27]=vehiclePosition.x;out[28]=vehiclePosition.y;out[29]=vehiclePosition.z;out[30]=(vehiclePosition-playerPosition).Magnitude();}
+    out[31]=player->bUsesCollision?1.0f:0.0f;
+    out[32]=objective?float(objective->m_nNumMaxPassengers):-1.0f;
+    out[33]=float(player->m_nPedStateTimer);
+}
 bool ViceTogetherWorldVehicle(const CVehicle* car) {
     if(host()){if(multiplayerHelicopter(const_cast<CVehicle*>(car)) && car->pDriver!=FindPlayerPed() && std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return true;auto it=delegatedVehicles.find(unsigned(CPools::GetVehicleRef((CVehicle*)car)));return it!=delegatedVehicles.end() && CTimer::GetTimeInMilliseconds()-it->second<750;}
     for(const auto& entry:vehicles)if(entry.second.entity==car)return !(car->pDriver==FindPlayerPed() && FindPlayerPed()->bInVehicle);return false;

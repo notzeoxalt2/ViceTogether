@@ -223,7 +223,7 @@ void ViceTogetherNetworkTick() {
     const DWORD now=clockMs();
     reportPerformance(now);
     static DWORD lastWorld=0,lastDriver=0;
-    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);lastWorld=now;}
+    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);const char* testVehicle=getenv("VT_TEST_VEHICLE");if(getenv("VT_TEST_GUEST_DRIVE")&&testVehicle&&atoi(testVehicle)==217){float seatTask[34]={};ViceTogetherWorldSeatDiagnostic(seatTask);sendWorld(24,0,seatTask);}lastWorld=now;}
     // Driver ownership is a small, replaceable state packet. Send it near
     // 90 Hz so the other client gets frequent motion and wheel updates without
     // waiting for the slower ambient-world transaction.

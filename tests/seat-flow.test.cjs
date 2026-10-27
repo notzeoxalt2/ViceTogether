@@ -82,6 +82,10 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(harness,/seat\.id>=0&&seat\.seat>=0[^;]*sendSeat[^;]*\{id:seat\.id\}/,'Host passenger occupancy must be reserved in the lobby snapshot');
   const native=fs.readFileSync(path.join(__dirname,'..','src','native-engine.cjs'),'utf8');
   assert.match(native,/Object\.assign\(env,nativeTestFlags\(\)\)/,'Hidden vehicle fixtures must pass every supported vehicle model into the game');
+  assert.match(world,/void ViceTogetherWorldSeatDiagnostic\(float\* out\)/,'Helicopter entry failures must capture native ped-task and door state');
+  assert.match(network,/sendWorld\(24,0,seatTask\)/,'Model 217 seat diagnostics must use the existing loopback bridge');
+  assert.match(native,/type===24&&state\.every\(Number\.isFinite\).*seat-task-diagnostic/,'The native harness must retain the seat-task samples');
+  assert.match(harness,/nativeSeatTaskSamples:seatTaskDiagnostics\[0\]\.slice\(-80\)/,'Helicopter failures must save native samples for diagnosis');
 });
 
 test('multiplayer car passengers use the stock jump-out animation and speed gate',()=>{

@@ -45,6 +45,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const guestSpawnRequests=[],hostSpawnApprovals=[],hostSpawnResults=[];let heliRequestSentAt=null,heliLobbyRequest=null,heliRequestPath='';
   const launchRequests=[0,0];
   const seatDiagnostics=[null,null],driverFlow=[null,null],seatGrantCalls=[0,0],lastSeatGrantEventCount=[0,0],seatRequests=[[],[]];
+  const seatTaskDiagnostics=[[],[]];
   let heliHostPassengerSetup=null;
   const driverSamples=[];const localSeats=[[],[]];let lastGuestSeat=-1,lastHostSeat=-1,lastHostSeatIndex=-2;
   const forwardedDriverCounts=[0,0];
@@ -70,6 +71,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       await fs.copyFile(path.join(gameRoot, 'Mss32.dll'), path.join(root, 'Mss32.dll'));
       await progress(`game-copy-ready-${i}`);
       engines[i].on('problem', text => errors.push(text));
+      engines[i].on('seat-task-diagnostic',event=>{seatTaskDiagnostics[i].push({time:Date.now(),...event});if(seatTaskDiagnostics[i].length>1200)seatTaskDiagnostics[i].shift();});
       engines[i].on('packet-diagnostic',packet=>diagnostics.push({player:i,...packet}));
       engines[i].on('melee-validation',event=>meleeValidation.push(event));
       engines[i].on('ended', ({code}) => { if(!stopping) errors.push(`Engine ${i} exited before test completion (code ${code})`); });
@@ -158,7 +160,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         await waitFor(()=>localSeats[0].some(sample=>sample.id===candidate.id&&sample.seat>=0),'Native host did not finish the helicopter passenger entry task',30000);
       } catch (error) {
         const hostState=await windows[0].webContents.executeJavaScript("(()=>{const host=[...testLobby.players].find(([,p])=>p.host)?.[0];const claim=host&&testLobby.seats.claims.get(host);return {claim,player:host&&testLobby.states.get(host)?.state,cars:[...testLobby.seats.cars.entries()].filter(([,car])=>car[0]===217).map(([id,car])=>({id,position:car.slice(2,5),capacity:car[22],health:car[17]}))}})()");
-        await fs.writeFile(path.join(out,'heli-seat-entry-failure.json'),JSON.stringify({error:error.message,hostState,nativeSeatSamples:localSeats[0].slice(-60),hostPedSamples:sourceSkeleton[0].slice(-60).map(sample=>({time:sample.time,state:sample.state.slice(4,7),position:sample.state.slice(17,20),vehicleAnimation:sample.state.slice(11,15),doors:sample.state.slice(20,26)})),hostWorldStatus:worldStatusTimeline[0].slice(-60),hostPerformance:performance[0].slice(-20),samePC:true,internetTested:false},null,2));
+        await fs.writeFile(path.join(out,'heli-seat-entry-failure.json'),JSON.stringify({error:error.message,hostState,nativeSeatSamples:localSeats[0].slice(-60),hostPedSamples:sourceSkeleton[0].slice(-60).map(sample=>({time:sample.time,state:sample.state.slice(4,7),position:sample.state.slice(17,20),vehicleAnimation:sample.state.slice(11,15),doors:sample.state.slice(20,26)})),nativeSeatTaskSchema:['pedState','objective','previousObjective','door','enteringCar','vehicleAnimationId','animationTime','animationBlend','animationBlendDelta','objectiveVehicleModel','objectiveVehicleId','currentVehicleModel','inVehicle','currentVehicleId','pedStateTimerRemainingMs','gettingInFlags','numGettingIn','passenger0PedId','passenger1PedId','driverPedId','doorMissing','doorReady','doorFullyOpen','doorAngle','playerX','playerY','playerZ','vehicleX','vehicleY','vehicleZ','playerVehicleDistance','usesCollision','maxPassengers','pedStateTimer'],nativeSeatTaskSamples:seatTaskDiagnostics[0].slice(-80),hostWorldStatus:worldStatusTimeline[0].slice(-60),hostPerformance:performance[0].slice(-20),samePC:true,internetTested:false},null,2));
         throw error;
       }
       const passengerSeat=await windows[0].webContents.executeJavaScript(`testLobby.seats.claims.get([...testLobby.players].find(([,p])=>p.host)?.[0])?.seat`);

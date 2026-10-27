@@ -16,6 +16,7 @@ bool ViceTogetherWorldNearbyBigBang(float x,float y,float z);
 void ViceTogetherWorldMenuTick();
 const char* ViceTogetherWorldMenuStatus();
 void ViceTogetherWorldStatus(float* state);
+void ViceTogetherWorldSeatDiagnostic(float* state);
 bool ViceTogetherWorldPed(const CPed* ped);
 int ViceTogetherWorldPedId(const CPed* ped);
 bool ViceTogetherWorldHostPed(unsigned id,CPed** ped);
