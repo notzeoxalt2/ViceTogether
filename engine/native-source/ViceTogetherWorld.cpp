@@ -402,6 +402,7 @@ void ViceTogetherApplyDriverVisual(unsigned id,const float* v){
 }
 extern "C" int VT_ReadRemoteVehicle(int slot);
 extern "C" int VT_ReadRemote(int slot,float* out);
+extern "C" int VT_ReadRemoteSkeleton(int slot,float* out);
 void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)return;CPad* pad=CPad::GetPad(0);pad->NewState.Clear();
     if(getenv("VT_TEST_GUEST_DRIVE")) {
         static int warmup=0;if(++warmup<500 || !player->m_rwObject)return;
@@ -437,7 +438,8 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
             const CVector target=haveHost?CVector(hostState[0],hostState[1],hostState[2]):player->GetPosition();
             CVehicle* candidate=nil;unsigned candidateId=0;float closest=1000000.0f;
             for(const auto& entry:vehicles)if(entry.second.entity){CVehicle* car=(CVehicle*)entry.second.entity;if(car->GetModelIndex()!=model||car->m_fHealth<=0||car->pDriver)continue;const float distance=(car->GetPosition()-target).MagnitudeSqr();if(distance<closest){closest=distance;candidate=car;candidateId=entry.first;}}
-            const bool hostSeatedForHeli=model!=217||(haveHost&&int(hostState[8])==int(candidateId)&&hostState[9]>=0);
+            float hostSeatState[34]={};const bool haveHostSeat=VT_ReadRemoteSkeleton(0,hostSeatState);
+            const bool hostSeatedForHeli=model!=217||(haveHostSeat&&int(hostSeatState[29])==int(candidateId)&&hostSeatState[33]>=0);
             if(candidate&&hostSeatedForHeli){if(!guestPositioned){if(candidate->IsBoat()){for(int radius=3;radius<=10&&!guestPositioned;radius++)for(int angle=0;angle<32;angle++){const float a=angle*6.2831853f/32;const float x=candidate->GetPosition().x+cosf(a)*radius,y=candidate->GetPosition().y+sinf(a)*radius;bool dryGroundFound=false;const float dryGround=CWorld::FindGroundZFor3DCoord(x,y,candidate->GetPosition().z+100,&dryGroundFound);float nearbyWater=0;const bool wet=CWaterLevel::GetWaterLevel(x,y,candidate->GetPosition().z,&nearbyWater,true);if(dryGroundFound&&(!wet||dryGround>nearbyWater+0.65f)){player->Teleport(CVector(x,y,dryGround+0.5f));guestPositioned=true;break;}}if(!guestPositioned&&haveHost){player->Teleport(CVector(hostState[0],hostState[1],hostState[2]));guestPositioned=true;}}else{player->Teleport(candidate->GetPosition()+candidate->GetRight()*3.0f);guestPositioned=true;}}if(guestPositioned){VT_SendDriverRequest(candidateId);guestDriverRequestSent=true;}}
             last=now;
         }return;

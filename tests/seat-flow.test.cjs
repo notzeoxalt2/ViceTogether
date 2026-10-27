@@ -68,7 +68,8 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(harness,/silently re-seated after exiting/);
   assert.match(world,/!guestDriverRequestSent&&now-last>500/);
   assert.match(world,/!hostPassengerRequested&&!player->bInVehicle&&testCar->m_nNumMaxPassengers>0/,'The host should finish its stock passenger entry before a helicopter departs');
-  assert.match(world,/model!=217\|\|\(haveHost&&int\(hostState\[8\]\)==int\(candidateId\)&&hostState\[9\]>=0\)/,'The helicopter driver should wait until the host is seated');
+  assert.match(world,/VT_ReadRemoteSkeleton\(0,hostSeatState\)/,'The helicopter driver test must inspect the remote ped seat, not unrelated movement fields');
+  assert.match(world,/model!=217\|\|\(haveHostSeat&&int\(hostSeatState\[29\]\)==int\(candidateId\)&&hostSeatState\[33\]>=0\)/,'The helicopter driver should wait until the host is actually seated');
   assert.match(harness,/seat\.id>=0&&seat\.seat>=0[^;]*sendSeat[^;]*\{id:seat\.id\}/,'Host passenger occupancy must be reserved in the lobby snapshot');
   const native=fs.readFileSync(path.join(__dirname,'..','src','native-engine.cjs'),'utf8');
   assert.match(native,/VT_TEST_VEHICLE'&&\/\^\(130\|176\|182\|190\|191\|203\|217\)\$/,'Hidden vehicle fixtures must pass supported boat models into the game');
