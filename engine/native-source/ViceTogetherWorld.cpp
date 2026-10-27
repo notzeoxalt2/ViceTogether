@@ -88,7 +88,8 @@ CHeli* createMultiplayerHeli(int model){
     return heli;
 }
 CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);const uint32 flags=handling?handling->Flags:0;if(flags&HANDLING_IS_HELI)return createMultiplayerHeli(model);if(flags&HANDLING_IS_PLANE)return new CPlane(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BOAT)return new CBoat(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BIKE)return new CBike(model,MISSION_VEHICLE);switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return createMultiplayerHeli(model);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
-void trackNetworkHeli(CVehicle* car){if(!car||!car->IsHeli())return;for(int i=0;i<16;i++)if(networkHelis[i]==car){networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=car->GetHeading();return;}for(int i=0;i<16;i++)if(!networkHelis[i]){networkHelis[i]=car;networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=car->GetHeading();car->RegisterReference((CEntity**)&networkHelis[i]);return;}}
+float networkHeliHeading(CVehicle* heli){const CVector forward=heli->GetForward();return atan2f(-forward.x,forward.y);}
+void trackNetworkHeli(CVehicle* car){if(!car||!car->IsHeli())return;for(int i=0;i<16;i++)if(networkHelis[i]==car){networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=networkHeliHeading(car);return;}for(int i=0;i<16;i++)if(!networkHelis[i]){networkHelis[i]=car;networkHeliAnchors[i]=car->GetPosition();networkHeliHeadings[i]=networkHeliHeading(car);car->RegisterReference((CEntity**)&networkHelis[i]);return;}}
 void stabilizeUnpilotedNetworkHelis(){
     if(!host()&&!guest())return;
     const uint32 now=CTimer::GetTimeInMilliseconds();
@@ -99,9 +100,10 @@ void stabilizeUnpilotedNetworkHelis(){
         const bool remotePilot=delegated!=delegatedVehicles.end()&&now-delegated->second<1500;
         bool occupied=heli->pDriver!=nil;
         for(int seat=0;seat<8&&!occupied;seat++)occupied=heli->pPassengers[seat]!=nil;
-        if(occupied||remotePilot){networkHeliAnchors[i]=heli->GetPosition();networkHeliHeadings[i]=heli->GetHeading();continue;}
+        if(occupied||remotePilot){networkHeliAnchors[i]=heli->GetPosition();networkHeliHeadings[i]=networkHeliHeading(heli);continue;}
         const CVector offset=heli->GetPosition()-networkHeliAnchors[i];
-        const float headingDelta=atan2f(sinf(heli->GetHeading()-networkHeliHeadings[i]),cosf(heli->GetHeading()-networkHeliHeadings[i]));
+        const float heading=networkHeliHeading(heli);
+        const float headingDelta=atan2f(sinf(heading-networkHeliHeadings[i]),cosf(heading-networkHeliHeadings[i]));
         if(offset.MagnitudeSqr()<0.0625f&&heli->GetMoveSpeed().MagnitudeSqr()<0.0064f&&fabsf(headingDelta)<0.04f)continue;
         // Keep an empty network helicopter at its last safe point if engine
         // idle physics drifts it. Do not touch transforms while a native seat
