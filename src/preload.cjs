@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('desktop', {
   sendShot: value => invoke('remote-shot',value),
   applyPlayerHit: value => invoke('player-hit',value),
   sendWorld: value => invoke('remote-world',value),
-  sendDriverState: value=>invoke('remote-driver-state',value),
+  sendDriverState: value=>ipcRenderer.send('remote-driver-state',value),
   sendVehicleDoors: value=>invoke('remote-vehicle-doors',value),
   sendNetworkStatus: value=>invoke('network-status',value),
   seatGrant: value=>invoke('seat-grant',value),

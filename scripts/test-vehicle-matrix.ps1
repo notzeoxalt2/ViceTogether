@@ -42,26 +42,30 @@ foreach ($model in $Models) {
     $desktop = Get-Content (Join-Path $out 'desktop-tests.json') -Raw | ConvertFrom-Json
   }
   $native = $desktop.nativeGame
+  $hasNative = $null -ne $native
+  $carPerformance = if ($hasNative) { @($native.carPerformance) } else { @() }
+  $remoteSeatStates = if ($hasNative) { @($native.remoteSeatStates) } else { @() }
+  $failure = if ($desktop.error) { $desktop.error } elseif ($native.error) { $native.error } else { $null }
   $row = [pscustomobject]@{
     model = $model
     launcherStatus = $launcherStatus
-    success = [bool]($desktop.success -and $native.success)
-    error = $desktop.error
-    class = $native.vehicleClass
-    positionErrorP95Metres = $native.carReplication.positionErrorP95Metres
-    driverArrivalP95Ms = $native.carReplication.driverIntervalP95Ms
-    hostMedianFps = $native.carPerformance[0].medianFps
-    guestMedianFps = $native.carPerformance[1].medianFps
-    passengerVisibleRatio = $native.remoteSeatStates[1].visibleRatio
-    exitedPlayers = @($native.exits | Where-Object { $_.exited }).Count
-    doorSamples = $native.openDoorSamples
-    wheelMotion = $native.wheelMotion
-    rotorMotion = $native.rotorMotion
+    success = [bool]($desktop.success -and $hasNative -and $native.success)
+    error = $failure
+    class = if ($hasNative) { $native.vehicleClass } else { $null }
+    positionErrorP95Metres = if ($hasNative) { $native.carReplication.positionErrorP95Metres } else { $null }
+    driverArrivalP95Ms = if ($hasNative) { $native.carReplication.driverIntervalP95Ms } else { $null }
+    hostMedianFps = if ($carPerformance.Count -gt 0) { $carPerformance[0].medianFps } else { $null }
+    guestMedianFps = if ($carPerformance.Count -gt 1) { $carPerformance[1].medianFps } else { $null }
+    passengerVisibleRatio = if ($remoteSeatStates.Count -gt 1) { $remoteSeatStates[1].visibleRatio } else { $null }
+    exitedPlayers = if ($hasNative) { @($native.exits | Where-Object { $_.exited }).Count } else { 0 }
+    doorSamples = if ($hasNative) { $native.openDoorSamples } else { $null }
+    wheelMotion = if ($hasNative) { $native.wheelMotion } else { $null }
+    rotorMotion = if ($hasNative) { $native.rotorMotion } else { $null }
   }
   $results.Add($row)
   $results | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $OutputRoot 'summary.json')
   Write-Output ($row | ConvertTo-Json -Compress -Depth 5)
-  if (!$row.success) { $firstFailure = $row; break }
+  if (!$row.success -and !$firstFailure) { $firstFailure = $row }
 }
 
-if ($firstFailure) { throw "Vehicle matrix stopped at model $($firstFailure.model). See its console.log and desktop-tests.json." }
+if ($firstFailure) { throw "Vehicle matrix completed with failures; first was model $($firstFailure.model). See summary.json and each vehicle's console.log/desktop-tests.json." }

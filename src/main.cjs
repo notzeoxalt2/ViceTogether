@@ -109,6 +109,15 @@ function ipc(channel, handler) {
     catch (error) { return { ok: false, error: error.message }; }
   });
 }
+function ipcEvent(channel, handler) {
+  ipcMain.on(channel, (event, ...args) => {
+    if ((event.sender !== win?.webContents && !(selfTest && testWindows.has(event.sender))) || !event.senderFrame?.url.startsWith('vice://launcher/')) return;
+    try {
+      const result = handler.call({sender:event.sender}, ...args);
+      if (result && typeof result.then === 'function') result.catch(error => console.error(`IPC event ${channel} failed:`, error));
+    } catch (error) { console.error(`IPC event ${channel} failed:`, error); }
+  });
+}
 async function start() {
   nativeEngine = activeGame.createEngine(nativeExecutable());
   nativeEngine.on('state', state => win?.webContents.send('local-state', state));
@@ -216,7 +225,7 @@ async function start() {
   ipc('remote-shot',shot=>{nativeEngine.remoteShot(shot);return true;});
   ipc('player-hit',hit=>hit?.selfTarget===true?nativeEngine.playerHit(hit):false);
   ipc('remote-world',frame=>nativeEngine.remoteWorld(frame));
-  ipc('remote-driver-state',function(update){
+  ipcEvent('remote-driver-state',function(update){
     const testHandler=testDriverStateHandlers.get(this.sender);
     if(selfTest&&testHandler)return testHandler(update);
     return nativeEngine.driverState(update);

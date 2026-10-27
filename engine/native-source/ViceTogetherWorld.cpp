@@ -45,7 +45,7 @@
 namespace {
 struct EntityState { unsigned id,type; float data[34],visual[34]; bool hasVisual; };
 struct Replica { CEntity* entity; float previous[34],target[34],previousVisual[34],visual[34]; uint32 received; unsigned generation; bool hasVisual; };
-struct DriverMotion { float from[12],target[12]; uint32 received,duration; bool initialized,settled; };
+struct DriverMotion { float from[12],target[12],sample[3],velocity[3]; uint32 received,duration; bool initialized,settled; };
 struct PedShotSample {uint32 time;int model;CVector position;};
 std::map<unsigned,Replica> pedestrians,vehicles;
 std::map<unsigned,DriverMotion> driverMotions;
@@ -522,8 +522,9 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     // a locally driven car or one driven by an unrelated occupant.
     if(host()&&car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver)))return;
     if(guest()&&car->pDriver==FindPlayerPed())return;
-    for(int i=0;i<26;i++)if(!std::isfinite(d[i]))return;
+    for(int i=0;i<27;i++)if(!std::isfinite(d[i]))return;
     if(d[20]!=1||d[17]<0||d[17]>1000||d[19]<0||d[19]>5||floorf(d[19])!=d[19])return;
+    if(d[26]<0||d[26]>0.18f)return;
     if(fabsf(d[23])>5||fabsf(d[24])>5||fabsf(d[25])>5)return;
     if(car->GetStatus()==STATUS_WRECKED)return;
     DriverMotion& motion=driverMotions[id];const uint32 now=CTimer::GetTimeInMilliseconds();
@@ -532,7 +533,17 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     motion.from[0]=position.x;motion.from[1]=position.y;motion.from[2]=position.z;
     for(int j=0;j<3;j++){motion.from[3+j*3]=basis[j].x;motion.from[4+j*3]=basis[j].y;motion.from[5+j*3]=basis[j].z;}
     for(int j=0;j<12;j++)motion.target[j]=d[2+j];
-    const uint32 interval=motion.initialized?now-motion.received:16;motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.initialized=true;motion.settled=false;
+    const uint32 interval=motion.initialized?now-motion.received:16;
+    float velocity[3]={};
+    if(motion.initialized&&interval>=5&&interval<=125){for(int i=0;i<3;i++)velocity[i]=(d[2+i]-motion.sample[i])*1000.0f/float(interval);}
+    else if(motion.initialized){for(int i=0;i<3;i++)velocity[i]=motion.velocity[i];}
+    else {for(int i=0;i<3;i++)velocity[i]=d[14+i]*50.0f;}
+    float speed=sqrtf(velocity[0]*velocity[0]+velocity[1]*velocity[1]+velocity[2]*velocity[2]);
+    if(speed>70.0f){const float scale=70.0f/speed;for(float& component:velocity)component*=scale;speed=70.0f;}
+    float lead=d[26];const float leadDistance=speed*lead;
+    if(leadDistance>2.0f&&speed>0.001f)lead=2.0f/speed;
+    for(int i=0;i<3;i++){motion.sample[i]=d[2+i];motion.velocity[i]=velocity[i];motion.target[i]=d[2+i]+velocity[i]*lead;}
+    motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.initialized=true;motion.settled=false;
     car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR"))testDriverMotionPackets++;
 }
 void ViceTogetherApplyDriverVisual(unsigned id,const float* v){

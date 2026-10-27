@@ -190,7 +190,7 @@ class NativeEngine extends EventEmitter {
   // The lobby layer authorizes guest snapshots at the host and only accepts
   // host snapshots at guests. Both sides then apply the same native high-rate
   // replica update instead of leaving guests on the slower ambient world feed.
-  driverState(update){if(!Number.isSafeInteger(update?.id)||update.id<0||!Array.isArray(update.state)||update.state.length!==34||!update.state.every(Number.isFinite))return;this.send(44,update.id,update.state);if(validDriverVehicleVisual(update.visual))this.send(61,update.id,update.visual);}
+  driverState(update){if(!Number.isSafeInteger(update?.id)||update.id<0||!Array.isArray(update.state)||update.state.length!==34||!update.state.every(Number.isFinite))return;const state=update.state.slice();const leadMs=Number.isFinite(update.leadMs)?Math.max(0,Math.min(180,update.leadMs)):30;state[26]=leadMs/1000;this.send(44,update.id,state);if(validDriverVehicleVisual(update.visual))this.send(61,update.id,update.visual);}
   driverDoors(update){if(!this.authoritativeWorld||!validVehicleDoors(update))return false;const state=Array(34).fill(0);update.doors.forEach((v,i)=>state[i]=v);this.send(63,update.id,state);return true;}
   remoteShot(shot) {
     if(shot?.self || typeof shot?.id!=='string' || !instantWeapon(shot.weapon) || !Number.isSafeInteger(shot.seq))return;

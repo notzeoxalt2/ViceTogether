@@ -29,7 +29,8 @@ test('both engines apply only lobby-authorized, validated high-rate vehicle snap
  assert.equal(validVehicleVisual(visual),true);assert.equal(validDriverVehicleVisual(visual),true);assert.equal(validVehicleVisual([...visual.slice(0,31),4096,...visual.slice(32)]),false);
  const trainVisual=[...visual];trainVisual[31]=6;assert.equal(validVehicleVisual(trainVisual),true);assert.equal(validDriverVehicleVisual(trainVisual),false);
  const malformedSiren=[...visual];malformedSiren[33]=2;assert.equal(validVehicleVisual(malformedSiren),false);
- engine.authoritativeWorld=true;engine.driverState({id:12,state,visual});assert.deepEqual(packets.map(p=>p.readUInt32LE(4)),[44,61]);
+ engine.authoritativeWorld=true;engine.driverState({id:12,state,visual,leadMs:80});assert.deepEqual(packets.map(p=>p.readUInt32LE(4)),[44,61]);
+ assert.ok(Math.abs(packets[0].readFloatLE(12+26*4)-0.08)<1e-6);assert.equal(state[26],0,'the bridge must not mutate its caller snapshot');
  assert.equal(packets[0].readFloatLE(12+17*4),540);assert.equal(packets[0].readFloatLE(12+19*4),2);assert.equal(packets[1].readFloatLE(12+19*4),0.5);
  engine.authoritativeWorld=false;engine.driverState({id:12,state,visual});assert.deepEqual(packets.slice(2).map(p=>p.readUInt32LE(4)),[44,61]);
  assert.equal(packets[2].readFloatLE(12+17*4),540);assert.equal(packets[3].readFloatLE(12+19*4),0.5);

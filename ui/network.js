@@ -381,8 +381,15 @@ export class PrivateLobby extends EventTarget {
       if(update.seq<=previous)return false;
       this.vehicleReceiveSequences.set(peerId,update.seq);
     }else if(this.isHost&&!realtime&&this.fast?.seen(peerId,'driver'))return false;
-    if(this.isHost){const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',approved);}
-    else this.emit('driver-state',update);
+    const measuredRtt=this.fast?.latency(peerId)?.rttMs;
+    const ping=this.pings?.[peerId];
+    const rttMs=Number.isFinite(measuredRtt)?measuredRtt:Number.isFinite(ping)?ping:0;
+    // A same-machine native bridge takes about 30 ms from the source snapshot
+    // to the receiving game's applied transform. Add the measured route's
+    // one-way component and let the native replica briefly predict forward.
+    const leadMs=Math.min(180,30+Math.max(0,Math.min(300,rttMs))/2);
+    if(this.isHost){const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',{...approved,leadMs});}
+    else this.emit('driver-state',{...update,leadMs});
     return true;
   }
   sendVehicleDoors(update){if(this.room&&!this.isHost&&this.hostId&&Number.isSafeInteger(update?.id)&&Array.isArray(update.doors)&&update.doors.length===6&&update.doors.every(v=>Number.isFinite(v)&&Math.abs(v)<=2.4))this.vehicleDoors.send({id:update.id,doors:update.doors},{target:this.hostId}).catch(()=>{});}
