@@ -155,7 +155,8 @@ bool syncedHitAnimation(int id){
 constexpr float remoteTagScaleX=0.34f;
 constexpr float remoteTagScaleY=0.64f;
 float remoteTagLineHeight(){return SCREEN_SCALE_Y(20.0f*remoteTagScaleY);}
-float remoteTagHeadGap(){return SCREEN_SCALE_Y(15.0f);}
+float remoteTagNameGap(){return SCREEN_SCALE_Y(15.0f);}
+float remoteTagHealthGap(){return SCREEN_SCALE_Y(11.0f);}
 bool remoteTagProjection(CPed* ped,RwV3d* screen){
     if(!ped||!ped->m_rwObject||!ped->GetClump()||!screen)return false;
     CVector head=ped->GetNodePosition(PED_HEAD);head.z+=0.10f;
@@ -164,8 +165,7 @@ bool remoteTagProjection(CPed* ped,RwV3d* screen){
 }
 struct RemoteTagLayout {float centerX,nameY,healthY,headY;};
 RemoteTagLayout remoteTagLayout(const RwV3d& head){
-    const float headGap=remoteTagHeadGap();
-    return {head.x,head.y-remoteTagLineHeight()-SCREEN_SCALE_Y(2.0f)-headGap,head.y-SCREEN_SCALE_Y(1.0f)-headGap,head.y};
+    return {head.x,head.y-remoteTagLineHeight()-SCREEN_SCALE_Y(2.0f)-remoteTagNameGap(),head.y-SCREEN_SCALE_Y(1.0f)-remoteTagHealthGap(),head.y};
 }
 struct RemoteTagObservation {
     uint32 frame;
