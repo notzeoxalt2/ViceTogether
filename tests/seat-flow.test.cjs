@@ -84,8 +84,8 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   const lobby=fs.readFileSync(path.join(root,'ui','network.js'),'utf8');
   assert.match(world,/#include "Heli.h"/);assert.match(world,/#include "Plane.h"/);
   assert.match(world,/case VEHICLE_TYPE_HELI:return createMultiplayerHeli/);assert.match(world,/case VEHICLE_TYPE_PLANE:return new CPlane/);
-  assert.match(world,/heli->m_heliType=HELI_TYPE_CATALINA/);assert.match(world,/heli->m_pathState=7/);assert.match(world,/heli->m_numSwat=0/);
-  assert.match(world,/stationary route state/);assert.match(world,/if\(occupied\|\|remotePilot\)/);
+  assert.match(world,/heli->m_heliType=HELI_TYPE_SCRIPT/);assert.match(world,/heli->m_pathState=0/);assert.match(world,/heli->m_numSwat=0/);
+  assert.match(world,/hard-sets[\s\S]*31\.55m every frame/);assert.match(world,/if\(occupied\|\|remotePilot\)/);
   assert.match(world,/void trackNetworkHeli\(CVehicle\* car\)/);
   assert.match(world,/const_cast<CVehicle\*>\(car\)->IsHeli\(\) && car->pDriver!=FindPlayerPed\(\).*networkHelis/);
   assert.match(world,/!car->IsHeli\(\) && !car->IsPlane\(\)/);
@@ -111,7 +111,7 @@ test('guest-requested helicopters stay at player elevation and other vehicles ha
   assert.doesNotMatch(tick,/searchRadius=menuSpawnHasPosition\?60\.0f:40\.0f/);
 });
 
-test('heli spawn verification distinguishes a new two-client spawn from an ambient rooftop helicopter',()=>{
+test('heli spawn verification requires the approved two-client spawn at the safe player-level altitude',()=>{
   const root=path.join(__dirname,'..');
   const world=fs.readFileSync(path.join(root,'engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const native=fs.readFileSync(path.join(root,'src','native-engine.cjs'),'utf8');
@@ -126,10 +126,10 @@ test('heli spawn verification distinguishes a new two-client spawn from an ambie
     'The test must distinguish a native vehicle creation from a lobby approval');
   assert.match(world,/testGuestSpawnVehicle=car/,
     'The test must inspect the exact created vehicle instead of inferring it from a nearby city helicopter');
-  assert.match(native,/createdHasRenderObject:state\[32\]===1,createdVehicleId:state\[33\]/,
-    'Native test telemetry must reveal whether the spawned pool object has a rendered game instance');
-  assert.match(harness,/heliBaselineCounts=worldStatusHistory\.map\(history=>history\.at\(-1\)\?\.testHelicopters\?\.count\)/,
-    'The scenario must compare post-request helicopter counts to both clients’ baseline');
-  assert.match(harness,/The approved request did not add a helicopter at the expected location to both native game worlds/,
-    'An ambient helicopter near the test must not make a failed spawn appear successful');
+  assert.match(native,/createdZ:state\[31\],createdHasRenderObject:state\[32\]===1,createdVehicleId:state\[33\]/,
+    'Native test telemetry must verify the created object’s altitude and rendered game instance');
+  assert.match(harness,/Math\.abs\(sample\.testHelicopters\.nearest\.position\[2\]-requesterState\[2\]\)<=5/,
+    'The scenario must reject ambient helicopters that sit on the Catalina route altitude');
+  assert.match(harness,/hostCreatedSpawn=worldStatusTimeline\[0\]\.findLast\([\s\S]*testSpawn\?\.stageName==='created'[\s\S]*createdHasRenderObject[\s\S]*createdZ-requesterState\[2\]/,
+    'The host test must verify its exact native spawn completed and rendered at player-level height');
 });

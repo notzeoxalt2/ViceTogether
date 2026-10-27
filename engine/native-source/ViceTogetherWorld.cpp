@@ -73,12 +73,12 @@ const int allowedVehicleModels[]={130,135,141,145,155,159,166,176,182,190,191,19
 bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehicleModels+15,model)!=allowedVehicleModels+15;}
 CHeli* createMultiplayerHeli(int model){
     CHeli* heli=new CHeli(model,MISSION_VEHICLE);
-    // The constructor initializes the physics fields, but a script-type heli
-    // still runs player-following AI and climbs while nobody is piloting it.
-    // Catalina path state 7 is the engine's stationary route state: the rotor
-    // and normal vehicle physics remain active, without the ambient chase AI.
-    heli->m_heliType=HELI_TYPE_CATALINA;
-    heli->m_pathState=7;
+    // Do not use the Catalina stationary route (path state 7): reVC hard-sets
+    // its Z coordinate to 31.55m every frame. That put player-requested helis
+    // roughly 20m above their approved spawn. Keep the native script helicopter
+    // type; the multiplayer anchor stabilizer holds it while it is unoccupied.
+    heli->m_heliType=HELI_TYPE_SCRIPT;
+    heli->m_pathState=0;
     heli->m_nExplosionTimer=0;
     heli->m_fTargetZ=0.0f;
     heli->m_fSearchLightIntensity=0.0f;
@@ -371,7 +371,7 @@ void ViceTogetherWorldStatus(float* out) {
             out[20]=position.x;out[21]=position.y;out[22]=position.z;out[23]=float(CPools::GetVehicleRef(car));
             out[24]=((CHeli*)car)->m_fRotorRotation;out[25]=float(car->GetModelIndex());out[26]=car->m_fHealth;
         }
-        out[27]=float(testGuestSpawnCalls);out[28]=float(testGuestSpawnStage);out[29]=float(menuSpawnModel);out[30]=testGuestSpawnVehicle?float(testGuestSpawnVehicle->GetModelIndex()):-1.0f;out[31]=0.0f;auto* spawnPool=CPools::GetVehiclePool();for(int i=0;i<spawnPool->GetSize();i++){CVehicle* car=spawnPool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217)out[31]++;}out[32]=testGuestSpawnVehicle&&testGuestSpawnVehicle->m_rwObject?1.0f:0.0f;out[33]=testGuestSpawnVehicle?float(CPools::GetVehicleRef(testGuestSpawnVehicle)):-1.0f;
+        out[27]=float(testGuestSpawnCalls);out[28]=float(testGuestSpawnStage);out[29]=float(menuSpawnModel);out[30]=testGuestSpawnVehicle?float(testGuestSpawnVehicle->GetModelIndex()):-1.0f;out[31]=testGuestSpawnVehicle?testGuestSpawnVehicle->GetPosition().z:-1.0f;out[32]=testGuestSpawnVehicle&&testGuestSpawnVehicle->m_rwObject?1.0f:0.0f;out[33]=testGuestSpawnVehicle?float(CPools::GetVehicleRef(testGuestSpawnVehicle)):-1.0f;
     }
     if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217){out[32]=((CHeli*)car)->m_fRotorRotation;out[33]=217.0f;break;}}}
 }
