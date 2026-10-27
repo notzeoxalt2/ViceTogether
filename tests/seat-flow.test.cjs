@@ -124,6 +124,10 @@ test('heli spawn verification distinguishes a new two-client spawn from an ambie
     'Native reports must expose which phase of a guest vehicle spawn actually ran');
   assert.match(world,/testGuestSpawnStage=10/,
     'The test must distinguish a native vehicle creation from a lobby approval');
+  assert.match(world,/testGuestSpawnVehicle=car/,
+    'The test must inspect the exact created vehicle instead of inferring it from a nearby city helicopter');
+  assert.match(native,/createdHasRenderObject:state\[32\]===1,createdVehicleId:state\[33\]/,
+    'Native test telemetry must reveal whether the spawned pool object has a rendered game instance');
   assert.match(harness,/heliBaselineCounts=worldStatusHistory\.map\(history=>history\.at\(-1\)\?\.testHelicopters\?\.count\)/,
     'The scenario must compare post-request helicopter counts to both clients’ baseline');
   assert.match(harness,/The approved request did not add a helicopter at the expected location to both native game worlds/,

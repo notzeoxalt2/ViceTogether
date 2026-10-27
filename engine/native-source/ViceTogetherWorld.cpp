@@ -68,7 +68,7 @@ void applyGlass(CObject* object,const float* d){if(d[1]==2 && !object->bGlassBro
 bool host() { const char* role=getenv("VT_WORLD_HOST");return role && atoi(role)==1; }
 bool guest() { const char* role=getenv("VT_WORLD_HOST");return role && atoi(role)==0; }
 int menuSpawnModel=-1;uint32 menuSpawnTime=0,menuLastSpawn=0;CVehicle* menuSpawned[8]={};const char* menuStatus="";bool menuSpawnHasPosition=false;CVector menuSpawnPosition;float menuSpawnHeading=0;
-unsigned testGuestSpawnCalls=0;int testGuestSpawnStage=0;CVector testGuestSpawnPosition;
+unsigned testGuestSpawnCalls=0;int testGuestSpawnStage=0;CVehicle* testGuestSpawnVehicle=nil;
 const int allowedVehicleModels[]={130,135,141,145,155,159,166,176,182,190,191,192,193,203,217};
 bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehicleModels+15,model)!=allowedVehicleModels+15;}
 CHeli* createMultiplayerHeli(int model){
@@ -229,7 +229,7 @@ void ViceTogetherWorldMenuAction(int action){
 extern "C" void VT_SendVehicleSpawnRequest(int model);
 void ViceTogetherWorldRequestVehicle(int model){if(!guest()||!allowedVehicle(model)){menuStatus="This vehicle cannot be requested";return;}VT_SendVehicleSpawnRequest(model);menuStatus="Vehicle request sent to host...";}
 void ViceTogetherWorldSpawnVehicle(int model,float x,float y,float z,float heading){
-    const bool test=getenv("VT_TEST_GUEST_SPAWN")!=nullptr;if(test){++testGuestSpawnCalls;testGuestSpawnStage=1;testGuestSpawnPosition=CVector(x,y,z);}
+    const bool test=getenv("VT_TEST_GUEST_SPAWN")!=nullptr;if(test){++testGuestSpawnCalls;testGuestSpawnStage=1;}
     if(!host()||!allowedVehicle(model)||!std::isfinite(x)||!std::isfinite(y)||!std::isfinite(z)||!std::isfinite(heading)||fabsf(x)>=10000||fabsf(y)>=10000||fabsf(z)>=3000){if(test)testGuestSpawnStage=2;return;}
     if(menuSpawnModel>=0||menuLastSpawn&&CTimer::GetTimeInMilliseconds()-menuLastSpawn<3000){if(test)testGuestSpawnStage=3;menuStatus="Wait a moment before spawning another vehicle";return;}
     menuSpawnModel=model;menuSpawnHasPosition=true;menuSpawnPosition=CVector(x,y,z);menuSpawnHeading=heading;menuSpawnTime=CTimer::GetTimeInMilliseconds();CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);menuStatus="Preparing guest vehicle...";if(test)testGuestSpawnStage=4;
@@ -302,7 +302,7 @@ void ViceTogetherWorldMenuTick(){
         position=groundedPosition;
     }
     CVehicle* car=createMultiplayerVehicle(model);if(!car){menuSpawnModel=-1;menuStatus="This vehicle type is not supported yet";if(test)testGuestSpawnStage=9;return;}
-    car->m_fHealth=1000.0f;car->SetPosition(position);car->SetHeading(heading);car->SetStatus(STATUS_ABANDONED);car->SetMoveSpeed(0,0,0);car->bEngineOn=false;CWorld::Add(car);trackNetworkHeli(car);menuSpawned[slot]=car;car->RegisterReference((CEntity**)&menuSpawned[slot]);menuLastSpawn=now;menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Spawned nearby - F: drive / G: passenger";if(test)testGuestSpawnStage=10;
+    car->m_fHealth=1000.0f;car->SetPosition(position);car->SetHeading(heading);car->SetStatus(STATUS_ABANDONED);car->SetMoveSpeed(0,0,0);car->bEngineOn=false;CWorld::Add(car);trackNetworkHeli(car);menuSpawned[slot]=car;car->RegisterReference((CEntity**)&menuSpawned[slot]);menuLastSpawn=now;menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Spawned nearby - F: drive / G: passenger";if(test){testGuestSpawnVehicle=car;car->RegisterReference((CEntity**)&testGuestSpawnVehicle);testGuestSpawnStage=10;}
 }
 void ViceTogetherWorldExplosion(CEntity* victim,int type,const CVector& pos,unsigned lifetime,bool sound){if(!host() || (victim && victim->IsVehicle()))return;ExplosionState event={};event.time=CTimer::GetTimeInMilliseconds();event.data[0]=float(++explosionSequence);event.data[1]=float(type);event.data[2]=pos.x;event.data[3]=pos.y;event.data[4]=pos.z;event.data[5]=float(lifetime);event.data[6]=sound?1:0;if(explosions.size()>=32)explosions.erase(explosions.begin());explosions.push_back(event);}
 void ViceTogetherWorldGlass(CEntity* entity,float amount,const CVector& speed,const CVector& point,bool explosion,bool broken){if(replayingGlass || !entity || !entity->IsObject() || !IsGlass(entity->GetModelIndex()))return;GlassState pane={};float* d=pane.data;d[0]=entity->GetModelIndex();d[1]=broken?2:1;const CVector pos=entity->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;d[5]=speed.x;d[6]=speed.y;d[7]=speed.z;d[8]=point.x;d[9]=point.y;d[10]=point.z;d[11]=std::max(0.0f,std::min(10000.0f,amount));d[12]=explosion?1:0;if(host())retainGlass(pane);else if(guest())VT_SendGlassRequest(d);}
@@ -371,7 +371,7 @@ void ViceTogetherWorldStatus(float* out) {
             out[20]=position.x;out[21]=position.y;out[22]=position.z;out[23]=float(CPools::GetVehicleRef(car));
             out[24]=((CHeli*)car)->m_fRotorRotation;out[25]=float(car->GetModelIndex());out[26]=car->m_fHealth;
         }
-        out[27]=float(testGuestSpawnCalls);out[28]=float(testGuestSpawnStage);out[29]=float(menuSpawnModel);out[30]=menuSpawnHasPosition?1.0f:0.0f;out[31]=testGuestSpawnPosition.x;out[32]=testGuestSpawnPosition.y;out[33]=testGuestSpawnPosition.z;
+        out[27]=float(testGuestSpawnCalls);out[28]=float(testGuestSpawnStage);out[29]=float(menuSpawnModel);out[30]=testGuestSpawnVehicle?float(testGuestSpawnVehicle->GetModelIndex()):-1.0f;out[31]=0.0f;auto* spawnPool=CPools::GetVehiclePool();for(int i=0;i<spawnPool->GetSize();i++){CVehicle* car=spawnPool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217)out[31]++;}out[32]=testGuestSpawnVehicle&&testGuestSpawnVehicle->m_rwObject?1.0f:0.0f;out[33]=testGuestSpawnVehicle?float(CPools::GetVehicleRef(testGuestSpawnVehicle)):-1.0f;
     }
     if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217){out[32]=((CHeli*)car)->m_fRotorRotation;out[33]=217.0f;break;}}}
 }
