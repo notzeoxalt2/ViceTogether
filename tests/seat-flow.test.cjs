@@ -42,10 +42,22 @@ test('native multiplayer seat grants use Vice City enter tasks instead of telepo
   assert.doesNotMatch(code,/WarpPedIntoCar|pPassengers\s*\[[^\]]+\]\s*=|SetDriver\s*\(|AddPassenger\s*\(/);
 });
 
+test('native heli cockpit exposes front access to the stock seat-entry task',()=>{
+  const patch=fs.readFileSync(path.join(__dirname,'..','engine','native-source','native-engine.patch'),'utf8');
+  assert.match(patch,/CHeli::IsRoomForPedToLeaveCar\(uint32 component, CVector \*forcedDoorPos\)/);
+  assert.match(patch,/return component == CAR_DOOR_LF \|\| component == CAR_DOOR_RF;/);
+  assert.match(patch,/CHeli::IsDoorReady\(eDoors door\)/);
+  assert.match(patch,/CHeli::IsDoorFullyOpen\(eDoors door\)/);
+  assert.match(patch,/m_fRotorRotation \+= \(3\.14f\/6\.5f\) \* CTimer::GetTimeStep\(\) \* 0\.6f;/);
+});
+
 test('hidden two-game guest-driving test actually runs and checks native exit transitions',()=>{
   const network=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherNetwork.cpp'),'utf8');
   const world=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const harness=fs.readFileSync(path.join(__dirname,'..','src','native-game-test.cjs'),'utf8');
+  assert.match(harness,/async function waitFor\(check,message,timeout=20000\)/,'Native scenario polling must be defined inside its harness');
+  assert.match(harness,/testLobby\.sendVehicleSpawnRequest\(\$\{JSON\.stringify\(model\)\}\)/,'The hidden guest spawn check must forward its real native request through the lobby');
+  assert.match(harness,/spawnApprovals:\$\{i===0\?'window\.testVehicleSpawnApprovals\.splice\(0,16\)'/,'The hidden host engine must consume lobby-approved vehicle spawns');
   assert.match(network,/if\(getenv\("VT_TEST_GUEST_DRIVE"\)\)\{ViceTogetherWorldTestDrive\(\);return;\}/);
   assert.match(network,/if\(getenv\("VT_TEST_MENU"\)\|\|getenv\("VT_TEST_GUEST_SPAWN"\)\)/,'The hidden helicopter spawn scenario must drive the actual native menu path');
   assert.match(world,/pad->NewState\.Triangle=255/);

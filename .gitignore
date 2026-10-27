@@ -15,5 +15,7 @@ library/
 social-profile/
 dist/
 release/
+/work/
+/verification/
 .env.*
 offline-builder.local.json

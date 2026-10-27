@@ -282,7 +282,7 @@ void ViceTogetherWorldStatus(float* out) {
     out[11]=float(glass.size());out[12]=out[13]=0;auto* objects=CPools::GetObjectPool();for(int i=0;i<objects->GetSize();i++){CObject* object=objects->GetSlot(i);if(object && IsGlass(object->GetModelIndex())){if(object->bGlassBroken && !object->bIsVisible && !object->bUsesCollision)out[12]++;else if(object->bGlassCracked)out[13]++;}}out[14]=float(host()?explosionSequence:lastExplosion);
     out[16]=out[17]=0;auto* pedPool=CPools::GetPedPool();for(int i=0;i<pedPool->GetSize();i++){CPed* ped=pedPool->GetSlot(i);if(ped && !ped->IsPlayer() && !ViceTogetherIsRemote(ped) && !ViceTogetherWorldPed(ped) && ped->CharCreatedBy==RANDOM_CHAR)out[16]++;}auto* carPool=CPools::GetVehiclePool();for(int i=0;i<carPool->GetSize();i++){CVehicle* car=carPool->GetSlot(i);if(car && car->VehicleCreatedBy==RANDOM_VEHICLE)out[17]++;}out[18]=guestOwnsNearbyPopulation()?1.0f:0.0f;
     if(getenv("VT_TEST_GUEST_NPC_MELEE")){out[19]=float(testMeleeStage);out[20]=float(testMeleeTarget);out[21]=testMeleeLocalDistance;out[22]=testMeleeRemoteDistance;}
-    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);}
+    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217){out[32]=((CHeli*)car)->m_fRotorRotation;out[33]=217.0f;break;}}}
 }
 bool ViceTogetherWorldVehicle(const CVehicle* car) {
     if(host()){if(const_cast<CVehicle*>(car)->IsHeli() && car->pDriver!=FindPlayerPed() && std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return true;auto it=delegatedVehicles.find(unsigned(CPools::GetVehicleRef((CVehicle*)car)));return it!=delegatedVehicles.end() && CTimer::GetTimeInMilliseconds()-it->second<750;}
@@ -322,6 +322,23 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
         return;
     }
     if(seat>=car->m_nNumMaxPassengers || (car->pPassengers[seat] && car->pPassengers[seat]!=player)){if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=10;return;}
+    if(car->IsHeli()){
+        // Helicopter cockpits have no ordinary door geometry for SeekCar's
+        // pathfinder to approach. Once the player is already beside the
+        // cockpit, start the stock align/enter animation directly instead of
+        // leaving the native passenger objective circling forever. This is
+        // still the game's animated entry sequence; it does not warp the ped
+        // into a seat. At longer distances retain the normal walk-to-vehicle
+        // objective.
+        CVector cockpitAccess;
+        if(player->GetNearestPassengerDoor(car,cockpitAccess) &&
+           (cockpitAccess-player->GetPosition()).MagnitudeSqr() <= 16.0f){
+            player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);
+            player->SetEnterCar(car,player->m_vehDoor);
+            if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=13;
+            return;
+        }
+    }
     // Do not WarpPedIntoCar or edit pPassengers here. The stock objective
     // selects an available passenger seat and runs the game's entry sequence.
     player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);

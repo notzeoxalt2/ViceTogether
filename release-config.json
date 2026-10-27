@@ -5,9 +5,10 @@
   "iceServers": [],
   "signalingRelayUrls": [
     "wss://testr.nymble.world",
+    "wss://nostr.red5d.dev",
     "wss://relay.routstr.com",
-    "wss://nostr.stakey.net",
+    "wss://relay.novospes.com",
     "wss://relay.nostr.dev.br"
   ],
-  "releaseStatus": "Experimental friend-test build. Same-PC multiplayer tested; fresh Windows and cross-network connectivity remain unverified."
+  "releaseStatus": "Experimental alpha.38 candidate. Same-PC native verification is in progress; cross-network/NAT connectivity and fresh-Windows first-run are not yet verified."
 }

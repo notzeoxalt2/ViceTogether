@@ -7,7 +7,8 @@ const topic='vt-audit-'+randomUUID();
 const event=await createEvent(topic,JSON.stringify({probe:randomUUID()}));
 const eventId=JSON.parse(event)[1].id;
 const config=JSON.parse(await readFile(new URL('../release-config.json',import.meta.url),'utf8'));
-const urls=process.argv.includes('--configured')?config.signalingRelayUrls:getRelays({appId:'org.vicetogether.alpha.v5'},defaultRelayUrls,5,true);
+const requested=process.argv.find(arg=>arg.startsWith('--urls='))?.slice('--urls='.length).split(',').filter(Boolean);
+const urls=requested?.length?requested:process.argv.includes('--configured')?config.signalingRelayUrls:getRelays({appId:'org.vicetogether.alpha.v5'},defaultRelayUrls,5,true);
 const results=await Promise.all(urls.map(url=>new Promise(resolve=>{
   const started=performance.now(),ws=new WebSocket(url);let done=false;
   const result={url,openedMs:null,subscriptionReady:false,publishAccepted:null,reason:null};

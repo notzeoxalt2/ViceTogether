@@ -20,8 +20,7 @@ test('shared transport accepts per-game snapshot kinds and reserves its control 
  class Peer extends EventTarget{createDataChannel(){const c=new EventTarget();Object.assign(c,{readyState:'open',bufferedAmount:0,send(){},close(){}});return c;}}
  const delivered=[],transport=new RealtimeTransport({NativePeer:Peer,kinds:['state','input'],receive:(...args)=>delivered.push(args)});
  assert.equal(typeof FrameDispatch,'function');assert.equal(typeof SnapshotSender,'function');
- transport.initiate('peer',new transport.Peer());assert.equal(transport.send('peer','state',[]),true);assert.equal(transport.send('peer','players',[]),false);
- const channel=transport.peers.get('peer').channel;
+ transport.initiate('peer',new transport.Peer());const channel=transport.peers.get('peer').channel;assert.equal(transport.send('peer','state',[]),false);channel.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({v:1,kind:'probe',seq:1})}));assert.equal(transport.send('peer','state',[]),true);assert.equal(transport.send('peer','players',[]),false);
  for(const kind of ['players','state'])channel.dispatchEvent(new MessageEvent('message',{data:JSON.stringify({v:1,kind,seq:1,data:[1]})}));
  assert.equal(delivered.length,1);assert.equal(delivered[0][0],'state');
  assert.throws(()=>new RealtimeTransport({NativePeer:Peer,kinds:['echo']}),/Invalid/);transport.close();

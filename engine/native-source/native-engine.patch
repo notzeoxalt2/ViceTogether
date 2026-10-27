@@ -1,5 +1,5 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 6fa3221..5a9c32a 100644
+index 6fa3221b..5a9c32a9 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
 @@ -1,4 +1,5 @@
@@ -9,7 +9,7 @@ index 6fa3221..5a9c32a 100644
  set(EXECUTABLE reVC)
  set(PROJECT REVC)
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 363aa2d..01fb087 100644
+index 363aa2d4..01fb0878 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
 @@ -53,7 +53,7 @@ target_compile_definitions(${EXECUTABLE}
@@ -47,7 +47,7 @@ index 363aa2d..01fb087 100644
 +  target_link_options(reVC PRIVATE /MAP)
 +endif()
 diff --git a/src/control/Script.cpp b/src/control/Script.cpp
-index b4459be..5d8c572 100644
+index b4459be0..5d8c572a 100644
 --- a/src/control/Script.cpp
 +++ b/src/control/Script.cpp
 @@ -967,6 +967,33 @@ void CTheScripts::Process()
@@ -85,7 +85,7 @@ index b4459be..5d8c572 100644
  }
  
 diff --git a/src/core/Game.cpp b/src/core/Game.cpp
-index 4248f14..42c9473 100644
+index 4248f14a..42c9473f 100644
 --- a/src/core/Game.cpp
 +++ b/src/core/Game.cpp
 @@ -2,6 +2,7 @@
@@ -193,7 +193,7 @@ index 9530f9e7..ff1e8bb2 100644
  	switch (CURMODE)
  	{
 diff --git a/src/core/Timer.cpp b/src/core/Timer.cpp
-index 77f26a8..7c10c13 100644
+index 77f26a8b..7c10c13c 100644
 --- a/src/core/Timer.cpp
 +++ b/src/core/Timer.cpp
 @@ -316,7 +316,7 @@ void CTimer::Stop(void)
@@ -206,7 +206,7 @@ index 77f26a8..7c10c13 100644
  
  void CTimer::EndUserPause(void)
 diff --git a/src/core/main.cpp b/src/core/main.cpp
-index a412a98..fd3232f 100644
+index a412a986..fd3232fe 100644
 --- a/src/core/main.cpp
 +++ b/src/core/main.cpp
 @@ -39,6 +39,7 @@
@@ -226,7 +226,7 @@ index a412a98..fd3232f 100644
  	CSpecialFX::Render2DFXs();
  	CUserDisplay::OnscnTimer.ProcessForDisplay();
 diff --git a/src/core/re3.cpp b/src/core/re3.cpp
-index d16088f..b9b13df 100644
+index d16088fb..b9b13df0 100644
 --- a/src/core/re3.cpp
 +++ b/src/core/re3.cpp
 @@ -1227,6 +1227,11 @@ static char re3_buff[re3_buffsize];
@@ -242,7 +242,7 @@ index d16088f..b9b13df 100644
  	int nCode;
  
 diff --git a/src/peds/Ped.cpp b/src/peds/Ped.cpp
-index aa63c32..deabfab 100644
+index aa63c324..deabfab8 100644
 --- a/src/peds/Ped.cpp
 +++ b/src/peds/Ped.cpp
 @@ -6,6 +6,8 @@
@@ -289,7 +289,7 @@ index aa63c32..deabfab 100644
  	if (veh && veh->m_nGettingOutFlags && m_vehDoor) {
  
 diff --git a/src/peds/PedFight.cpp b/src/peds/PedFight.cpp
-index 8a3b971..ab9a59a 100644
+index 8a3b971d..ab9a59a0 100644
 --- a/src/peds/PedFight.cpp
 +++ b/src/peds/PedFight.cpp
 @@ -1,4 +1,5 @@
@@ -309,7 +309,7 @@ index 8a3b971..ab9a59a 100644
  	float dieDelta = 4.0f;
  	float dieSpeed = 0.0f;
 diff --git a/src/renderer/Glass.cpp b/src/renderer/Glass.cpp
-index 215dbfe..0f2999a 100644
+index 215dbfe9..0f2999a4 100644
 --- a/src/renderer/Glass.cpp
 +++ b/src/renderer/Glass.cpp
 @@ -1,6 +1,7 @@
@@ -359,7 +359,7 @@ index 215dbfe..0f2999a 100644
  					}
  				}
 diff --git a/src/renderer/Weather.cpp b/src/renderer/Weather.cpp
-index 9f925a8..0d7bd99 100644
+index 9f925a8c..0d7bd999 100644
 --- a/src/renderer/Weather.cpp
 +++ b/src/renderer/Weather.cpp
 @@ -1,4 +1,5 @@
@@ -377,7 +377,7 @@ index 9f925a8..0d7bd99 100644
  		float fNewInterpolation = (CClock::GetMinutes() + CClock::GetSeconds()/60.0f)/60.0f;
  		if (fNewInterpolation < InterpolationValue) {
 diff --git a/src/skel/win/win.cpp b/src/skel/win/win.cpp
-index 3e7a26c..bed7dcf 100644
+index 3e7a26c4..64830583 100644
 --- a/src/skel/win/win.cpp
 +++ b/src/skel/win/win.cpp
 @@ -41,6 +41,8 @@
@@ -494,7 +494,7 @@ index 3e7a26c..bed7dcf 100644
  			
  			if ( _InputTranslateKey(&ks, lParam, wParam) )
  				RsKeyboardEventHandler(rsKEYDOWN, &ks);
-@@ -1171,6 +1204,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1171,6 +1203,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  
  		case WM_ACTIVATEAPP:
  		{
@@ -502,7 +502,7 @@ index 3e7a26c..bed7dcf 100644
  			switch ( gGameState )
  			{
  				case GS_LOGO_MPEG:
-@@ -1206,7 +1240,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+@@ -1206,7 +1239,7 @@ MainWndProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
  							else
  							{
  								WaitForState(State_Running);
@@ -511,7 +511,7 @@ index 3e7a26c..bed7dcf 100644
  							}
  						}
  					}
-@@ -1358,6 +1392,10 @@ RwBool IsForegroundApp()
+@@ -1358,6 +1391,10 @@ RwBool IsForegroundApp()
  	return !!ForegroundApp;
  }
  
@@ -522,7 +522,7 @@ index 3e7a26c..bed7dcf 100644
  UINT GetBestRefreshRate(UINT width, UINT height, UINT depth)
  {
  #ifdef USE_D3D9
-@@ -1558,6 +1596,10 @@ psSelectDevice()
+@@ -1558,6 +1595,10 @@ psSelectDevice()
  #ifdef IMPROVED_VIDEOMODE
  	if (FrontEndMenuManager.m_nPrefsWindowed)
  		GcurSelVM = bestWndMode;
@@ -533,7 +533,7 @@ index 3e7a26c..bed7dcf 100644
  
  	// Now GcurSelVM is 0 but vm has sizes(and fullscreen flag) of the video mode we want, that's why we changed the rwVIDEOMODEEXCLUSIVE conditions below
  	FrontEndMenuManager.m_nPrefsWidth = vm.width;
-@@ -1624,7 +1666,9 @@ psSelectDevice()
+@@ -1624,7 +1665,9 @@ psSelectDevice()
  		int spaceY = GetSystemMetrics(SM_CYSCREEN) - (rect.bottom-rect.top);
  
  		SetWindowLong(PSGLOBAL(window), GWL_STYLE, WS_VISIBLE | WS_OVERLAPPEDWINDOW);
@@ -544,7 +544,7 @@ index 3e7a26c..bed7dcf 100644
  			(rect.right - rect.left),
  			(rect.bottom - rect.top), 0);
  
-@@ -1892,7 +1936,7 @@ void CenterVideo(void)
+@@ -1892,7 +1935,7 @@ void CenterVideo(void)
  
  	JIF(pVW->put_MessageDrain((OAHWND) PSGLOBAL(window)));
  
@@ -553,7 +553,7 @@ index 3e7a26c..bed7dcf 100644
  }
  
  /*
-@@ -1944,7 +1988,7 @@ void PlayMovieInWindow(int cmdShow, const char* szFile)
+@@ -1944,7 +1987,7 @@ void PlayMovieInWindow(int cmdShow, const char* szFile)
  		// Run the graph to play the media file
  		JIF(pMC->Run());
  
@@ -562,7 +562,7 @@ index 3e7a26c..bed7dcf 100644
  	}
  	
  	ASSERT(pGB != nil);
-@@ -2007,6 +2051,7 @@ void HandleExit()
+@@ -2007,6 +2050,7 @@ void HandleExit()
  /*
   *****************************************************************************
   */
@@ -570,7 +570,7 @@ index 3e7a26c..bed7dcf 100644
  int PASCAL
  WinMain(HINSTANCE instance, 
  		HINSTANCE prevInstance	__RWUNUSED__, 
-@@ -2014,6 +2059,7 @@ WinMain(HINSTANCE instance,
+@@ -2014,6 +2058,7 @@ WinMain(HINSTANCE instance,
  		int cmdShow)
  {
  	MSG message;
@@ -578,7 +578,7 @@ index 3e7a26c..bed7dcf 100644
  	RwV2d pos;
  	RwInt32 argc, i;
  	RwChar **argv;
-@@ -2155,7 +2201,7 @@ WinMain(HINSTANCE instance,
+@@ -2155,7 +2200,7 @@ WinMain(HINSTANCE instance,
  	/*
  	 * Show the window, and refresh it...
  	 */
@@ -587,7 +587,7 @@ index 3e7a26c..bed7dcf 100644
  	UpdateWindow(PSGLOBAL(window));
  	
  	{
-@@ -2269,7 +2315,7 @@ WinMain(HINSTANCE instance,
+@@ -2269,7 +2314,7 @@ WinMain(HINSTANCE instance,
  				TheModelViewer();
  			}
  #endif
@@ -596,7 +596,7 @@ index 3e7a26c..bed7dcf 100644
  			{
  				switch ( gGameState )
  				{
-@@ -2399,6 +2445,7 @@ WinMain(HINSTANCE instance,
+@@ -2399,6 +2444,7 @@ WinMain(HINSTANCE instance,
  #ifndef PS2_MENU
  					case GS_INIT_FRONTEND:
  					{
@@ -604,7 +604,7 @@ index 3e7a26c..bed7dcf 100644
  						LoadingScreen(nil, nil, "loadsc0");
  						// LoadingScreen(nil, nil, "loadsc0"); // duplicate
  						
-@@ -2489,8 +2536,13 @@ WinMain(HINSTANCE instance,
+@@ -2489,8 +2535,13 @@ WinMain(HINSTANCE instance,
  						float ms = (float)CTimer::GetCurrentTimeInCycles() / (float)CTimer::GetCyclesPerMillisecond();
  						if ( RwInitialised )
  						{
@@ -620,7 +620,7 @@ index 3e7a26c..bed7dcf 100644
  						}
  						break;
  					}
-@@ -2929,6 +2981,16 @@ HRESULT _InputAddJoys()
+@@ -2929,6 +2980,16 @@ HRESULT _InputAddJoys()
  HRESULT _InputGetMouseState(DIMOUSESTATE2 *state)
  {
  	HRESULT		  hr;
@@ -637,21 +637,8 @@ index 3e7a26c..bed7dcf 100644
  	
  	if ( PSGLOBAL(mouse) == nil )
  		return S_FALSE;
-diff --git a/src/skel/win/win.rc b/src/skel/win/win.rc
-index 9b5aa30..a7a06e0 100644
---- a/src/skel/win/win.rc
-+++ b/src/skel/win/win.rc
-@@ -42,6 +42,6 @@ END
- 
- // Icon with lowest ID value placed first to ensure application icon
- // remains consistent on all systems.
--IDI_MAIN_ICON           ICON    DISCARDABLE     "gtavc.ico"
-+IDI_MAIN_ICON           ICON    DISCARDABLE     "vice-together.ico"
- 
- /////////////////////////////////////////////////////////////////////////////
-\ No newline at end of file
 diff --git a/src/vehicles/Automobile.cpp b/src/vehicles/Automobile.cpp
-index 281b71e..a907a5d 100644
+index 281b71e0..a907a5de 100644
 --- a/src/vehicles/Automobile.cpp
 +++ b/src/vehicles/Automobile.cpp
 @@ -1,4 +1,5 @@
@@ -677,7 +664,7 @@ index 281b71e..a907a5d 100644
  	CPlayerInfo* playerInfo = ((CPlayerPed*)pDriver)->GetPlayerInfoForThisPlayerPed();
  	if (playerInfo && !playerInfo->m_bDriveByAllowed)
 diff --git a/src/vehicles/Bike.cpp b/src/vehicles/Bike.cpp
-index a65b64d..d555021 100644
+index a65b64d2..d5550212 100644
 --- a/src/vehicles/Bike.cpp
 +++ b/src/vehicles/Bike.cpp
 @@ -1,4 +1,5 @@
@@ -703,7 +690,7 @@ index a65b64d..d555021 100644
  	CPlayerInfo* playerInfo = ((CPlayerPed*)pDriver)->GetPlayerInfoForThisPlayerPed();
  	if (playerInfo && !playerInfo->m_bDriveByAllowed)
 diff --git a/src/vehicles/Boat.cpp b/src/vehicles/Boat.cpp
-index 5da8e1c..ce427d1 100644
+index 5da8e1cc..ce427d17 100644
 --- a/src/vehicles/Boat.cpp
 +++ b/src/vehicles/Boat.cpp
 @@ -1,4 +1,5 @@
@@ -728,8 +715,113 @@ index 5da8e1c..ce427d1 100644
  	CAnimBlendAssociation *anim = nil;
  	CPlayerInfo* playerInfo = ((CPlayerPed*)pDriver)->GetPlayerInfoForThisPlayerPed();
  	if (playerInfo && !playerInfo->m_bDriveByAllowed)
+diff --git a/src/vehicles/Heli.cpp b/src/vehicles/Heli.cpp
+index f51c8481..1b80a0df 100644
+--- a/src/vehicles/Heli.cpp
++++ b/src/vehicles/Heli.cpp
+@@ -105,6 +105,30 @@ CHeli::SetModelIndex(uint32 id)
+ 	CClumpModelInfo::FillFrameArray(GetClump(), m_aHeliNodes);
+ }
+ 
++bool
++CHeli::IsDoorReady(eDoors door)
++{
++	// The stock alignment animation models a cockpit entry, but helicopters do
++	// not have automobile door objects to open first.
++	return door == DOOR_FRONT_LEFT || door == DOOR_FRONT_RIGHT;
++}
++
++bool
++CHeli::IsDoorFullyOpen(eDoors door)
++{
++	return door == DOOR_FRONT_LEFT || door == DOOR_FRONT_RIGHT;
++}
++
++bool
++CHeli::IsRoomForPedToLeaveCar(uint32 component, CVector *forcedDoorPos)
++{
++	(void)forcedDoorPos;
++	// GetNearestPassengerDoor otherwise rejects every helicopter because the
++	// base CVehicle implementation reports no usable door. Preserve the stock
++	// walk/alignment/enter task at either front cockpit access point.
++	return component == CAR_DOOR_LF || component == CAR_DOOR_RF;
++}
++
+ static float CatalinaTargetX[7] = { -478.0, -677.0, -907.0, -1095.0, -1152.0, -1161.0, -1161.0 };
+ static float CatalinaTargetY[7] = { 227.0, 206.0, 210.0, 242.0, 278.0, 341.0, 341.0 };
+ static float CatalinaTargetZ[7] = { 77.0, 66.0, 60.0, 53.0, 51.0, 46.0, 30.0 };
+@@ -564,21 +588,28 @@ CHeli::Render(void)
+ 	CMatrix mat;
+ 	CVector pos;
+ 
+-	mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_TOPROTOR]));
+-	pos = mat.GetPosition();
+-	mat.SetRotateZ(m_fRotorRotation);
+-	mat.Translate(pos);
+-	mat.UpdateRW();
++	// Some legal Vice City model sets omit one or both named rotor frames.
++	// Keep the helicopter body renderable instead of dereferencing a null frame.
++	if(m_aHeliNodes[HELI_TOPROTOR]){
++		mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_TOPROTOR]));
++		pos = mat.GetPosition();
++		mat.SetRotateZ(m_fRotorRotation);
++		mat.Translate(pos);
++		mat.UpdateRW();
++	}
+ 
+-	m_fRotorRotation += 3.14f/6.5f;
++	// Keep the stock rotor rate at its 30 FPS baseline when the game renders faster.
++	m_fRotorRotation += (3.14f/6.5f) * CTimer::GetTimeStep() * 0.6f;
+ 	if(m_fRotorRotation > 6.28f)
+ 		m_fRotorRotation -= 6.28f;
+ 
+-	mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_BACKROTOR]));
+-	pos = mat.GetPosition();
+-	mat.SetRotateX(m_fRotorRotation);
+-	mat.Translate(pos);
+-	mat.UpdateRW();
++	if(m_aHeliNodes[HELI_BACKROTOR]){
++		mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_BACKROTOR]));
++		pos = mat.GetPosition();
++		mat.SetRotateX(m_fRotorRotation);
++		mat.Translate(pos);
++		mat.UpdateRW();
++	}
+ 
+ 	CEntity::Render();
+ }
+diff --git a/src/vehicles/Heli.h b/src/vehicles/Heli.h
+index 38a3edab..0b9bdb11 100644
+--- a/src/vehicles/Heli.h
++++ b/src/vehicles/Heli.h
+@@ -77,6 +77,11 @@ public:
+ 	void ProcessControl(void);
+ 	void PreRender(void);
+ 	void Render(void);
++	// Helicopter cockpits have no hinged door objects, but the stock player
++	// entry task still needs the front access points to be considered usable.
++	bool IsDoorReady(eDoors door) override;
++	bool IsDoorFullyOpen(eDoors door) override;
++	bool IsRoomForPedToLeaveCar(uint32 component, CVector *forcedDoorPos) override;
+ 
+ 	void PreRenderAlways(void);
+ 	CObject *SpawnFlyingComponent(int32 component);
+diff --git a/src/vehicles/Plane.cpp b/src/vehicles/Plane.cpp
+index 0b40ca7e..728c6cec 100644
+--- a/src/vehicles/Plane.cpp
++++ b/src/vehicles/Plane.cpp
+@@ -653,7 +653,8 @@ CPlane::PreRender(void)
+ #ifdef CPLANE_ROTORS
+ 	CMatrix mat;
+ 	CVector pos;
+-	m_fRotorRotation += 3.14f/6.5f;
++	// Keep the stock rotor rate at its 30 FPS baseline when the game renders faster.
++	m_fRotorRotation += (3.14f/6.5f) * CTimer::GetTimeStep() * 0.6f;
+ 	if(m_fRotorRotation > 6.28f)
+ 		m_fRotorRotation -= 6.28f;
+ 
 diff --git a/src/vehicles/Vehicle.cpp b/src/vehicles/Vehicle.cpp
-index d105419..8d9215e 100644
+index d1054191..8d9215e8 100644
 --- a/src/vehicles/Vehicle.cpp
 +++ b/src/vehicles/Vehicle.cpp
 @@ -1,4 +1,5 @@
@@ -770,7 +862,7 @@ index d105419..8d9215e 100644
  
  void
 diff --git a/src/weapons/Explosion.cpp b/src/weapons/Explosion.cpp
-index b8123c9..e87bd50 100644
+index b8123c96..e87bd50c 100644
 --- a/src/weapons/Explosion.cpp
 +++ b/src/weapons/Explosion.cpp
 @@ -1,4 +1,5 @@
@@ -788,7 +880,7 @@ index b8123c9..e87bd50 100644
  }
  
 diff --git a/src/weapons/Weapon.cpp b/src/weapons/Weapon.cpp
-index cada168..2a0c141 100644
+index cada1681..2a0c141b 100644
 --- a/src/weapons/Weapon.cpp
 +++ b/src/weapons/Weapon.cpp
 @@ -36,6 +36,7 @@
@@ -831,84 +923,3 @@ index cada168..2a0c141 100644
  
  	CVector bulletPos;
  
-diff --git a/src/vehicles/Heli.cpp b/src/vehicles/Heli.cpp
-index f51c8481..64bf095a 100644
---- a/src/vehicles/Heli.cpp
-+++ b/src/vehicles/Heli.cpp
-@@ -1,3 +1,4 @@
- #include "common.h"
-+#include "ViceTogetherWorld.h"
- #include "main.h"
- 
-@@ -126,3 +127,4 @@
- CHeli::ProcessControl(void)
- {
-+    if(ViceTogetherWorldVehicle(this))return;
- 	int i;
-@@ -564,21 +564,27 @@ CHeli::Render(void)
- 	CMatrix mat;
- 	CVector pos;
- 
--	mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_TOPROTOR]));
--	pos = mat.GetPosition();
--	mat.SetRotateZ(m_fRotorRotation);
--	mat.Translate(pos);
--	mat.UpdateRW();
-+	// Some legal Vice City model sets omit one or both named rotor frames.
-+	// Keep the helicopter body renderable instead of dereferencing a null frame.
-+	if(m_aHeliNodes[HELI_TOPROTOR]){
-+		mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_TOPROTOR]));
-+		pos = mat.GetPosition();
-+		mat.SetRotateZ(m_fRotorRotation);
-+		mat.Translate(pos);
-+		mat.UpdateRW();
-+	}
- 
- 	m_fRotorRotation += 3.14f/6.5f;
- 	if(m_fRotorRotation > 6.28f)
- 		m_fRotorRotation -= 6.28f;
- 
--	mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_BACKROTOR]));
--	pos = mat.GetPosition();
--	mat.SetRotateX(m_fRotorRotation);
--	mat.Translate(pos);
--	mat.UpdateRW();
-+	if(m_aHeliNodes[HELI_BACKROTOR]){
-+		mat.Attach(RwFrameGetMatrix(m_aHeliNodes[HELI_BACKROTOR]));
-+		pos = mat.GetPosition();
-+		mat.SetRotateX(m_fRotorRotation);
-+		mat.Translate(pos);
-+		mat.UpdateRW();
-+	}
- 
- 	CEntity::Render();
- }
-diff --git a/src/vehicles/Plane.cpp b/src/vehicles/Plane.cpp
-index 0000000..0000000 100644
---- a/src/vehicles/Plane.cpp
-+++ b/src/vehicles/Plane.cpp
-@@ -1,3 +1,4 @@
- #include "common.h"
-+#include "ViceTogetherWorld.h"
- #include "main.h"
- 
-@@ -141,3 +142,4 @@
- CPlane::ProcessControl(void)
- {
-+    if(ViceTogetherWorldVehicle(this))return;
- 	int i;
-diff --git a/src/core/PlayerInfo.cpp b/src/core/PlayerInfo.cpp
-index 36d05b8..9ec6a16 100644
---- a/src/core/PlayerInfo.cpp
-+++ b/src/core/PlayerInfo.cpp
-@@ -327,6 +327,10 @@ CPlayerInfo::Process(void)
- 								if (!veh->bIsInWater)
- 									m_pPed->SetObjective(OBJECTIVE_LEAVE_CAR, veh);
- 
-+							} else if (veh->IsCar() && veh->pDriver != m_pPed && CPad::GetPad(0)->ExitVehicleJustDown()) {
-+								if (!veh->bIsInWater)
-+									m_pPed->SetObjective(OBJECTIVE_LEAVE_CAR, veh);
-+
- 							} else if (veh->GetStatus() != STATUS_PLAYER && veh != CGameLogic::pShortCutTaxi) {
- 								veh->AutoPilot.m_nTempAction = TEMPACT_WAIT;
- 								veh->AutoPilot.m_nTimeTempAction = CTimer::GetTimeInMilliseconds() + 1000;

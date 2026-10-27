@@ -25,9 +25,9 @@ export function connectionHint(status, diagnostics, hasRelay) {
   if (status === 'Online') return '';
   if (status === 'Connecting') return 'Looking for your friend. Both launchers must be open.';
   if (!diagnostics) return 'Connection did not complete. Check that both launchers are open, then reconnect.';
-  if (!diagnostics.signalingOpen) return 'Cannot reach the discovery service. Check your internet connection or firewall, then reconnect.';
+  if (!diagnostics.signalingOpen) return 'No signaling connection is open. Check your internet connection or firewall, then reconnect.';
   if (diagnostics.peers.some(p => p.receivedDescription && (p.failed || p.connection === 'failed' || p.ice === 'failed'))) {
-    return 'Discovery was reached, but a direct connection failed. ' + (hasRelay ? 'The configured relay also needs checking.' : 'This build has no relay fallback; some networks cannot connect directly.');
+    return 'A signaling socket is open, but direct WebRTC failed. ' + (hasRelay ? 'The configured relay also needs checking.' : 'This build has no relay fallback; some networks cannot connect directly.');
   }
-  return 'Discovery is reachable, but pairing has not completed. Confirm both launchers use the same friend invite and version, then reconnect. A network restriction is also possible.';
+  return 'A signaling socket is open, but the invite has not reached a matching lobby. Confirm both launchers are open and use the same invite and app version, then reconnect.';
 }

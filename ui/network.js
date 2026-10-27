@@ -5,7 +5,8 @@ import { SnapshotSender } from './snapshot-sender.mjs';
 import { RealtimeTransport } from './realtime-transport.mjs';
 import {lobbyConnection} from './lobby-connection.mjs';
 import {FrameDispatch} from './frame-dispatch.mjs';
-import {lobbyHandshake} from './lobby-handshake.mjs';
+import {lobbyHandshake,shouldInitiateFastChannel} from './lobby-handshake.mjs';
+import {settleWithin} from './bounded-operation.mjs';
 export class Friends extends Social { constructor(options) { super({ ...options, joinRoom: options.joinRoom || joinRoom, diagnosticsFactory: options.diagnosticsFactory || (() => connectionDiagnostics({relaySockets:getRelaySockets})) }); } }
 import { validState } from '../engine/sync.js';
 import { SessionCombat,NpcMeleeAuthority } from '../engine/combat.js';
@@ -200,9 +201,12 @@ export class PrivateLobby extends EventTarget {
       this.setupTiming.peerAuthenticatedMs??=performance.now()-this.connectionStartedAt;
       this.fast.attach(id,this.room.getPeers()[id]);
       const hasProfile=this.handshakeProfiles.has(id),profile=this.handshakeProfiles.get(id);this.handshakeProfiles.delete(id);
+      if(hasProfile&&shouldInitiateFastChannel({isHost:this.isHost,profile})){
+        this.setupTiming.fastChannelOfferer=profile.initiator===false?'local':'legacy-host';
+        this.fast.initiate(id,this.room.getPeers()[id]);
+      }
       if(this.isHost&&profile&&(this.players.size<8||this.players.has(id))){
         this.players.set(id,{id,name:cleanName(profile.name),host:false,ready:profile.ready});
-        if(profile.fast)this.fast.initiate(id,this.room.getPeers()[id]);
       }
       this.pending.delete(id);
       // New peers already exchanged a profile during the channel handshake.
@@ -380,7 +384,15 @@ export class PrivateLobby extends EventTarget {
     clearInterval(this.timer); clearInterval(this.gameTimer); clearTimeout(this.timeout);
     const room = this.room;
     this.room = null;
-    if (room) { if (this.isHost) await this.bye.send({}).catch(() => {}); await room.leave(); }
+    const wasHost=this.isHost;
+    // Do not let a stalled signaling send or relay teardown trap an automatic
+    // reconnect in "Retrying" forever. The old generation is invalidated before
+    // teardown; late packets from it are ignored by the handlers above.
+    this.generation++;
+    if (room) {
+      if (wasHost) await settleWithin(() => this.bye.send({}), 300);
+      await settleWithin(() => room.leave(), 900);
+    }
     this.reset(); this.keys = null;
   }
 }

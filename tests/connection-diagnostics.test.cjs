@@ -6,7 +6,8 @@ test('connection report is bounded, omits private transport data, and retains a 
  for(let i=0;i<100;i++)new tracker.Peer();const p=new tracker.Peer();p.remoteDescription={sdp:'secret'};p.connectionState='failed';p.dispatchEvent(new Event('connectionstatechange'));p.connectionState='closed';p.remoteDescription=null;
  const report=tracker.snapshot();assert.equal(report.peers.length,6);assert.equal(report.signalingOpen,1);assert.equal(report.peers.at(-1).failed,true);
  assert.doesNotMatch(JSON.stringify(report),/secret|private|sdp|token/);assert.ok(JSON.stringify({version:'0.3.0-alpha.8',connection:report}).length<2048);
- assert.match(connectionHint('Not connected',report,false),/direct connection failed/);
- assert.match(connectionHint('Not connected',{signalingOpen:0,peers:[]},false),/discovery service/);
+ assert.match(connectionHint('Not connected',report,false),/direct WebRTC failed/);
+ assert.match(connectionHint('Not connected',{signalingOpen:0,peers:[]},false),/No signaling connection/);
+ assert.match(connectionHint('Not connected',report,false),/signaling socket is open/);
  assert.equal(connectionHint('Online',report,false),'');
 });

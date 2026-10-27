@@ -186,6 +186,11 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     await b.webContents.executeJavaScript('testLobby.sendState([5,0,5,0,0,0,0,2,100,0])');
     await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='frame' && e.detail.length===2)"), 'Host-approved movement snapshots were not received');
     result.tests.push('Host forwards validated synthetic movement packets to guest (not a gameplay test)');
+    await a.webContents.executeJavaScript('testLobby.fast.probe([...testLobby.players.keys()].find(id=>id!==testLobby.hostId))');
+    await b.webContents.executeJavaScript('testLobby.fast.probe(testLobby.hostId)');
+    await waitFor(async()=>await a.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.confirmed)')&&await b.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.confirmed)'),'Unreliable snapshot channel did not confirm two-way delivery');
+    await a.webContents.executeJavaScript('testLobby.sendState([0.25,0,5,0,0,0,0,2,100,0])');
+    await b.webContents.executeJavaScript('testLobby.sendState([5.25,0,5,0,0,0,0,2,100,0])');
     await waitFor(async()=>await a.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.sent>0&&c.received>0)')&&await b.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.sent>0&&c.received>0)'),'Unreliable snapshot channel did not carry two-way movement');
     result.snapshotChannels=await a.webContents.executeJavaScript('testLobby.fast.report()');
     assert.ok(result.snapshotChannels.every(c=>c.ordered===false&&c.retransmits===0),'Snapshot channel unexpectedly uses ordered retransmission');
@@ -214,11 +219,34 @@ async function run({ app, win, assets, BrowserWindow, lockdown,registerTestWindo
     await waitFor(() => b.webContents.executeJavaScript("testEvents.some(e=>e.name==='launch')"), 'Launch broadcast did not reach the guest');
     result.tests.push('Host launch message reaches guest');
     const launchCountBeforeRejoin=await b.webContents.executeJavaScript("testEvents.filter(e=>e.name==='launch').length");
-    await b.webContents.executeJavaScript('testLobby.leave()');
+    await b.webContents.executeJavaScript("window.realRoomLeave=testLobby.room.leave.bind(testLobby.room);testLobby.room.leave=async()=>{await window.realRoomLeave();await new Promise(resolve=>setTimeout(resolve,5000));};void 0");
+    await b.webContents.executeJavaScript('window.stalledLeaveStarted=performance.now();testLobby.leave()');
+    result.stalledRelayCleanupMs=Math.round(await b.webContents.executeJavaScript('performance.now()-window.stalledLeaveStarted'));
+    assert.ok(result.stalledRelayCleanupMs<1500,'A simulated stalled relay teardown blocked leaving the lobby');
     await waitFor(()=>a.webContents.executeJavaScript('testLobby.players.size===1'),'Host did not remove the guest who left the live session');
     await b.webContents.executeJavaScript(`testLobby.setReady(true);testLobby.join(${JSON.stringify(invite)},'Friend',${joinOptions})`);
     await waitFor(async()=>await a.webContents.executeJavaScript('testLobby.players.size===2')&&await b.webContents.executeJavaScript('testLobby.players.size===2&&testLobby.sessionStarted&&testEvents.filter(e=>e.name==="launch").length>='+String(launchCountBeforeRejoin+1)),'A returning guest did not rejoin the active host session and receive its launch state',60000);
     result.tests.push('Guest leaves and rejoins the still-running private lobby; the host roster and session launch state recover over public signaling');
+    result.tests.push('A simulated stalled relay teardown is bounded and does not block leaving or rejoining the live lobby');
+    await a.webContents.executeJavaScript('testLobby.fast.probe([...testLobby.players.keys()].find(id=>id!==testLobby.hostId))');
+    await b.webContents.executeJavaScript('testLobby.fast.probe(testLobby.hostId)');
+    let fastRejoinConfirmed=false,fastRejoinError=null;
+    try {
+      await waitFor(async()=>await a.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.confirmed)')&&await b.webContents.executeJavaScript('testLobby.fast.report().some(c=>c.state==="open"&&c.confirmed)'), 'The unordered low-latency channel did not recover after the guest rejoined', 12000);
+      fastRejoinConfirmed=true;
+    } catch(error) {
+      fastRejoinError=error.message;
+    }
+    result.rejoinFastChannels=await Promise.all([a,b].map(window=>window.webContents.executeJavaScript('testLobby.fast.report()')));
+    result.rejoinFastChannelConfirmed=fastRejoinConfirmed;
+    if(fastRejoinError)result.rejoinFastChannelWarning=fastRejoinError;
+    const rejoinedGuestId=await a.webContents.executeJavaScript('[...testLobby.players.keys()].find(id=>id!==testLobby.hostId)');
+    await b.webContents.executeJavaScript('testLobby.sendState([5.5,0,5,0,0,0,0,2,100,0])');
+    await waitFor(()=>a.webContents.executeJavaScript(`testLobby.states.get(${JSON.stringify(rejoinedGuestId)})?.state?.[0]===5.5`),'Guest movement did not resume after rejoining the active lobby');
+    result.rejoinMovementFallback='verified';
+    result.tests.push('After active-lobby rejoin, guest movement reaches the host; reliable Trystero movement remains available if the optional low-latency channel is not confirmed');
+    if(fastRejoinConfirmed)result.tests.push('Unordered low-latency snapshot channel reopens and completes a two-way probe after guest rejoin');
+    else result.tests.push('Low-latency snapshot channel did not reconfirm after rejoin; the reliable movement fallback carried the guest state');
     if (process.argv.includes('--native-test') && !result.gameplayTested) {
       await a.webContents.executeJavaScript('testLobby.states.clear()');
       await b.webContents.executeJavaScript('testLobby.states.clear()');
