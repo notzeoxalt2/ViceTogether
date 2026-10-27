@@ -389,6 +389,11 @@ int VT_ReadRemoteSkeleton(int slot,float* out) {
     CPed* p=peers[slot].ped;
     if(CTimer::GetFrameCounter()-peers[slot].createdFrame<3||!p->m_rwObject||!p->GetClump())return 0;
     const CVector head=p->GetNodePosition(PED_HEAD),left=p->GetNodePosition(PED_FOOTL),right=p->GetNodePosition(PED_FOOTR);
+    CVehicle* occupied=p->m_pMyVehicle;
+    int actualSeat=-2;
+    if(occupied){if(occupied->pDriver==p)actualSeat=-1;else for(int i=0;i<8;i++)if(occupied->pPassengers[i]==p){actualSeat=i;break;}}
+    out[27]=p->bInVehicle?1.0f:0.0f;out[28]=p->bRenderPedInCar?1.0f:0.0f;
+    out[29]=occupied?float(ViceTogetherWorldVehicleId(occupied)):-1.0f;out[30]=float(peers[slot].vehicle);out[31]=float(peers[slot].seat);out[32]=float(peers[slot].appliedSeat);out[33]=float(actualSeat);
     out[0]=(head-left).Magnitude();out[1]=(head-right).Magnitude();out[2]=(left-right).Magnitude();
     out[3]=p->m_fHealth;out[4]=0;out[5]=0;
     out[17]=head.x;out[18]=head.y;out[19]=head.z;
@@ -635,10 +640,15 @@ void ViceTogetherTick() {
             continue;
         }
         CVehicle* car=r.vehicle>=0?ViceTogetherWorldFindVehicle(unsigned(r.vehicle)):nil;
-        if(r.ped->m_pMyVehicle!=car || (car && r.appliedSeat!=r.seat)){
+        bool correctSeat=false;
+        if(car && r.ped->m_pMyVehicle==car){
+            if(r.seat<0)correctSeat=car->pDriver==r.ped;
+            else correctSeat=r.seat<car->m_nNumMaxPassengers && r.seat<8 && car->pPassengers[r.seat]==r.ped;
+        }
+        if(r.ped->m_pMyVehicle!=car || (car && (r.appliedSeat!=r.seat || !correctSeat))){
             if(r.ped->m_pMyVehicle){if(r.ped->m_pMyVehicle->pDriver==r.ped)r.ped->m_pMyVehicle->RemoveDriver();else r.ped->m_pMyVehicle->RemovePassenger(r.ped);}
             r.ped->m_pMyVehicle=nil;
-            if(car){bool seated=false;if(r.seat<0 && (!car->pDriver || car->pDriver==r.ped)){car->SetDriver(r.ped);seated=true;}else if(r.seat>=0)seated=car->AddPassenger(r.ped,uint8(r.seat));if(seated){r.ped->m_pMyVehicle=car;car->RegisterReference((CEntity**)&r.ped->m_pMyVehicle);r.appliedSeat=r.seat;}else car=nil;}
+            if(car){bool seated=false;if(r.seat<0 && (!car->pDriver || car->pDriver==r.ped)){car->SetDriver(r.ped);seated=car->pDriver==r.ped;}else if(r.seat>=0 && r.seat<car->m_nNumMaxPassengers && r.seat<8 && (!car->pPassengers[r.seat] || car->pPassengers[r.seat]==r.ped))seated=car->AddPassenger(r.ped,uint8(r.seat)) && car->pPassengers[r.seat]==r.ped;if(seated){r.ped->m_pMyVehicle=car;car->RegisterReference((CEntity**)&r.ped->m_pMyVehicle);r.appliedSeat=r.seat;}else{r.appliedSeat=-2;car=nil;}}
         }
         r.ped->bInVehicle=car!=nil;r.ped->bUsesCollision=car==nil;
         r.ped->SetPedState(car?PED_DRIVING:PED_IDLE);

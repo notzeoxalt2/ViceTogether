@@ -53,7 +53,8 @@ export class PrivateLobby extends EventTarget {
     if (options.iceServers?.length) config.turnConfig = options.iceServers;
     if (options.relayUrls?.length) config.relayConfig = { urls: options.relayUrls };
     this.room = (options.joinRoom || joinRoom)(config, invite.room, {
-      onJoinError: () => this.emit('notice', 'Could not reach a player. Retry the invite. Some networks need a relay; this build has no TURN service configured.'),
+      handshakeTimeoutMs: 10000,
+      onJoinError: () => this.emit('notice', 'The private connection did not finish. The launcher will retry automatically.'),
       onPeerHandshake: async (id, send, receive, initiator) => {
         if (this.isHost && this.players.size + this.pending.size >= 8) throw new Error('Lobby full');
         this.pending.add(id);
@@ -229,11 +230,11 @@ export class PrivateLobby extends EventTarget {
     } else {
       const checkJoin=async()=>{
         if(generation!==this.generation||!this.room||this.hostId)return;const phase=this.connectionPhase();
-        if(phase.retryable&&this.connectAttempt<2){this.emit('notice',`${phase.detail} Retrying connection (${this.connectAttempt+1}/2)...`);try{await this.join(invite,this.name,{...options,connectAttempt:this.connectAttempt+1});}catch{this.emit('notice','The connection could not restart. Use Retry to try again.');}}
-        else if(phase.label==='NEGOTIATING DIRECT LINK'){this.timeout=setTimeout(checkJoin,20000);this.changed();}
-        else {this.emit('notice',phase.detail+' Use Retry to start a fresh connection attempt.');this.changed();}
+        if(phase.retryable&&this.connectAttempt<2){this.emit('notice',`${phase.detail} Retrying (${this.connectAttempt+1}/2).`);try{await this.join(invite,this.name,{...options,connectAttempt:this.connectAttempt+1});}catch{this.emit('notice','The connection could not restart. Use Retry to try again.');}}
+        else if(phase.retryable){this.emit('notice',`${phase.detail} Use Retry to start again.`);this.changed();}
+        else {this.timeout=setTimeout(checkJoin,2500);this.changed();}
       };
-      this.timeout=setTimeout(checkJoin,25000);
+      this.timeout=setTimeout(checkJoin,2500);
     }
     this.timer = setInterval(async () => {
       const room = this.room;

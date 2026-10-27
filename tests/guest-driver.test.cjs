@@ -9,12 +9,14 @@ test('only an exclusive nearby driver can update a car; health changes and telep
  const malformedVisual=[...visual];malformedVisual[26]=5000;assert.equal(seats.acceptVehicle('guest',{id:12,state,visual:malformedVisual},200),null);
  state[2]=500;assert.equal(seats.acceptVehicle('guest',{id:12,state},200),null);seats.release('guest');assert.equal(seats.acceptVehicle('guest',{id:12,state},300),null);
 });
-test('driver snapshots allow the 90 Hz vehicle stream while rejecting faster duplicates',()=>{
+test('driver snapshots tolerate 90 Hz packet jitter and enforce a rolling 100 Hz ceiling',()=>{
  const seats=new SeatAuthority(),car=Array(34).fill(0);car[0]=130;car[17]=1000;car[22]=3;car[5]=car[9]=car[13]=1;
  seats.world({entities:[{id:12,type:22,state:car}]});const player={time:100,state:[0,0,0,0,0,0,0,1,100,0]};assert.ok(seats.requestDriver('guest',12,player,100));
- const state=[...car];state[20]=1;assert.ok(seats.acceptVehicle('guest',{id:12,state},100));
- assert.equal(seats.acceptVehicle('guest',{id:12,state},109),null);
- state[2]=1;assert.ok(seats.acceptVehicle('guest',{id:12,state},110));
+ const state=[...car];state[20]=1;
+ for(let i=0;i<90;i++){const now=1003+i*10+(i%2?0:3);assert.ok(seats.acceptVehicle('guest',{id:12,state},now),`jittered sample ${i} was dropped`);}
+ for(let i=0;i<20;i++){const accepted=seats.acceptVehicle('guest',{id:12,state},1900+i*5);assert.equal(!!accepted,i<10,`rolling rate limit at burst sample ${i}`);}
+ assert.equal(seats.vehicleStats.accepted,100);
+ assert.equal(seats.vehicleStats.rejected['rate-limit'],10);
 });
 test('guest vehicle damage is monotonic and a guest wreck revokes the driver claim',()=>{
  const seats=new SeatAuthority(),car=Array(34).fill(0);car[0]=130;car[17]=1000;car[22]=3;car[5]=car[9]=car[13]=1;
