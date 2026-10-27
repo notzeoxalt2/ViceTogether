@@ -155,8 +155,8 @@ bool syncedHitAnimation(int id){
 constexpr float remoteTagScaleX=0.34f;
 constexpr float remoteTagScaleY=0.64f;
 float remoteTagLineHeight(){return SCREEN_SCALE_Y(20.0f*remoteTagScaleY);}
-float remoteTagNameGap(){return SCREEN_SCALE_Y(19.0f);}
-float remoteTagHealthGap(){return SCREEN_SCALE_Y(15.0f);}
+float remoteTagNameGap(){return SCREEN_SCALE_Y(17.0f);}
+float remoteTagHealthGap(){return SCREEN_SCALE_Y(13.0f);}
 bool remoteTagProjection(CPed* ped,RwV3d* screen){
     if(!ped||!ped->m_rwObject||!ped->GetClump()||!screen)return false;
     CVector head=ped->GetNodePosition(PED_HEAD);head.z+=0.10f;
