@@ -44,10 +44,15 @@ test('native multiplayer seat grants use Vice City enter tasks instead of telepo
 
 test('native heli cockpit exposes front access to the stock seat-entry task',()=>{
   const patch=fs.readFileSync(path.join(__dirname,'..','engine','native-source','native-engine.patch'),'utf8');
+  const world=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   assert.match(patch,/CHeli::IsRoomForPedToLeaveCar\(uint32 component, CVector \*forcedDoorPos\)/);
   assert.match(patch,/return component == CAR_DOOR_LF \|\| component == CAR_DOOR_RF;/);
   assert.match(patch,/CHeli::IsDoorReady\(eDoors door\)/);
   assert.match(patch,/CHeli::IsDoorFullyOpen\(eDoors door\)/);
+  const grant=world.slice(world.indexOf('void ViceTogetherGrantPassenger('),world.indexOf('void ViceTogetherCaptureDriver('));
+  const helicopter=grant.slice(grant.indexOf('if(multiplayerHelicopter(car))'),grant.indexOf('// Do not WarpPedIntoCar'));
+  assert.match(helicopter,/player->SetObjective\(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car\);\s*\/\/ The Maverick's passenger node[\s\S]*?player->SetEnterCar_AllClear\(car,player->m_vehDoor,0\);/);
+  assert.doesNotMatch(helicopter,/player->SetEnterCar\(car,player->m_vehDoor\)/,'Maverick entry cannot wait on a missing standard-door readiness flag');
   assert.match(patch,/m_fRotorRotation \+= \(3\.14f\/6\.5f\) \* CTimer::GetTimeStep\(\) \* 0\.6f;/);
 });
 
