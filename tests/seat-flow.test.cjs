@@ -61,7 +61,8 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(network,/if\(getenv\("VT_TEST_GUEST_DRIVE"\)\)\{ViceTogetherWorldTestDrive\(\);return;\}/);
   assert.match(network,/if\(getenv\("VT_TEST_MENU"\)\|\|getenv\("VT_TEST_GUEST_SPAWN"\)\)/,'The hidden helicopter spawn scenario must drive the actual native menu path');
   assert.match(world,/pad->NewState\.Triangle=255/);
-  assert.match(world,/roadPosition-player->GetPosition\(\)\)\.MagnitudeSqr\(\)<900\.0f/);
+  assert.match(world,/difference\.MagnitudeSqr\(\)>=900\.0f\|\|fabsf\(roadPosition\.z-player->GetPosition\(\)\.z\)>4\.0f/);
+  assert.match(world,/FindGroundZFor3DCoord\(candidate\.x,candidate\.y,player->GetPosition\(\)\.z\+5\.0f,&groundFound\)/);
   assert.match(world,/if\(candidate->IsBoat\(\)\)\{for\(int radius=3;radius<=10/);
   assert.match(world,/testCar->m_fHealth=1000\.0f/);
   assert.match(harness,/did not exit the shared vehicle normally/);
@@ -94,12 +95,16 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   assert.match(lobby,/acceptVehicleSpawn\(peerId,request\?\.model/);
 });
 
-test('guest-requested land vehicles fall back to a nearby path node when host collision is not loaded',()=>{
+test('guest-requested land vehicles search nearby ground without selecting an upper-floor path node',()=>{
   const source=fs.readFileSync(path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp'),'utf8');
   const start=source.indexOf('void ViceTogetherWorldMenuTick()');
   const end=source.indexOf('void ViceTogetherWorldExplosion(',start);
   const tick=source.slice(start,end);
-  assert.match(tick,/FindGroundZFor3DCoord\(position\.x,position\.y,position\.z\+10,&found\)/);
-  assert.match(tick,/else \{const float searchRadius=menuSpawnHasPosition\?60\.0f:40\.0f;const int road=ThePaths\.FindNodeClosestToCoors\(position,PATH_CAR,searchRadius\)/);
-  assert.match(tick,/Could not find safe ground nearby\. Move to an open area and try again\./);
+  assert.match(tick,/const float referenceZ=position\.z/);
+  assert.match(tick,/FindGroundZFor3DCoord\(candidate\.x,candidate\.y,referenceZ\+5\.0f,&found\)/);
+  assert.match(tick,/fabsf\(ground-referenceZ\)<=4\.0f/);
+  assert.match(tick,/FindNodeClosestToCoors\(candidate,PATH_CAR,6\.0f\)/);
+  assert.match(tick,/fabsf\(node\.z-referenceZ\)<=4\.0f/);
+  assert.match(tick,/Could not find safe ground at your level nearby\. Move to an open area and try again\./);
+  assert.doesNotMatch(tick,/searchRadius=menuSpawnHasPosition\?60\.0f:40\.0f/);
 });

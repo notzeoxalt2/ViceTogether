@@ -1,3 +1,13 @@
+# ViceTogether alpha.40 — safe helicopter placement
+
+Guest-requested helicopters now search for a safe spawn point on the requester's current ground level instead of falling back to an unrelated upper-floor or overpass path node. If no nearby same-level ground can be found, the launcher reports a clear retry message rather than spawning a helicopter out of reach. The native two-client test now checks both the 12 m rotor clearance and the vertical offset, along with idle stability and same-process rejoin.
+
+The first alpha.39 paired run proved the previous spawn was 18 m away horizontally but about 20.5 m above the guest on one route. Alpha.40's Windows native build and helicopter passenger/guest-pilot/rotor checks are pending; do not publish this update until those pass. Fast snapshot transport also did not reconfirm after rejoin in the same-PC test; reliable movement remained available.
+
+Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.39 — stable multiplayer helicopters
 
 Network Mavericks now use the native stationary helicopter route while nobody is piloting, instead of the script route that follows the local player and climbs. Empty replicas are corrected only after measurable drift; the game is left alone while a seat is occupied or a remote pilot is sending movement. Local menu spawns place helicopters 15 m ahead, and guest requests retain the host's 18 m clearance.

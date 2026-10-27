@@ -251,7 +251,44 @@ void ViceTogetherWorldMenuTick(){
     int slot=-1;for(int i=0;i<8;i++)if(!menuSpawned[i]){slot=i;break;}if(slot<0){menuSpawnModel=-1;menuStatus="Eight spawned vehicles already exist";return;}
     const int model=menuSpawnModel;const float spawnAhead=(model==155||model==217)?15.0f:6.0f;CVector position=menuSpawnHasPosition?menuSpawnPosition:player->GetPosition()+player->GetForward()*spawnAhead;const float heading=menuSpawnHasPosition?menuSpawnHeading:player->m_fRotationCur;const bool boat=CModelInfo::IsBoatModel(model);float water=0;
     if(boat){if(!CWaterLevel::GetWaterLevel(position.x,position.y,position.z,&water,true)){menuSpawnModel=-1;menuStatus="Move beside open water to spawn a boat / Skimmer";return;}position.z=water+0.5f;}
-    else {bool found=false;const float ground=CWorld::FindGroundZFor3DCoord(position.x,position.y,position.z+10,&found);if(found)position.z=ground+1.0f;else {const float searchRadius=menuSpawnHasPosition?60.0f:40.0f;const int road=ThePaths.FindNodeClosestToCoors(position,PATH_CAR,searchRadius);if(road<0){menuSpawnModel=-1;menuStatus="Could not find safe ground nearby. Move to an open area and try again.";return;}position=ThePaths.m_pathNodes[road].GetPosition()+CVector(0,0,1);}}
+    else {
+        // A nearest path node can be on an overpass or an upper floor. Using
+        // it without checking height put multiplayer helicopters ~20 m above
+        // the player and made the cockpit unreachable. Search only nearby
+        // points on the requester's current ground level; keep network-spawn
+        // clearance by limiting the adjustment to 4 m.
+        const float referenceZ=position.z;
+        bool safeGround=false;
+        CVector groundedPosition=position;
+        const float offsets[]={0.0f,2.0f,4.0f};
+        for(float radius:offsets){
+            for(int direction=0;direction<(radius==0.0f?1:16);direction++){
+                const float angle=direction*6.2831853f/16.0f;
+                CVector candidate=position+CVector(cosf(angle)*radius,sinf(angle)*radius,0.0f);
+                bool found=false;
+                const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,referenceZ+5.0f,&found);
+                if(found&&std::isfinite(ground)&&fabsf(ground-referenceZ)<=4.0f){
+                    candidate.z=ground+1.0f;
+                    groundedPosition=candidate;
+                    safeGround=true;
+                    break;
+                }
+                const int road=ThePaths.FindNodeClosestToCoors(candidate,PATH_CAR,6.0f);
+                if(road>=0){
+                    const CVector node=ThePaths.m_pathNodes[road].GetPosition();
+                    const float dx=node.x-position.x,dy=node.y-position.y;
+                    if(dx*dx+dy*dy<=25.0f&&fabsf(node.z-referenceZ)<=4.0f){
+                        groundedPosition=node+CVector(0,0,1);
+                        safeGround=true;
+                        break;
+                    }
+                }
+            }
+            if(safeGround)break;
+        }
+        if(!safeGround){menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Could not find safe ground at your level nearby. Move to an open area and try again.";return;}
+        position=groundedPosition;
+    }
     CVehicle* car=createMultiplayerVehicle(model);if(!car){menuSpawnModel=-1;menuStatus="This vehicle type is not supported yet";return;}
     car->m_fHealth=1000.0f;car->SetPosition(position);car->SetHeading(heading);car->SetStatus(STATUS_ABANDONED);car->SetMoveSpeed(0,0,0);car->bEngineOn=false;CWorld::Add(car);trackNetworkHeli(car);menuSpawned[slot]=car;car->RegisterReference((CEntity**)&menuSpawned[slot]);menuLastSpawn=now;menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Spawned nearby - F: drive / G: passenger";
 }
@@ -449,7 +486,21 @@ void ViceTogetherWorldTestDrive(){CPlayerPed* player=FindPlayerPed();if(!player)
                     // native clients can use the stock boarding approach.
                     for(int radius=3;radius<=10&&!boatApproachFound;radius++)for(int angle=0;angle<32;angle++){const float a=angle*6.2831853f/32;const float x=location.x+cosf(a)*radius,y=location.y+sinf(a)*radius;bool dryGroundFound=false;const float dryGround=CWorld::FindGroundZFor3DCoord(x,y,100,&dryGroundFound);float nearbyWater=0;const bool wet=CWaterLevel::GetWaterLevel(x,y,location.z,&nearbyWater,true);if(dryGroundFound&&(!wet||dryGround>nearbyWater+0.65f)){boatApproach=CVector(x,y,dryGround+0.5f);boatApproachFound=true;break;}}if(!boatApproachFound)return;
                     testCar=new CBoat(model,MISSION_VEHICLE);
-                }else{if(road>=0){const CVector roadPosition=ThePaths.m_pathNodes[road].GetPosition();if((roadPosition-player->GetPosition()).MagnitudeSqr()<900.0f){location=roadPosition+CVector(0,0,1);if(ThePaths.m_pathNodes[road].numLinks){const CVector direction=ThePaths.m_pathNodes[ThePaths.ConnectedNode(ThePaths.m_pathNodes[road].firstLink)].GetPosition()-location;heading=atan2f(-direction.x,direction.y);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}}else{const CVector candidate=player->GetPosition()+CVector(8,0,0);bool groundFound=false;const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,candidate.z+10,&groundFound);if(!groundFound)return;location=CVector(candidate.x,candidate.y,ground+0.5f);}testCar=createMultiplayerVehicle(model);if(!testCar)return;}
+                }else{
+                    const CVector candidate=player->GetPosition()+CVector(8,0,0);
+                    bool groundFound=false;
+                    const float ground=CWorld::FindGroundZFor3DCoord(candidate.x,candidate.y,player->GetPosition().z+5.0f,&groundFound);
+                    if(groundFound&&std::isfinite(ground)&&fabsf(ground-player->GetPosition().z)<=4.0f){
+                        location=CVector(candidate.x,candidate.y,ground+0.5f);
+                    }else if(road>=0){
+                        const CVector roadPosition=ThePaths.m_pathNodes[road].GetPosition();
+                        const CVector difference=roadPosition-player->GetPosition();
+                        if(difference.MagnitudeSqr()>=900.0f||fabsf(roadPosition.z-player->GetPosition().z)>4.0f)return;
+                        location=roadPosition+CVector(0,0,1);
+                        if(ThePaths.m_pathNodes[road].numLinks){const CVector direction=ThePaths.m_pathNodes[ThePaths.ConnectedNode(ThePaths.m_pathNodes[road].firstLink)].GetPosition()-location;heading=atan2f(-direction.x,direction.y);}
+                    }else return;
+                }
+                testCar=createMultiplayerVehicle(model);if(!testCar)return;
                 testCar->RegisterReference((CEntity**)&testCar);testCar->m_fHealth=1000.0f;testCar->SetPosition(location);testCar->SetHeading(heading);player->Teleport(testCar->IsBoat()?boatApproach:location+testCar->GetRight()*3.0f);testCar->SetStatus(STATUS_ABANDONED);testCar->SetMoveSpeed(0,0,0);CWorld::Add(testCar);trackNetworkHeli(testCar);
             }
             if(getenv("VT_TEST_VEHICLE_COLLISION") && model==130 && !testBarrier){CStreaming::RequestModel(135,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(135))return;testBarrier=createMultiplayerVehicle(135);if(testBarrier){const CVector forward=testCar->GetForward();testBarrier->RegisterReference((CEntity**)&testBarrier);testBarrier->m_fHealth=1000.0f;testBarrier->SetPosition(testCar->GetPosition()+forward*45.0f);testBarrier->SetHeading(atan2f(-forward.x,forward.y));testBarrier->SetStatus(STATUS_ABANDONED);testBarrier->SetMoveSpeed(0,0,0);testBarrier->bEngineOn=false;CWorld::Add(testBarrier);}}
