@@ -2,7 +2,7 @@
 // its reliable stream for authentication, lobby state, damage and other events.
 const LABEL='vt-snapshots-v1',DEFAULT_KINDS=['movement','players','ambient','driver'];
 const MAX_MESSAGES_PER_SECOND=240;
-const SNAPSHOT_LIMITS={movement:90,players:90,ambient:24,driver:90};
+const SNAPSHOT_LIMITS={movement:90,players:90,ambient:24,driver:100};
 export class RealtimeTransport {
   constructor({NativePeer=globalThis.RTCPeerConnection,receive,now=()=>performance.now(),kinds=DEFAULT_KINDS}={}) {
     if(!Array.isArray(kinds)||!kinds.length||kinds.length>8||kinds.some(k=>typeof k!=='string'||!/^[-a-z0-9]{1,24}$/.test(k)||['probe','echo'].includes(k)))throw new Error('Invalid snapshot kinds');this.kinds=new Set(kinds);

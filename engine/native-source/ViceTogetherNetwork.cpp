@@ -214,9 +214,9 @@ void ViceTogetherNetworkTick() {
     static DWORD lastWorld=0,lastDriver=0;
     if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);lastWorld=now;}
     // Driver ownership is a small, replaceable state packet. Send it near
-    // 60 Hz so the other client gets frequent motion and wheel updates without
+    // 90 Hz so the other client gets frequent motion and wheel updates without
     // waiting for the slower ambient-world transaction.
-    if(now-lastDriver>=16){ViceTogetherCaptureDriver(sendWorld);lastDriver=now-(now-lastDriver)%16;}
+    if(now-lastDriver>=11){ViceTogetherCaptureDriver(sendWorld);lastDriver=now-(now-lastDriver)%11;}
     for(int count=0;count<512;count++) {
         Wire wire;sockaddr_in source={};int sourceSize=sizeof(source);
         const int size=recvfrom(bridge,(char*)&wire,sizeof(wire),0,(sockaddr*)&source,&sourceSize);

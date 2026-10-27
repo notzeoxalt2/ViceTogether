@@ -1,3 +1,13 @@
+# ViceTogether alpha.36 — higher-rate vehicle motion
+
+The native driver-state stream now targets 90 updates per second instead of 60, reducing the motion step size guests see between game frames. The transport and host validation limits were adjusted to accept this rate while keeping snapshot traffic bounded and dropping stale/reordered updates.
+
+The two-native-game car test must pass against the Windows build before publishing this release. The change should reduce visible stepping; it does not remove route latency, guarantee equal physics, or establish bike, boat, aircraft, passenger, or public-internet behavior.
+
+Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.35 — host-driven vehicle smoothness
 
 Host-driven vehicles now use the same high-rate native driver-state stream that already kept guest-driven vehicles smooth. Guests apply these validated snapshots to the native car replica and interpolate between samples instead of relying on the slower ambient-world update. The change covers supported cars, bikes, boats, and aircraft through the shared vehicle stream.

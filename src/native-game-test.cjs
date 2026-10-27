@@ -293,15 +293,17 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const inbound=await windows[1].webContents.executeJavaScript('window.testReceivedDriverStates');
       const received=inbound.filter(sample=>sample.id===sharedId&&sample.state?.[20]===1);
       const intervals=received.slice(1).map((sample,index)=>sample.time-received[index].time).filter(value=>value>0).sort((a,b)=>a-b);
+      const arrivalRateHz=intervals.length*1000/Math.max(1,received.at(-1)?.time-received[0]?.time);
       const lobbyDiagnostics=await Promise.all(windows.map(window=>window.webContents.executeJavaScript("({isHost:testLobby.isHost,hostId:testLobby.hostId,players:[...testLobby.players.keys()],localDriverEvents:window.testLocalDriverEvents,localDriverFallbacks:window.testLocalDriverFallbacks,localDriverCalls:window.testLocalDriverCalls,localDriverAccepted:window.testLocalDriverAccepted,localDriverRejected:window.testLocalDriverRejected,fast:testLobby.fast.report(),seen:[...testLobby.fast.peers].map(([id,entry])=>({id,channel:entry.channel?.readyState,driverSequence:entry.seen.get('driver')||0}))})")));
       const guestStatus=worldStatusTimeline[1],firstStatus=guestStatus[0],lastStatus=guestStatus.at(-1);
       const appliedPackets=(lastStatus?.driverMotionPackets||0)-(firstStatus?.driverMotionPackets||0);
       const renderedFrames=(lastStatus?.driverMotionFrames||0)-(firstStatus?.driverMotionFrames||0);
       const framesPerPacket=renderedFrames/Math.max(1,appliedPackets);
-      const hostDrivenVehicle={outboundSnapshots:outbound.length,receivedSnapshots:received.length,arrivalIntervalP50Ms:intervals[Math.floor(intervals.length*.5)]??null,arrivalIntervalP95Ms:intervals[Math.floor(intervals.length*.95)]??null,guestNativeAppliedPackets:appliedPackets,guestInterpolatedFrames:renderedFrames,guestFramesPerPacket:framesPerPacket,guestInterpolationHz:firstStatus&&lastStatus?(renderedFrames*1000/Math.max(1,lastStatus.time-firstStatus.time)):0,lobbyDiagnostics};
+      const hostDrivenVehicle={outboundSnapshots:outbound.length,receivedSnapshots:received.length,arrivalRateHz,arrivalIntervalP50Ms:intervals[Math.floor(intervals.length*.5)]??null,arrivalIntervalP95Ms:intervals[Math.floor(intervals.length*.95)]??null,guestNativeAppliedPackets:appliedPackets,guestInterpolatedFrames:renderedFrames,guestFramesPerPacket:framesPerPacket,guestInterpolationHz:firstStatus&&lastStatus?(renderedFrames*1000/Math.max(1,lastStatus.time-firstStatus.time)):0,lobbyDiagnostics};
       await fs.writeFile(path.join(out,'host-driven-vehicle-stream.json'),JSON.stringify(hostDrivenVehicle,null,2));
       assert.ok(outbound.length>100,'Host did not publish local driver snapshots');
       assert.ok(received.length>100,'Guest did not receive the host driver stream over P2P');
+      assert.ok(arrivalRateHz>=75,`Host-to-guest vehicle stream did not reach the 90 Hz target: ${arrivalRateHz.toFixed(1)} Hz`);
       assert.ok(intervals.length>50&&intervals[Math.floor(intervals.length*.5)]<=25&&intervals[Math.floor(intervals.length*.95)]<=50,'Host-to-guest vehicle snapshots arrived too slowly');
       assert.ok(appliedPackets>100,'Guest native game did not apply the host vehicle snapshots');
       assert.ok(framesPerPacket>1.1,'Guest native game did not interpolate the host vehicle between snapshots');
