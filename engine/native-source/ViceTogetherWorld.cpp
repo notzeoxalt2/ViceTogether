@@ -286,7 +286,16 @@ void ViceTogetherWorldMenuTick(){
             }
             if(safeGround)break;
         }
-        if(!safeGround){menuSpawnModel=-1;menuSpawnHasPosition=false;menuStatus="Could not find safe ground at your level nearby. Move to an open area and try again.";return;}
+        if(!safeGround){
+            // Collision and path data can be missing at the edge of the streamed
+            // map (and the nearest path may belong to a bridge far above us).
+            // The host approved this point from a fresh on-foot player state, so
+            // retain that player's elevation rather than failing or borrowing an
+            // unrelated road node. Keep the vehicle's normal one-metre ground
+            // offset; the point is already placed ahead of the requester.
+            groundedPosition=position;
+            groundedPosition.z=referenceZ+1.0f;
+        }
         position=groundedPosition;
     }
     CVehicle* car=createMultiplayerVehicle(model);if(!car){menuSpawnModel=-1;menuStatus="This vehicle type is not supported yet";return;}
