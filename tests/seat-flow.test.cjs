@@ -120,6 +120,10 @@ test('heli spawn verification distinguishes a new two-client spawn from an ambie
     'The test telemetry must count live native Maverick instances in each game');
   assert.match(native,/observed\.testHelicopters=\{count:state\[19\],nearest:\{position:state\.slice\(20,23\)/,
     'Native reports must include count, nearest position, rotor rotation and health');
+  assert.match(native,/observed\.testSpawn=\{calls:state\[27\],stage:state\[28\],stageName:/,
+    'Native reports must expose which phase of a guest vehicle spawn actually ran');
+  assert.match(world,/testGuestSpawnStage=10/,
+    'The test must distinguish a native vehicle creation from a lobby approval');
   assert.match(harness,/heliBaselineCounts=worldStatusHistory\.map\(history=>history\.at\(-1\)\?\.testHelicopters\?\.count\)/,
     'The scenario must compare post-request helicopter counts to both clients’ baseline');
   assert.match(harness,/The approved request did not add a helicopter at the expected location to both native game worlds/,
