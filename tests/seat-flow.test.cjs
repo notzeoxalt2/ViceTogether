@@ -120,6 +120,8 @@ test('heli spawn verification requires the approved two-client spawn at the safe
     'The test telemetry must count live player-class helicopters as well as native AI helicopters');
   assert.match(world,/bool multiplayerHelicopter\(CVehicle\* car\)[\s\S]*m_vehicleType==VEHICLE_TYPE_HELI[\s\S]*HANDLING_IS_HELI/,
     'Helicopter classification must use model metadata because CAutomobile helicopter replicas report IsHeli false');
+  assert.match(world,/const bool heli=multiplayerHelicopter\(car\);[\s\S]*SetStatus\(heli\?STATUS_PHYSICS:STATUS_ABANDONED\)[\s\S]*bEngineOn=heli/,
+    'Player-class helicopter spawns must run native rotor and engine processing while unpiloted');
   assert.match(native,/observed\.testHelicopters=\{count:state\[19\],nearest:\{position:state\.slice\(20,23\)/,
     'Native reports must include count, nearest position, rotor rotation and health');
   assert.match(native,/observed\.testSpawn=\{calls:state\[27\],stage:state\[28\],stageName:/,
