@@ -73,9 +73,9 @@ class NativeEngine extends EventEmitter {
         else if(type===30)this.emit('seat-request',{id:slot,driver:state[0]===-1});
         else if(type===55&&!this.authoritativeWorld&&Number.isInteger(state[0])&&VEHICLE_MODELS.includes(state[0]))this.emit('vehicle-spawn-request',state[0]);
         else if(type===57&&!this.authoritativeWorld&&Number.isInteger(state[0])&&SHARED_CHEATS.includes(state[0]))this.emit('shared-cheat-request',state[0]);
-        else if(type===60&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&slot>=0&&slot<=16777215&&validDriverVehicleVisual(state))this.driverVisuals.set(slot,state);
+        else if(type===60&&Number.isSafeInteger(slot)&&slot>=0&&slot<=16777215&&validDriverVehicleVisual(state))this.driverVisuals.set(slot,state);
         else if(type===62&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&slot>=0&&slot<=16777215&&state.slice(0,6).every(v=>Number.isFinite(v)&&Math.abs(v)<=2.4))this.emit('vehicle-doors',{id:slot,doors:state.slice(0,6)});
-        else if(type===43&&!this.authoritativeWorld&&Number.isSafeInteger(slot)&&slot>=0&&slot<=16777215&&state.every(Number.isFinite))this.emit('driver-state',{id:slot,state,visual:this.driverVisuals.get(slot)?.slice()});
+        else if(type===43&&Number.isSafeInteger(slot)&&slot>=0&&slot<=16777215&&state.every(Number.isFinite))this.emit('driver-state',{id:slot,state,visual:this.driverVisuals.get(slot)?.slice()});
         else if(type===40 && !this.authoritativeWorld && validGlass(state))this.emit('glass-request',state);
         else if(type===36 && this.authoritativeWorld && slot<=7 && Number.isFinite(state[0]) && state[0]>0 && state[0]<=100){const target=slot===7?null:[...this.slots].find(([,s])=>s===slot)?.[0];if(slot===7 || target)this.emit('world-damage',{target,amount:state[0]});}
         else if (testWalk && type === 4 && slot < 7 && state.every(Number.isFinite)) this.emit('remote-observed', { slot, state });
@@ -166,7 +166,10 @@ class NativeEngine extends EventEmitter {
   seatGrant(claim){if(Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=-1 && claim.seat<8)this.send(32,0,[claim.id,claim.seat]);}
   spawnVehicle(request){if(!this.authoritativeWorld||!this.socket||!this.endpoint||!VEHICLE_MODELS.includes(request?.model)||!Array.isArray(request?.position)||request.position.length!==3||!request.position.every(Number.isFinite)||!Number.isFinite(request.heading)||request.position.some((v,i)=>Math.abs(v)>[10000,10000,3000][i])||Math.abs(request.heading)>Math.PI*100)return false;this.send(56,0,[request.model,...request.position,request.heading]);return true;}
   toggleSharedCheat(cheatId,position){if(!this.authoritativeWorld||!this.socket||!this.endpoint||!SHARED_CHEATS.includes(cheatId))return false;if(cheatId===2&&(!Array.isArray(position)||position.length!==3||!position.every(Number.isFinite)||position.some((v,i)=>Math.abs(v)>[10000,10000,3000][i])))return false;this.send(58,0,[cheatId,...(cheatId===2?position:[0,0,0])]);return true;}
-  driverState(update){if(!this.authoritativeWorld||!Number.isSafeInteger(update?.id)||update.id<0||!Array.isArray(update.state)||update.state.length!==34||!update.state.every(Number.isFinite))return;this.send(44,update.id,update.state);if(validDriverVehicleVisual(update.visual))this.send(61,update.id,update.visual);}
+  // The lobby layer authorizes guest snapshots at the host and only accepts
+  // host snapshots at guests. Both sides then apply the same native high-rate
+  // replica update instead of leaving guests on the slower ambient world feed.
+  driverState(update){if(!Number.isSafeInteger(update?.id)||update.id<0||!Array.isArray(update.state)||update.state.length!==34||!update.state.every(Number.isFinite))return;this.send(44,update.id,update.state);if(validDriverVehicleVisual(update.visual))this.send(61,update.id,update.visual);}
   driverDoors(update){if(!this.authoritativeWorld||!validVehicleDoors(update))return false;const state=Array(34).fill(0);update.doors.forEach((v,i)=>state[i]=v);this.send(63,update.id,state);return true;}
   remoteShot(shot) {
     if(shot?.self || typeof shot?.id!=='string' || !instantWeapon(shot.weapon) || !Number.isSafeInteger(shot.seq))return;

@@ -22,17 +22,18 @@ test('host-only vehicle spawn bridge creates an authoritative native spawn packe
  assert.deepEqual([0,1,2,3,4].map(i=>packets[0].readFloatLE(12+i*4)),[217,12,34,5,1.25]);
  assert.equal(engine.spawnVehicle({...request,position:[Infinity,0,0]}),false);
 });
-test('only the host returns guest-authorized car motion, health and visuals to the native engine',()=>{
+test('both engines apply only lobby-authorized, validated high-rate vehicle snapshots',()=>{
  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
  const state=Array(34).fill(0);state[0]=130;state[17]=540;state[19]=2;
  const visual=Array(34).fill(0);visual[0]=0.2;visual[19]=0.5;visual[31]=2;
  assert.equal(validVehicleVisual(visual),true);assert.equal(validDriverVehicleVisual(visual),true);assert.equal(validVehicleVisual([...visual.slice(0,31),4096,...visual.slice(32)]),false);
  const trainVisual=[...visual];trainVisual[31]=6;assert.equal(validVehicleVisual(trainVisual),true);assert.equal(validDriverVehicleVisual(trainVisual),false);
  const malformedSiren=[...visual];malformedSiren[33]=2;assert.equal(validVehicleVisual(malformedSiren),false);
- assert.equal(engine.driverState({id:12,state,visual}),undefined);assert.equal(packets.length,0);
  engine.authoritativeWorld=true;engine.driverState({id:12,state,visual});assert.deepEqual(packets.map(p=>p.readUInt32LE(4)),[44,61]);
  assert.equal(packets[0].readFloatLE(12+17*4),540);assert.equal(packets[0].readFloatLE(12+19*4),2);assert.equal(packets[1].readFloatLE(12+19*4),0.5);
- engine.driverState({id:12,state,visual:[...visual.slice(0,25),999, ...visual.slice(26)]});assert.equal(packets.length,3,'Malformed vehicle visuals must not reach the native engine');
+ engine.authoritativeWorld=false;engine.driverState({id:12,state,visual});assert.deepEqual(packets.slice(2).map(p=>p.readUInt32LE(4)),[44,61]);
+ assert.equal(packets[2].readFloatLE(12+17*4),540);assert.equal(packets[3].readFloatLE(12+19*4),0.5);
+ engine.driverState({id:12,state,visual:[...visual.slice(0,25),999, ...visual.slice(26)]});assert.equal(packets.length,5,'Malformed vehicle visuals must not reach the native engine');
 });
 test('only the host can return a shared Come Fly With Me toggle to the native game',()=>{
  const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;

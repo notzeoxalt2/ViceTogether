@@ -149,14 +149,15 @@ void commit() {
         }else ++it;
     }
 }
-void applyGuestDriverMotion(){
-    if(!host())return;
+void applyDriverMotion(){
+    if(!host()&&!guest())return;
     const uint32 now=CTimer::GetTimeInMilliseconds();
     for(auto it=driverMotions.begin();it!=driverMotions.end();){
         DriverMotion& motion=it->second;
         if(now-motion.received>1200){it=driverMotions.erase(it);continue;}
         CVehicle* car=ViceTogetherWorldFindVehicle(it->first);
         if(!car){it=driverMotions.erase(it);continue;}
+        if(car->pDriver==FindPlayerPed()){it=driverMotions.erase(it);continue;}
         if(motion.settled){++it;continue;}
         const float t=std::min(1.0f,float(now-motion.received)/std::max(1u,motion.duration));
         const auto blend=[&](int i){return motion.from[i]+(motion.target[i]-motion.from[i])*t;};
@@ -166,7 +167,7 @@ void applyGuestDriverMotion(){
         right.Normalise();forward.Normalise();CVector up=CrossProduct(right,forward);up.Normalise();forward=CrossProduct(up,right);forward.Normalise();
         matrix.GetRight()=right;matrix.GetForward()=forward;matrix.GetUp()=up;
         matrix.UpdateRW();car->UpdateRwFrame();
-        if(getenv("VT_TEST_GUEST_DRIVE"))testDriverMotionFrames++;
+        if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR"))testDriverMotionFrames++;
         if(t>=1.0f)motion.settled=true;
         ++it;
     }
@@ -281,7 +282,7 @@ void ViceTogetherWorldStatus(float* out) {
     out[11]=float(glass.size());out[12]=out[13]=0;auto* objects=CPools::GetObjectPool();for(int i=0;i<objects->GetSize();i++){CObject* object=objects->GetSlot(i);if(object && IsGlass(object->GetModelIndex())){if(object->bGlassBroken && !object->bIsVisible && !object->bUsesCollision)out[12]++;else if(object->bGlassCracked)out[13]++;}}out[14]=float(host()?explosionSequence:lastExplosion);
     out[16]=out[17]=0;auto* pedPool=CPools::GetPedPool();for(int i=0;i<pedPool->GetSize();i++){CPed* ped=pedPool->GetSlot(i);if(ped && !ped->IsPlayer() && !ViceTogetherIsRemote(ped) && !ViceTogetherWorldPed(ped) && ped->CharCreatedBy==RANDOM_CHAR)out[16]++;}auto* carPool=CPools::GetVehiclePool();for(int i=0;i<carPool->GetSize();i++){CVehicle* car=carPool->GetSlot(i);if(car && car->VehicleCreatedBy==RANDOM_VEHICLE)out[17]++;}out[18]=guestOwnsNearbyPopulation()?1.0f:0.0f;
     if(getenv("VT_TEST_GUEST_NPC_MELEE")){out[19]=float(testMeleeStage);out[20]=float(testMeleeTarget);out[21]=testMeleeLocalDistance;out[22]=testMeleeRemoteDistance;}
-    if(getenv("VT_TEST_GUEST_DRIVE")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);}
+    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);}
 }
 bool ViceTogetherWorldVehicle(const CVehicle* car) {
     if(host()){if(const_cast<CVehicle*>(car)->IsHeli() && car->pDriver!=FindPlayerPed() && std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return true;auto it=delegatedVehicles.find(unsigned(CPools::GetVehicleRef((CVehicle*)car)));return it!=delegatedVehicles.end() && CTimer::GetTimeInMilliseconds()-it->second<750;}
@@ -326,21 +327,22 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
     player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);
     if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=11;
 }
-void ViceTogetherCaptureDriver(VTWorldSender send){if(!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->m_pMyVehicle)return;CVehicle* car=p->m_pMyVehicle;const bool driver=car->pDriver==p;bool occupant=driver;for(int i=0;i<8&&!occupant;i++)occupant=car->pPassengers[i]==p;if(!occupant)return;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;
+void ViceTogetherCaptureDriver(VTWorldSender send){if(!host()&&!guest())return;CPlayerPed* p=FindPlayerPed();if(!p||!p->m_pMyVehicle)return;CVehicle* car=p->m_pMyVehicle;const bool driver=car->pDriver==p;bool occupant=driver;for(int i=0;i<8&&!occupant;i++)occupant=car->pPassengers[i]==p;if(!occupant)return;const int id=ViceTogetherWorldVehicleId(car);if(id<0)return;
     // Entry and exit door animations happen while bInVehicle is still false.
     // Send only cosmetic angles; the host authorizes this update against the
     // sender's live seat claim before applying the stock door animation.
     if(car->IsCar()){CAutomobile* a=(CAutomobile*)car;float doors[34]={};bool changed=false;static unsigned lastDoorId=~0u;static float lastDoorAngles[6]={};static uint32 lastDoorSent=0;const uint32 now=CTimer::GetTimeInMilliseconds();for(int j=0;j<6;j++){doors[j]=a->Doors[j].m_fAngle;if(lastDoorId!=unsigned(id)||fabsf(doors[j]-lastDoorAngles[j])>0.025f)changed=true;}if(changed||now-lastDoorSent>=250){send(62,unsigned(id),doors);lastDoorId=unsigned(id);for(int j=0;j<6;j++)lastDoorAngles[j]=doors[j];lastDoorSent=now;}}
     if(!driver||!p->bInVehicle)return;float d[34]={},visual[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:car->IsHeli()?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}const CVector turn=car->m_vecTurnSpeed;d[23]=turn.x;d[24]=turn.y;d[25]=turn.z;d[17]=car->m_fHealth;d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);captureVehicleVisual(car,visual);send(60,unsigned(id),visual);send(43,unsigned(id),d);}
 void ViceTogetherApplyDriver(unsigned id,const float* d){
-    if(!host())return;
+    if(!host()&&!guest())return;
     CVehicle* car=ViceTogetherWorldFindVehicle(id);
     if(!car||car->GetModelIndex()!=int(d[0]))return;
     // The JS host has already checked the exclusive driver claim and movement
     // bounds. During stock enter/exit tasks the remote ped can briefly be
     // detached from pDriver, so a null driver is valid here. Never overwrite
     // a locally driven car or one driven by an unrelated occupant.
-    if(car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver)))return;
+    if(host()&&car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver)))return;
+    if(guest()&&car->pDriver==FindPlayerPed())return;
     for(int i=0;i<26;i++)if(!std::isfinite(d[i]))return;
     if(d[20]!=1||d[17]<0||d[17]>1000||d[19]<0||d[19]>5||floorf(d[19])!=d[19])return;
     if(fabsf(d[23])>5||fabsf(d[24])>5||fabsf(d[25])>5)return;
@@ -352,12 +354,12 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     for(int j=0;j<3;j++){motion.from[3+j*3]=basis[j].x;motion.from[4+j*3]=basis[j].y;motion.from[5+j*3]=basis[j].z;}
     for(int j=0;j<12;j++)motion.target[j]=d[2+j];
     const uint32 interval=motion.initialized?now-motion.received:16;motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.initialized=true;motion.settled=false;
-    car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE"))testDriverMotionPackets++;
+    car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR"))testDriverMotionPackets++;
 }
 void ViceTogetherApplyDriverVisual(unsigned id,const float* v){
-    if(!host())return;
+    if(!host()&&!guest())return;
     CVehicle* car=ViceTogetherWorldFindVehicle(id);
-    if(!car||(car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver))))return;
+    if(!car||(host()&&car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver)))||(guest()&&car->pDriver==FindPlayerPed()))return;
     for(int i=0;i<34;i++)if(!std::isfinite(v[i]))return;
     if(v[25]<0||v[25]>255||floorf(v[25])!=v[25]||v[26]<0||v[26]>4095||floorf(v[26])!=v[26]||v[27]<0||v[27]>65535||floorf(v[27])!=v[27]||v[28]<0||v[28]>65535||floorf(v[28])!=v[28]||v[29]<0||v[29]>65535||floorf(v[29])!=v[29]||v[30]<0||v[30]>255||floorf(v[30])!=v[30]||v[31]<0||v[31]>STATUS_WRECKED||floorf(v[31])!=v[31]||(v[32]!=0&&v[32]!=1)||(v[33]!=0&&v[33]!=1))return;
     // Once either motion or visual state reports a wreck, the cosmetic packet
@@ -565,7 +567,7 @@ bool ViceTogetherWorldApplyEnvironment() {
     return true;
 }
 void ViceTogetherWorldTick() {
-    if(host()){applyGuestDriverMotion();return;}
+    if(host()){applyDriverMotion();return;}
     if(!ViceTogetherWorldApplyEnvironment())return;
     const bool guestPopulation=guestOwnsNearbyPopulation();float hostState[20]={};const bool haveHost=guest() && VT_ReadRemote(0,hostState);const CVector hostPosition(haveHost?hostState[0]:0,haveHost?hostState[1]:0,haveHost?hostState[2]:0);
     // Preserve stock population on the authority. Guests suppress only their
@@ -581,6 +583,8 @@ void ViceTogetherWorldTick() {
     for(int i=0;i<cars->GetSize();i++){CVehicle* c=cars->GetSlot(i);if(guest() && haveHost && c && !ViceTogetherWorldVehicle(c) && c->VehicleCreatedBy==RANDOM_VEHICLE && (c->GetPosition()-hostPosition).MagnitudeSqr()<=worldPopulationOverlapRadiusSqr && (!c->pDriver || !c->pDriver->IsPlayer())){CWorld::Remove(c);delete c;}}
     for(auto* map:{&vehicles,&pedestrians})for(auto& entry:*map) {
         Replica& r=entry.second;float* d=r.target;const int model=int(d[0]);
+        const auto directMotion=driverMotions.find(entry.first);
+        const bool fastDrivenVehicle=map==&vehicles&&guest()&&directMotion!=driverMotions.end()&&CTimer::GetTimeInMilliseconds()-directMotion->second.received<250;
         if(map==&vehicles && r.entity && ((CVehicle*)r.entity)->pDriver==FindPlayerPed() && FindPlayerPed()->bInVehicle){((CVehicle*)r.entity)->m_fHealth=d[17];if(d[17]>0 && (!r.hasVisual || unsigned(r.visual[31])!=STATUS_WRECKED))continue;}
         if(!r.entity){CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(model))continue;
             if(map==&pedestrians){CPed* p=new CPed((ePedType)std::max(0,std::min(21,int(d[1]))));p->SetModelIndex(model);p->CharCreatedBy=MISSION_CHAR;p->bRespondsToThreats=false;r.entity=p;}
@@ -588,7 +592,7 @@ void ViceTogetherWorldTick() {
             r.entity->RegisterReference(&r.entity);r.entity->SetPosition(d[2],d[3],d[4]);CWorld::Add(r.entity);
         }
         const float t=std::min(1.0f,float(CTimer::GetTimeInMilliseconds()-r.received)/100.0f);
-        CWorld::Remove(r.entity);r.entity->SetPosition(r.previous[2]+(d[2]-r.previous[2])*t,r.previous[3]+(d[3]-r.previous[3])*t,r.previous[4]+(d[4]-r.previous[4])*t);CWorld::Add(r.entity);
+        if(!fastDrivenVehicle){CWorld::Remove(r.entity);r.entity->SetPosition(r.previous[2]+(d[2]-r.previous[2])*t,r.previous[3]+(d[3]-r.previous[3])*t,r.previous[4]+(d[4]-r.previous[4])*t);CWorld::Add(r.entity);}
         if(map==&pedestrians){CPed* p=(CPed*)r.entity;p->m_fHealth=d[6];p->SetMoveState((eMoveState)std::max(0,std::min(5,int(d[7]))));const float heading=r.previous[5]+atan2f(sinf(d[5]-r.previous[5]),cosf(d[5]-r.previous[5]))*t;p->m_fRotationCur=p->m_fRotationDest=heading;p->SetOrientation(0,0,heading);
             float animated[34];std::memcpy(animated,d,sizeof(animated));
             for(int j=10;j<30;j+=5) {
@@ -608,8 +612,8 @@ void ViceTogetherWorldTick() {
             p->bInVehicle=vehicle!=nil;if(vehicle)p->SetPedState(PED_DRIVING);
             if(vehicle){p->bRenderPedInCar=true;p->bChangedSeat=false;p->bUsesCollision=false;p->SetPedPositionInCar();}
         }
-        else {CVehicle* car=(CVehicle*)r.entity;CMatrix& m=car->GetMatrix();CVector* basis[]={&m.GetRight(),&m.GetForward(),&m.GetUp()};for(int j=0;j<3;j++){CVector v(r.previous[5+j*3]+(d[5+j*3]-r.previous[5+j*3])*t,r.previous[6+j*3]+(d[6+j*3]-r.previous[6+j*3])*t,r.previous[7+j*3]+(d[7+j*3]-r.previous[7+j*3])*t);v.Normalise();*basis[j]=v;}m.GetUp()=CrossProduct(m.GetRight(),m.GetForward());m.GetUp().Normalise();m.GetForward()=CrossProduct(m.GetUp(),m.GetRight());car->m_fHealth=d[17];car->m_currentColour1=uint8(d[18]);car->m_currentColour2=uint8(d[19]);car->bEngineOn=d[20]!=0;car->m_bSirenOrAlarm=d[21]!=0;car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(r.previous[23]+(d[23]-r.previous[23])*t,r.previous[24]+(d[24]-r.previous[24])*t,r.previous[25]+(d[25]-r.previous[25])*t);}
-        if(map==&vehicles && r.hasVisual){CVehicle* car=(CVehicle*)r.entity;const float* v=r.visual;const float* old=r.previousVisual;
+        else {CVehicle* car=(CVehicle*)r.entity;if(!fastDrivenVehicle){CMatrix& m=car->GetMatrix();CVector* basis[]={&m.GetRight(),&m.GetForward(),&m.GetUp()};for(int j=0;j<3;j++){CVector v(r.previous[5+j*3]+(d[5+j*3]-r.previous[5+j*3])*t,r.previous[6+j*3]+(d[6+j*3]-r.previous[6+j*3])*t,r.previous[7+j*3]+(d[7+j*3]-r.previous[7+j*3])*t);v.Normalise();*basis[j]=v;}m.GetUp()=CrossProduct(m.GetRight(),m.GetForward());m.GetUp().Normalise();m.GetForward()=CrossProduct(m.GetUp(),m.GetRight());car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(r.previous[23]+(d[23]-r.previous[23])*t,r.previous[24]+(d[24]-r.previous[24])*t,r.previous[25]+(d[25]-r.previous[25])*t);}car->m_fHealth=d[17];car->m_currentColour1=uint8(d[18]);car->m_currentColour2=uint8(d[19]);car->bEngineOn=d[20]!=0;car->m_bSirenOrAlarm=d[21]!=0;}
+        if(map==&vehicles && r.hasVisual && !fastDrivenVehicle){CVehicle* car=(CVehicle*)r.entity;const float* v=r.visual;const float* old=r.previousVisual;
             // Replaying the stock transition creates explosion, fire and wreck visuals.
             // Do it once per live vehicle, rather than on each repeated wreck snapshot.
             if(unsigned(v[31])==STATUS_WRECKED && !car->bRenderScorched){car->m_fHealth=std::max(1.0f,r.previous[17]);car->BlowUpCar(nil);car->bRenderScorched=true;car->m_fHealth=d[17];}
@@ -620,6 +624,7 @@ void ViceTogetherWorldTick() {
         if(map==&vehicles && ((CVehicle*)r.entity)->IsCar() && r.hasVisual)doorMatrices((CAutomobile*)r.entity);
         r.entity->GetMatrix().UpdateRW();r.entity->UpdateRwFrame();
     }
+    applyDriverMotion();
     if(guest() && getenv("VT_TEST_GUEST_NPC_MELEE")) {
         if(testMeleeStage<1)testMeleeStage=1;
         static int targetId=-1;static bool positioned=false,requested=false;static uint32 nearSince=0;

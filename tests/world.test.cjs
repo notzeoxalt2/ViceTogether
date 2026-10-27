@@ -2,7 +2,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
-const {POLICE_PED_TYPE,validWorldFrame,retainSupportedWorldPeds}=require('../engine/world.cjs');
+const {POLICE_PED_TYPE,validWorldFrame,validDriverSnapshot,retainSupportedWorldPeds}=require('../engine/world.cjs');
 const {NativeEngine}=require('../src/native-engine.cjs');
 function vehicle(id=42){const state=Array(34).fill(0);state[0]=130;state[5]=state[9]=state[13]=1;state[17]=1000;return {id,type:22,state};}
 test('police injury state reaches the replica while civilian replicas and invalid bone indices are rejected',()=>{
@@ -34,6 +34,15 @@ test('world frames reject duplicate identities, malformed vehicle bases and exce
   const excessiveSpin=vehicle();excessiveSpin.state[23]=5.1;assert.equal(validWorldFrame({seq:1,entities:[excessiveSpin]}),false);
   assert.equal(validWorldFrame({seq:1,entities:Array.from({length:33},(_,i)=>vehicle(i))}),false);
   assert.equal(validWorldFrame({seq:Infinity,entities:[]}),false);
+});
+test('host vehicle snapshots are validated before the low-latency stream reaches guests',()=>{
+  const state=Array(34).fill(0);state[0]=130;state[1]=0;state[5]=1;state[9]=1;state[13]=1;state[17]=1000;state[19]=2;state[20]=1;
+  const visual=Array(34).fill(0),snapshot={id:42,state,visual};
+  assert.equal(validDriverSnapshot(snapshot),true);
+  assert.equal(validDriverSnapshot({...snapshot,id:-1}),false);
+  assert.equal(validDriverSnapshot({...snapshot,state:[...state.slice(0,20),0,...state.slice(21)]}),false,'A non-driver cannot publish a driver snapshot');
+  assert.equal(validDriverSnapshot({...snapshot,state:[...state.slice(0,5),0.5,...state.slice(6)]}),false,'Malformed orientation is rejected');
+  assert.equal(validDriverSnapshot({...snapshot,visual:[...visual.slice(0,31),6,...visual.slice(32)]}),false,'Malformed visuals are rejected before transport');
 });
 test('native world bridge preserves large pool handles, transaction bounds and host authority',()=>{
   const engine=new NativeEngine('unused'),packets=[];engine.socket={send:p=>packets.push(p)};engine.endpoint=1234;

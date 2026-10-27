@@ -10,7 +10,7 @@ export class Friends extends Social { constructor(options) { super({ ...options,
 import { validState } from '../engine/sync.js';
 import { SessionCombat,NpcMeleeAuthority } from '../engine/combat.js';
 import { ShotAuthority,validShot } from '../engine/shots.js';
-import { validWorldFrame } from '../engine/world.cjs';
+import { validWorldFrame,validDriverSnapshot } from '../engine/world.cjs';
 import { SeatAuthority } from '../engine/seats.cjs';
 import { validWeapon } from '../engine/weapons.cjs';
 import { GlassAuthority,validGlass } from '../engine/glass.cjs';
@@ -73,7 +73,13 @@ export class PrivateLobby extends EventTarget {
     this.ambient=this.room.makeAction('ambient');this.ambientSequence=0;
     this.seats=new SeatAuthority();this.seatInput=this.room.makeAction('seat-input');this.seatOutput=this.room.makeAction('seat-output');
     this.vehicleInput=this.room.makeAction('driver-state');this.vehicleInput.onReceive=({byteLength})=>byteLength<2048;
-    this.vehicleInput.onMessage=(update,{peerId,realtime})=>{if(!this.isHost||!this.players.has(peerId)||(!realtime&&this.fast.seen(peerId,'driver')))return;const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',approved);};
+    this.vehicleInput.onMessage=(update,{peerId,realtime})=>{
+      if(!this.players.has(peerId))return;
+      if(this.isHost){
+        if(!realtime&&this.fast.seen(peerId,'driver'))return;
+        const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',approved);
+      }else if(peerId===this.hostId&&validDriverSnapshot(update))this.emit('driver-state',update);
+    };
     this.vehicleDoors=this.room.makeAction('vehicle-doors');this.vehicleDoors.onReceive=({byteLength})=>byteLength<128;
     this.vehicleDoors.onMessage=(update,{peerId})=>{if(!this.isHost||!this.players.has(peerId))return;const approved=this.seats.acceptVehicleDoors(peerId,update);if(approved)this.emit('vehicle-doors',approved);};
     this.vehicleSpawnCooldowns=new Map();this.vehicleSpawnAction=this.room.makeAction('vehicle-spawn');
@@ -349,7 +355,11 @@ export class PrivateLobby extends EventTarget {
     if(id===selfId)this.emit('seat-grant',claim);else this.seatOutput.send(claim,{target:id}).catch(()=>{});
   }
   sendSeat(request){if(!this.room)return;if(this.isHost)this.acceptSeat(selfId,request);else if(this.hostId)this.seatInput.send(request,{target:this.hostId}).catch(()=>{});}
-  sendVehicle(update){if(this.room&&!this.isHost&&this.hostId)this.sendSnapshot('driver',this.vehicleInput,update,[this.hostId]);}
+  sendVehicle(update){
+    if(!this.room||!validDriverSnapshot(update))return;
+    if(this.isHost){const targets=[...this.players.keys()].filter(id=>id!==selfId);if(targets.length)this.sendSnapshot('driver',this.vehicleInput,update,targets);}
+    else if(this.hostId)this.sendSnapshot('driver',this.vehicleInput,update,[this.hostId]);
+  }
   sendVehicleDoors(update){if(this.room&&!this.isHost&&this.hostId&&Number.isSafeInteger(update?.id)&&Array.isArray(update.doors)&&update.doors.length===6&&update.doors.every(v=>Number.isFinite(v)&&Math.abs(v)<=2.4))this.vehicleDoors.send({id:update.id,doors:update.doors},{target:this.hostId}).catch(()=>{});}
   sendVehicleSpawnRequest(model){if(!this.room||this.isHost||!this.hostId||!VEHICLE_MODELS.includes(model))return false;this.vehicleSpawnAction.send({model},{target:this.hostId}).catch(()=>{});return true;}
   sendSharedCheatToggle(cheatId){if(!this.room||this.isHost||!this.hostId||!SHARED_CHEATS.includes(cheatId))return false;this.sharedCheatAction.send({cheatId},{target:this.hostId}).catch(()=>{});return true;}
