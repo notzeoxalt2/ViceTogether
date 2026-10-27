@@ -2,7 +2,9 @@
 
 The native driver-state stream now targets 90 updates per second instead of 60, reducing the motion step size guests see between game frames. The transport and host validation limits were adjusted to accept this rate while keeping snapshot traffic bounded and dropping stale/reordered updates.
 
-The two-native-game car test must pass against the Windows build before publishing this release. The change should reduce visible stepping; it does not remove route latency, guarantee equal physics, or establish bike, boat, aircraft, passenger, or public-internet behavior.
+Validation: all 74 repository tests passed. A hidden 25-second same-PC test used two Windows native game instances in a real private WebRTC lobby. The guest received host-car updates at 87.5 Hz (13 ms median, 15 ms p95), applied 1,609 updates, and interpolated at 129 Hz. Both games stayed near 143.6 FPS; no vehicle packets were dropped or rate-limited. This is a driver-stream smoothness test only: passengers, other vehicle classes, and public internet routes were not tested.
+
+The higher cadence should reduce visible stepping; it does not remove route latency, guarantee equal physics, or establish 1:1 synchronization.
 
 Each player imports their own legally obtained Vice City installation; no game files are included.
 
