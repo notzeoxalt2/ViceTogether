@@ -71,22 +71,17 @@ int menuSpawnModel=-1;uint32 menuSpawnTime=0,menuLastSpawn=0;CVehicle* menuSpawn
 unsigned testGuestSpawnCalls=0;int testGuestSpawnStage=0;CVehicle* testGuestSpawnVehicle=nil;
 const int allowedVehicleModels[]={130,135,141,145,155,159,166,176,182,190,191,192,193,203,217};
 bool allowedVehicle(int model){return std::find(allowedVehicleModels,allowedVehicleModels+15,model)!=allowedVehicleModels+15;}
-CHeli* createMultiplayerHeli(int model){
-    CHeli* heli=new CHeli(model,MISSION_VEHICLE);
-    // Do not use the Catalina stationary route (path state 7): reVC hard-sets
-    // its Z coordinate to 31.55m every frame. That put player-requested helis
-    // roughly 20m above their approved spawn. Keep the native script helicopter
-    // type; the multiplayer anchor stabilizer holds it while it is unoccupied.
-    heli->m_heliType=HELI_TYPE_SCRIPT;
-    heli->m_pathState=0;
-    heli->m_nExplosionTimer=0;
-    heli->m_fTargetZ=0.0f;
-    heli->m_fSearchLightIntensity=0.0f;
-    heli->m_nShootTimer=CTimer::GetTimeInMilliseconds();
-    heli->m_fTargetOffset=0.0f;
-    heli->m_numSwat=0;
-    for(int i=0;i<4;i++)heli->m_aSwatState[i]=0;
-    return heli;
+float networkHeliRotorAngle(CVehicle* car){
+    if(!car)return 0.0f;
+    if(std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return ((CAutomobile*)car)->m_aWheelRotation[1];
+    return ((CHeli*)car)->m_fRotorRotation;
+}
+CVehicle* createMultiplayerHeli(int model){
+    // CHeli is reVC's autonomous mission/police helicopter: its ProcessControl
+    // follows AI paths, and the Catalina route hard-locks Z to 31.55m. Normal
+    // player aircraft are CAutomobiles with stock heli handling, pilot input,
+    // rotor animation, audio and passenger logic. Use that class for replicas.
+    return new CAutomobile(model,MISSION_VEHICLE);
 }
 CVehicle* createMultiplayerVehicle(int model){auto* info=(CVehicleModelInfo*)CModelInfo::GetModelInfo(model);if(!info)return nil;const auto* handling=mod_HandlingManager.GetHandlingData((tVehicleType)info->m_handlingId);const uint32 flags=handling?handling->Flags:0;if(flags&HANDLING_IS_HELI)return createMultiplayerHeli(model);if(flags&HANDLING_IS_PLANE)return new CPlane(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BOAT)return new CBoat(model,MISSION_VEHICLE);if(flags&HANDLING_IS_BIKE)return new CBike(model,MISSION_VEHICLE);switch(info->m_vehicleType){case VEHICLE_TYPE_BIKE:return new CBike(model,MISSION_VEHICLE);case VEHICLE_TYPE_BOAT:return new CBoat(model,MISSION_VEHICLE);case VEHICLE_TYPE_HELI:return createMultiplayerHeli(model);case VEHICLE_TYPE_PLANE:return new CPlane(model,MISSION_VEHICLE);case VEHICLE_TYPE_CAR:return new CAutomobile(model,MISSION_VEHICLE);default:return nil;}}
 float networkHeliHeading(CVehicle* heli){const CVector forward=heli->GetForward();return atan2f(-forward.x,forward.y);}
@@ -369,11 +364,11 @@ void ViceTogetherWorldStatus(float* out) {
             const CVector position=car->GetPosition();const CVector delta=player?position-player->GetPosition():position;
             const float distance=delta.MagnitudeSqr();if(distance>=nearest)continue;nearest=distance;
             out[20]=position.x;out[21]=position.y;out[22]=position.z;out[23]=float(CPools::GetVehicleRef(car));
-            out[24]=((CHeli*)car)->m_fRotorRotation;out[25]=float(car->GetModelIndex());out[26]=car->m_fHealth;
+            out[24]=networkHeliRotorAngle(car);out[25]=float(car->GetModelIndex());out[26]=car->m_fHealth;
         }
         out[27]=float(testGuestSpawnCalls);out[28]=float(testGuestSpawnStage);out[29]=float(menuSpawnModel);out[30]=testGuestSpawnVehicle?float(testGuestSpawnVehicle->GetModelIndex()):-1.0f;out[31]=testGuestSpawnVehicle?testGuestSpawnVehicle->GetPosition().z:-1.0f;out[32]=testGuestSpawnVehicle&&testGuestSpawnVehicle->m_rwObject?1.0f:0.0f;out[33]=testGuestSpawnVehicle?float(CPools::GetVehicleRef(testGuestSpawnVehicle)):-1.0f;
     }
-    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217){out[32]=((CHeli*)car)->m_fRotorRotation;out[33]=217.0f;break;}}}
+    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(car&&car->IsHeli()&&car->GetModelIndex()==217){out[32]=networkHeliRotorAngle(car);out[33]=217.0f;break;}}}
 }
 bool ViceTogetherWorldVehicle(const CVehicle* car) {
     if(host()){if(const_cast<CVehicle*>(car)->IsHeli() && car->pDriver!=FindPlayerPed() && std::find(networkHelis,networkHelis+16,car)!=networkHelis+16)return true;auto it=delegatedVehicles.find(unsigned(CPools::GetVehicleRef((CVehicle*)car)));return it!=delegatedVehicles.end() && CTimer::GetTimeInMilliseconds()-it->second<750;}

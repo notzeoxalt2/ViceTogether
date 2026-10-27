@@ -84,8 +84,8 @@ test('native world creates supported helicopter/plane replicas and guest menu re
   const lobby=fs.readFileSync(path.join(root,'ui','network.js'),'utf8');
   assert.match(world,/#include "Heli.h"/);assert.match(world,/#include "Plane.h"/);
   assert.match(world,/case VEHICLE_TYPE_HELI:return createMultiplayerHeli/);assert.match(world,/case VEHICLE_TYPE_PLANE:return new CPlane/);
-  assert.match(world,/heli->m_heliType=HELI_TYPE_SCRIPT/);assert.match(world,/heli->m_pathState=0/);assert.match(world,/heli->m_numSwat=0/);
-  assert.match(world,/hard-sets[\s\S]*31\.55m every frame/);assert.match(world,/if\(occupied\|\|remotePilot\)/);
+  assert.match(world,/return new CAutomobile\(model,MISSION_VEHICLE\)/,'Multiplayer helicopters must use reVC’s player-controllable helicopter handling');
+  assert.match(world,/hard-locks Z to 31\.55m/);assert.match(world,/if\(occupied\|\|remotePilot\)/);
   assert.match(world,/void trackNetworkHeli\(CVehicle\* car\)/);
   assert.match(world,/const_cast<CVehicle\*>\(car\)->IsHeli\(\) && car->pDriver!=FindPlayerPed\(\).*networkHelis/);
   assert.match(world,/!car->IsHeli\(\) && !car->IsPlane\(\)/);
@@ -128,6 +128,8 @@ test('heli spawn verification requires the approved two-client spawn at the safe
     'The test must inspect the exact created vehicle instead of inferring it from a nearby city helicopter');
   assert.match(native,/createdZ:state\[31\],createdHasRenderObject:state\[32\]===1,createdVehicleId:state\[33\]/,
     'Native test telemetry must verify the created object’s altitude and rendered game instance');
+  assert.match(world,/float networkHeliRotorAngle\(CVehicle\* car\)/,
+    'Rotor telemetry must read CAutomobile rotor angles for multiplayer helicopters without casting them as AI CHeli objects');
   assert.match(harness,/Math\.abs\(sample\.testHelicopters\.nearest\.position\[2\]-requesterState\[2\]\)<=5/,
     'The scenario must reject ambient helicopters that sit on the Catalina route altitude');
   assert.match(harness,/hostCreatedSpawn=worldStatusTimeline\[0\]\.findLast\([\s\S]*testSpawn\?\.stageName==='created'[\s\S]*createdHasRenderObject[\s\S]*createdZ-requesterState\[2\]/,
