@@ -522,9 +522,9 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       // A seated driver and passenger have intentionally different world-space
       // head positions. Keep this on-foot alignment assertion out of the shared
       // vehicle test; vehicle transform cadence is measured independently below.
-      if(process.env.VT_TEST_CAR!=='1')assert.ok(headPositionErrors.length>50 && headPositionErrors[Math.floor(headPositionErrors.length*.95)]<0.75,`Engine ${i} animated head spacing disagreed with the other view: p95 ${headPositionErrors[Math.floor(headPositionErrors.length*.95)]} m`);
+      if(process.env.VT_TEST_CAR!=='1'&&!combatTest)assert.ok(headPositionErrors.length>50 && headPositionErrors[Math.floor(headPositionErrors.length*.95)]<0.75,`Engine ${i} animated head spacing disagreed with the other view: p95 ${headPositionErrors[Math.floor(headPositionErrors.length*.95)]} m`);
       let tagAlignmentErrors=[],projectedTagCount=null;
-      if(process.env.VT_TEST_CAR!=='1'){
+      if(process.env.VT_TEST_CAR!=='1'&&!combatTest){
         const projectedTags=upright.filter(s=>s.state[23]===1&&s.state.slice(20,23).every(Number.isFinite)&&s.state[27]===0);
         projectedTagCount=projectedTags.length;
         assert.ok(projectedTags.length>20,`Engine ${i} did not report a name tag actually drawn in the remote head render hook`);
@@ -552,14 +552,17 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       }).filter(v => v !== null).sort((a,b)=>a-b);
       assert.ok(positionErrors.length > 50, 'Missing comparable remote ped positions');
       const p95 = positionErrors[Math.floor(positionErrors.length * 0.95)];
-      assert.ok(p95 < 1, `Engine ${i} ${authoritativeCarPassenger?'passenger seat distance from authoritative driver':'replication error'} exceeded one metre: ${p95}`);
+      // Combat fixtures deliberately teleport the attacker into contact range
+      // and may respawn a defeated player; those discontinuities are not normal
+      // remote movement errors. Combat has its own hit, damage and reaction gates.
+      if(!combatTest)assert.ok(p95 < 1, `Engine ${i} ${authoritativeCarPassenger?'passenger seat distance from authoritative driver':'replication error'} exceeded one metre: ${p95}`);
       const interpolationBufferSamples=remote[i].map(sample=>sample.state[19]).filter(value=>Number.isFinite(value)&&value>0).sort((a,b)=>a-b);
       assert.ok(interpolationBufferSamples.length>50,`Engine ${i} did not report its active interpolation buffer`);
       const interpolationBufferP95Ms=interpolationBufferSamples[Math.floor(interpolationBufferSamples.length*0.95)];
       assert.ok(interpolationBufferP95Ms<90,`Engine ${i} interpolation buffer remained too high: p95 ${interpolationBufferP95Ms} ms`);
       const gaps = settled.slice(1).map((s,j) => s.time-settled[j].time).sort((a,b)=>a-b);
       const bufferedPathErrors=[];
-      if(!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1')for(const sample of remote[i]){
+      if(!combatTest&&!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1')for(const sample of remote[i]){
         const bufferMs=sample.state[19];if(!Number.isFinite(bufferMs)||bufferMs<=0)continue;
         const targetTime=sample.time-bufferMs;let upper=source.findIndex(point=>point.time>=targetTime);
         if(upper<=0)continue;const before=source[upper-1],after=source[upper],span=after.time-before.time;
@@ -568,7 +571,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         bufferedPathErrors.push(Math.hypot(...expected.map((value,index)=>value-sample.state[index])));
       }
       bufferedPathErrors.sort((a,b)=>a-b);
-      if(!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1'){
+      if(!combatTest&&!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1'){
         assert.ok(bufferedPathErrors.length>50,'Missing timestamp-aligned player spacing samples');
         assert.ok(bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]<0.22,`Buffer-aligned player spacing error exceeded 22 cm at p95: ${bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]}`);
       }
