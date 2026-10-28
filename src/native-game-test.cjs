@@ -375,7 +375,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       if(vehicleClass==='car')assert.ok(openDoorSamples.length>0,'Host received no open/close door animation samples for the car');
       if(vehicleClass==='car')assert.ok(hostOpenDoorSamples.length>0,'Host native game did not apply the remote car door angle');
       if(collisionTested)assert.ok(collisionDamageSeen,'The controlled car-to-barrier collision did not replicate car damage or health to the host');
-      if(!collisionTested&&hasPassengerSeat)assert.ok(hostExitAttempt?.hostExitWithDriver&&hostExitAttempt.hostExitSpeed>0.32,`Host passenger exit was not tested in the stock jump-out speed window while the guest was still driving (native speed ${hostExitAttempt?.hostExitSpeed??'unknown'})`);
+      if(!collisionTested&&hasPassengerSeat&&['car','bike'].includes(vehicleClass))assert.ok(hostExitAttempt?.hostExitWithDriver&&hostExitAttempt.hostExitSpeed>0.32,`Host passenger exit was not tested in the stock moving jump-out window while the guest was driving (native speed ${hostExitAttempt?.hostExitSpeed??'unknown'})`);
+      if(!collisionTested&&hasPassengerSeat&&['boat','helicopter','plane'].includes(vehicleClass))assert.ok(hostExitAttempt&&hostExitAttempt.hostExitSpeed<0.1,`Host aircraft/boat passenger did not exit at a safe stop (native speed ${hostExitAttempt?.hostExitSpeed??'unknown'})`);
       vehicleResult.success=true;
       await fs.writeFile(path.join(out,'vehicle-scenario.json'),JSON.stringify(vehicleResult,null,2));
       return vehicleResult;
@@ -536,7 +537,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         tagAlignmentErrors=projectedTags.map(s=>Math.max(Math.abs(s.state[24]-s.state[25]),Math.abs(s.state[24]+s.state[26]*0.5-s.state[29]))).sort((a,b)=>a-b);
         assert.ok(tagAlignmentErrors.length>20&&tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)]<0.01,`Engine ${i} actual rendered name/health left edges diverged or their shared center missed the head`);
         headClearanceSamples=projectedTags.map(s=>s.state[28]-s.state[22]).sort((a,b)=>a-b);
-        assert.ok(headClearanceSamples.every(v=>v>43&&v<49),`Engine ${i} health line is not kept a small, consistent distance above the actual rendered head anchor`);
+        assert.ok(headClearanceSamples.every(v=>v>59&&v<65),`Engine ${i} health line is not kept a small, consistent distance above the actual rendered head anchor`);
       }
       const colored=upright.filter(s=>s.state[6]>0 && s.state[7]>0);
       assert.ok(colored.length>10 && colored.some(s=>s.state[8]>100), `Engine ${i} remote shirt recoloring was not applied during native rendering`);

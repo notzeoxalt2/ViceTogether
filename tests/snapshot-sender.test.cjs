@@ -6,3 +6,13 @@ test('slow transport retains newest snapshot instead of replaying obsolete movem
  assert.deepEqual(sent,[1]);release();await new Promise(r=>setTimeout(r,15));assert.deepEqual(sent,[1,100]);
  sender.offer(101);sender.close();release();await new Promise(r=>setTimeout(r,15));assert.deepEqual(sent,[1,100]);
 });
+test('rapid vehicle frames coalesce to a steady 120 Hz stream below the host rolling limit',async()=>{
+ const {SnapshotSender}=await import('../ui/snapshot-sender.mjs');const sent=[],times=[];
+ const sender=new SnapshotSender({peer:()=>({connectionState:'connected'}),send:value=>{sent.push(value);times.push(performance.now())},minIntervalMs:1000/120});
+ for(let value=0;value<24;value++)sender.offer(value);
+ await new Promise(resolve=>setTimeout(resolve,30));
+ assert.equal(sent.at(-1),23,'latest vehicle state is retained after coalescing');
+ assert.equal(sent.length,2,'a burst sends its first and newest state instead of a backlog');
+ assert.ok(times.slice(1).every((time,index)=>time-times[index]>=9),`snapshots must not burst into the host 100 Hz rolling limit: ${times}`);
+ sender.close();
+});

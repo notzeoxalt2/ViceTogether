@@ -1,3 +1,11 @@
+# ViceTogether alpha.53 — tighten player spacing and vehicle updates
+
+Moved the transparent name and health marker 16 screen-scaled pixels higher above the remote player's head, keeping the name and health line aligned. Reduced the guest vehicle display lead on low-latency routes and paced guest driver snapshots at up to 120 Hz, coalescing bursts so outdated vehicle positions are dropped. Seat requests now retry with one stable request ID until acknowledged, preventing a lost request or grant from leaving a player waiting indefinitely. The helicopter test now safely waits for late-arriving vehicle replicas.
+
+Validation: all 104 repository tests passed. Two hidden native clients on this PC rendered at about 143.9 FPS. The name/health alignment error was below 0.00002 px and the health line measured 62 px above the animated head. On-foot separation p95 measured 0.07 m without injected delay and 0.364/0.355 m with simulated 300 ms RTT. Hidden guest-driver/passenger tests passed for car models 130 and 145, bike 166, and helicopter 217, including seat attachment and exit checks. These are same-PC tests, not separate-network or public NAT tests. Boats, planes, complete NPC/combat synchronization, public internet connectivity, and a clean Windows first-run are still unverified. Each player imports their own legally obtained Vice City files; no original game assets are included.
+
+---
+
 # ViceTogether alpha.52 — keep remote movement smooth through jitter
 
 Remote on-foot snapshots now keep moving smoothly when packets arrive in bursts: velocity uses the sender's sample cadence for display prediction, while game-state validation stays on the host's receive clock. Projected display frames have their own ordering so fresh corrections are not discarded as duplicates. The native interpolation buffer now retains enough history for its full 160 ms adaptive delay, and horizontal gait continues through brief gaps without projecting vertical jump motion.

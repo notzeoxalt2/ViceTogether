@@ -26,7 +26,7 @@ const cleanName = name => String(name || 'Player').replace(/[\u0000-\u001f\u007f
 
 export class PrivateLobby extends EventTarget {
   constructor() { super(); this.reset(); }
-  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.displaySequence=0; this.vehicleSequence=0;this.vehicleReceiveSequences=new Map();this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map();this.wantedLevels=new Map(); this.combat=new SessionCombat();this.npcMeleeAuthority=new NpcMeleeAuthority();this.npcMeleeSequence=0;this.hitSequence=0;this.hitResultSequences=new Map(); this.generation = (this.generation || 0) + 1; }
+  reset() { if(this.pendingSeatRequest?.timer)clearTimeout(this.pendingSeatRequest.timer);this.pendingSeatRequest=null;this.seatRequestSequence=0;this.players = new Map(); this.hostId = null; this.sequence = 0; this.displaySequence=0; this.vehicleSequence=0;this.vehicleReceiveSequences=new Map();this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map();this.wantedLevels=new Map(); this.combat=new SessionCombat();this.npcMeleeAuthority=new NpcMeleeAuthority();this.npcMeleeSequence=0;this.hitSequence=0;this.hitResultSequences=new Map(); this.generation = (this.generation || 0) + 1; }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   setReady(ready) {
     this.ready = ready === true;
@@ -88,7 +88,7 @@ export class PrivateLobby extends EventTarget {
     this.seatInput.onReceive=({byteLength})=>byteLength<256;
     this.seatOutput.onReceive=({byteLength})=>byteLength<256;
     this.seatInput.onMessage=(request,{peerId})=>{if(this.isHost && this.players.has(peerId))this.acceptSeat(peerId,request);};
-    this.seatOutput.onMessage=(claim,{peerId})=>{if(!this.isHost && peerId===this.hostId && Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=-1 && claim.seat<8)this.emit('seat-grant',claim);};
+    this.seatOutput.onMessage=(claim,{peerId})=>{if(!this.isHost && peerId===this.hostId && Number.isSafeInteger(claim?.id) && claim.id>=0 && Number.isInteger(claim.seat) && claim.seat>=-1 && claim.seat<8){const pending=this.pendingSeatRequest;if(Number.isSafeInteger(claim.requestId)&&(!pending||claim.requestId!==pending.requestId))return;if(pending&&pending.id===claim.id)this.clearSeatRequest(pending.requestId);this.emit('seat-grant',{id:claim.id,seat:claim.seat});}};
     this.ambient.onReceive=({byteLength})=>byteLength<=131072;
     this.ambient.onMessage=(frame,{peerId})=>{
       if(this.isHost || peerId!==this.hostId || !validWorldFrame(frame) || frame.seq<=this.ambientSequence)return;
@@ -361,7 +361,7 @@ export class PrivateLobby extends EventTarget {
   sendSnapshot(kind, action, value, targets=[...this.players.keys()].filter(id=>id!==selfId)) {
     const room=this.room;if(!room)return;
     for(const id of targets){const key=kind+':'+id;let sender=this.snapshotSenders.get(key);
-      if(!sender){sender=new SnapshotSender({peer:()=>room.getPeers()[id],send:packet=>this.fast.send(id,kind,packet)?Promise.resolve():action.send(packet,{target:id})});this.snapshotSenders.set(key,sender);}
+      if(!sender){sender=new SnapshotSender({peer:()=>room.getPeers()[id],send:packet=>this.fast.send(id,kind,packet)?Promise.resolve():action.send(packet,{target:id}),minIntervalMs:kind==='driver'?1000/120:0});this.snapshotSenders.set(key,sender);}
       sender.offer(value);
     }
   }
@@ -380,17 +380,38 @@ export class PrivateLobby extends EventTarget {
     this.sendSnapshot('ambient',this.ambient,frame);
   }
   sendGlass(state){if(this.room && !this.isHost && this.hostId && validGlass(state))this.glassInput.send({state,seq:++this.glassSequence},{target:this.hostId}).catch(()=>{});}
+  clearSeatRequest(requestId){const pending=this.pendingSeatRequest;if(!pending||requestId!==undefined&&pending.requestId!==requestId)return false;if(pending.timer)clearTimeout(pending.timer);this.pendingSeatRequest=null;return true;}
   acceptSeat(id,request) {
     if(request?.release===true){this.seats.release(id);return;}
     if(id===selfId && request?.driver===true){this.seats.driver(id,request.car,this.states.get(id),true);return;}
     if(!Number.isSafeInteger(request?.id) || request.id<0)return;
     const existing=this.seats.claims.get(id);
-    if(existing?.id===request.id && (request.driver===true?existing.seat===-1:existing.seat>=0))return;
+    if(existing?.id===request.id && (request.driver===true?existing.seat===-1:existing.seat>=0)){
+      if(id!==selfId&&Number.isSafeInteger(request.requestId))this.seatOutput.send({...existing,requestId:request.requestId},{target:id}).catch(()=>{});
+      return;
+    }
     const claim=request?.driver===true?this.seats.requestDriver(id,request.id,this.states.get(id),performance.now()):this.seats.request(id,request.id,this.states.get(id),performance.now());
     if(!claim)return;
-    if(id===selfId)this.emit('seat-grant',claim);else this.seatOutput.send(claim,{target:id}).catch(()=>{});
+    if(id===selfId)this.emit('seat-grant',claim);else this.seatOutput.send(Number.isSafeInteger(request.requestId)?{...claim,requestId:request.requestId}:claim,{target:id}).catch(()=>{});
   }
-  sendSeat(request){if(!this.room)return;if(this.isHost)this.acceptSeat(selfId,request);else if(this.hostId)this.seatInput.send(request,{target:this.hostId}).catch(()=>{});}
+  sendSeat(request){
+    if(!this.room)return;
+    if(this.isHost){this.acceptSeat(selfId,request);return;}
+    if(!this.hostId)return;
+    if(request?.release===true){this.clearSeatRequest();this.seatInput.send(request,{target:this.hostId}).catch(()=>{});return;}
+    if(!Number.isSafeInteger(request?.id)||request.id<0)return;
+    const driver=request.driver===true,previous=this.pendingSeatRequest;
+    if(previous&&previous.id===request.id&&previous.driver===driver)return;
+    this.clearSeatRequest();
+    const pending={id:request.id,driver,requestId:(this.seatRequestSequence=(this.seatRequestSequence||0)+1),hostId:this.hostId,generation:this.generation,attempts:0,timer:null};
+    const send=()=>{
+      if(this.pendingSeatRequest!==pending||this.generation!==pending.generation||this.hostId!==pending.hostId||!this.room){this.clearSeatRequest(pending.requestId);return;}
+      this.seatInput.send({...request,requestId:pending.requestId},{target:pending.hostId}).catch(()=>{});
+      if(++pending.attempts>=5){this.clearSeatRequest(pending.requestId);return;}
+      pending.timer=setTimeout(send,350);
+    };
+    this.pendingSeatRequest=pending;send();
+  }
   sendVehicle(update){
     if(!this.room||!validDriverSnapshot(update))return false;
     const seq=update.seq===undefined?(this.vehicleSequence>=0x7fffffff?1:this.vehicleSequence+1):update.seq;
@@ -410,10 +431,10 @@ export class PrivateLobby extends EventTarget {
     const measuredRtt=this.fast?.latency(peerId)?.rttMs;
     const ping=this.pings?.[peerId];
     const rttMs=Number.isFinite(measuredRtt)?measuredRtt:Number.isFinite(ping)?ping:0;
-    // A same-machine native bridge takes about 30 ms from the source snapshot
-    // to the receiving game's applied transform. Add the measured route's
-    // one-way component and let the native replica briefly predict forward.
-    const leadMs=Math.min(180,30+Math.max(0,Math.min(300,rttMs))/2);
+    // The local game bridge adds about 8 ms on the measured 144 FPS path.
+    // Add the measured route's one-way component without making the local
+    // same-PC replica visibly lead the driver's actual position.
+    const leadMs=Math.min(180,8+Math.max(0,Math.min(300,rttMs))/2);
     if(this.isHost){const approved=this.seats.acceptVehicle(peerId,update,performance.now());if(approved)this.emit('driver-state',{...approved,leadMs});}
     else this.emit('driver-state',{...update,leadMs});
     return true;

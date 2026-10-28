@@ -2,7 +2,7 @@
 // its reliable stream for authentication, lobby state, damage and other events.
 const LABEL='vt-snapshots-v1',DEFAULT_KINDS=['movement','players','ambient','driver'];
 const MAX_MESSAGES_PER_SECOND=240;
-const SNAPSHOT_LIMITS={movement:90,players:90,ambient:24,driver:100};
+const SNAPSHOT_LIMITS={movement:90,players:90,ambient:24,driver:120};
 const PEER_OWNERS=new WeakMap(),UNATTACHED_CHANNELS=new WeakMap(),UNATTACHED_COUNTS=new WeakMap();
 export class RealtimeTransport {
   constructor({NativePeer=globalThis.RTCPeerConnection,receive,now=()=>performance.now(),kinds=DEFAULT_KINDS}={}) {

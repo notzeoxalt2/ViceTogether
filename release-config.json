@@ -10,5 +10,5 @@
     "wss://relay.novospes.com",
     "wss://relay.nostr.dev.br"
   ],
-  "releaseStatus": "Experimental alpha.50. Hidden two-client same-PC tests with injected application-level round-trip delays of 0, 150, and 300 ms measured on-foot spacing p95 of 0.081/0.077 m, 0.268/0.182 m, and 0.377/0.355 m across both views. Name/health remained centered with 42 px head clearance. These are not public internet/NAT tests. Every vehicle type, complete gameplay synchronization, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files."
+  "releaseStatus": "Experimental alpha.53. Hidden native two-client same-PC tests measured 0.07 m on-foot spacing p95 with no added delay, and 0.364/0.355 m at a simulated 300 ms RTT. Both views rendered the centered, transparent name/health marker 62 px above the head. Guest driving and passenger checks passed for two cars, a bike, and a helicopter; this does not verify every vehicle. Public internet/NAT routes, boats, planes, complete gameplay synchronization, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files; no original game assets are included."
 }

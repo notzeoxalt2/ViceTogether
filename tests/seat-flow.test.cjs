@@ -28,6 +28,33 @@ test('repeated F/seat requests do not queue duplicate grants that can re-seat a 
   assert.deepEqual(sent,[{id:12,seat:-1},{id:12,seat:-1}]);
 });
 
+test('a guest retries a pending seat request with one stable id and stops on its acknowledgement',async t=>{
+  const {PrivateLobby}=await import('../ui/network.js');
+  t.mock.timers.enable({apis:['setTimeout']});
+  const sent=[];
+  const lobby={room:{},isHost:false,hostId:'host',generation:3,seatRequestSequence:0,pendingSeatRequest:null,seatInput:{send:async request=>sent.push(request)},clearSeatRequest:PrivateLobby.prototype.clearSeatRequest};
+  PrivateLobby.prototype.sendSeat.call(lobby,{id:12,driver:true});
+  const requestId=sent[0].requestId;
+  assert.ok(Number.isSafeInteger(requestId));
+  t.mock.timers.tick(350);t.mock.timers.tick(350);
+  assert.equal(sent.length,3,'a rejected or delayed request must be retried briefly');
+  assert.ok(sent.every(request=>request.requestId===requestId),'Retries must remain distinguishable from new seat requests');
+  assert.equal(PrivateLobby.prototype.clearSeatRequest.call(lobby,requestId),true);
+  t.mock.timers.tick(2000);
+  assert.equal(sent.length,3,'an acknowledgement must stop pending retries');
+});
+
+test('the host re-sends an existing seat grant when it receives the same request id again',async()=>{
+  const {PrivateLobby}=await import('../ui/network.js');
+  const {SeatAuthority}=require('../engine/seats.cjs');
+  const car=Array(34).fill(0);car[17]=1000;car[22]=2;
+  const sent=[];const lobby={seats:new SeatAuthority(),states:new Map([['guest',{state:[0,0,0,0,0,0,0,1,100,0],time:performance.now()}]]),seatOutput:{send:async claim=>sent.push(claim)}};
+  lobby.seats.world({entities:[{id:12,type:22,state:car}]});
+  PrivateLobby.prototype.acceptSeat.call(lobby,'guest',{id:12,driver:true,requestId:41});
+  PrivateLobby.prototype.acceptSeat.call(lobby,'guest',{id:12,driver:true,requestId:41});
+  assert.deepEqual(sent,[{id:12,seat:-1,requestId:41},{id:12,seat:-1,requestId:41}]);
+});
+
 test('native multiplayer seat grants use Vice City enter tasks instead of teleporting into seats',()=>{
   const file=path.join(__dirname,'..','engine','native-source','ViceTogetherWorld.cpp');
   const source=fs.readFileSync(file,'utf8');
@@ -82,7 +109,7 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(world,/!guestDriverRequestSent&&now-last>500/);
   assert.match(world,/!hostPassengerRequested&&!player->bInVehicle&&testCar->m_nNumMaxPassengers>0/,'The host should finish its stock passenger entry before a helicopter departs');
   assert.match(world,/VT_ReadRemoteSkeleton\(0,hostSeatState\)/,'The helicopter driver test must inspect the remote ped seat, not unrelated movement fields');
-  assert.match(world,/!helicopter\|\|\(haveHostSeat&&int\(hostSeatState\[29\]\)==int\(candidateId\)&&hostSeatState\[33\]>=0\)/,'Each helicopter driver test should wait until the host is actually seated');
+  assert.match(world,/!helicopter\|\|!candidate\|\|candidate->m_nNumMaxPassengers<=0\|\|\(haveHostSeat&&int\(hostSeatState\[29\]\)==int\(candidateId\)&&hostSeatState\[33\]>=0\)/,'Helicopter passenger-capacity checks must tolerate a vehicle replica that has not streamed in yet');
   assert.match(harness,/seat\.id>=0&&seat\.seat>=0[^;]*sendSeat[^;]*\{id:seat\.id\}/,'Host passenger occupancy must be reserved in the lobby snapshot');
   const native=fs.readFileSync(path.join(__dirname,'..','src','native-engine.cjs'),'utf8');
   assert.match(native,/Object\.assign\(env,nativeTestFlags\(\)\)/,'Hidden vehicle fixtures must pass every supported vehicle model into the game');
