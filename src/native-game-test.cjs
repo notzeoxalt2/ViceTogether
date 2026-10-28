@@ -558,6 +558,16 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const interpolationBufferP95Ms=interpolationBufferSamples[Math.floor(interpolationBufferSamples.length*0.95)];
       assert.ok(interpolationBufferP95Ms<90,`Engine ${i} interpolation buffer remained too high: p95 ${interpolationBufferP95Ms} ms`);
       const gaps = settled.slice(1).map((s,j) => s.time-settled[j].time).sort((a,b)=>a-b);
+      const bufferedPathErrors=[];
+      if(!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1')for(const sample of remote[i]){
+        const bufferMs=sample.state[19];if(!Number.isFinite(bufferMs)||bufferMs<=0)continue;
+        const targetTime=sample.time-bufferMs;let upper=source.findIndex(point=>point.time>=targetTime);
+        if(upper<=0)continue;const before=source[upper-1],after=source[upper],span=after.time-before.time;
+        if(span<=0||span>100)continue;const amount=(targetTime-before.time)/span;
+        if(amount<0||amount>1)continue;const expected=before.state.slice(0,3).map((value,index)=>value+(after.state[index]-value)*amount);
+        bufferedPathErrors.push(Math.hypot(...expected.map((value,index)=>value-sample.state[index])));
+      }
+      bufferedPathErrors.sort((a,b)=>a-b);
       const gaitSamples=remote[i].filter(s=>s.state[14]>0.05 && s.state[12]>0);
       if(process.env.VT_TEST_CAR!=='1')assert.ok(gaitSamples.length>30,`Engine ${i} did not animate the actual remote ped`);
       const gaitPhaseChanges=gaitSamples.slice(1).filter((s,j)=>Math.abs(s.state[12]-gaitSamples[j].state[12])>0.005).length;
@@ -572,6 +582,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         measuredFrameMsP95: Math.max(0,...performance[i].slice(4).map(p=>p.frameMsP95)),
         remoteGaitSamples: gaitSamples.length, remoteGaitPhaseChanges: gaitPhaseChanges,
         maximumRenderPositionErrorMetres:Math.max(...renderErrors),pauseMenuObserved:remote[i].some(s=>s.state[9]===1),
+        statePacketIntervalP95Ms:gaps[Math.floor(gaps.length*0.95)]??null,
+        bufferAlignedPositionErrorP95Metres:bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]??null,
         skeletonSamples:upright.length,minimumHeadToFootMetres:Math.min(...heights),maximumHeadToFootMetres:Math.max(...heights),
         animatedHeadSpacingErrorP95Metres:headPositionErrors[Math.floor(headPositionErrors.length*.95)],projectedNameTagSamples:projectedTagCount,
         nameHealthHeadAlignmentErrorP95Pixels:tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)]??null,

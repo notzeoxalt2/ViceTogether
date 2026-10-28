@@ -6,9 +6,9 @@ test('fresh input forwards immediately while bursts coalesce, remain bounded and
  const dispatch=new FrameDispatch(()=>sent.push({at:now,value}),{now:()=>now,timers});
  dispatch.request();assert.deepEqual(sent,[{at:0,value:0}]);
  for(let i=1;i<=200;i++){advance(i);value=i;dispatch.request();}
- assert.ok(sent.length<=7);assert.ok(sent.length>=6);assert.equal(jobs.size,1);
+ assert.ok(sent.length<=13);assert.ok(sent.length>=11);assert.equal(jobs.size,1);
  advance(234);assert.equal(sent.at(-1).value,200);
- assert.ok(dispatch.report().maxWaitMs<=1000/30+0.01);
+ assert.ok(dispatch.report().maxWaitMs<=1000/60+0.01);
  // A solitary update after idle must not wait for a heartbeat/timer phase.
  advance(500);value=500;dispatch.request();assert.deepEqual(sent.at(-1),{at:500,value:500});
  value=501;dispatch.request();const count=sent.length;dispatch.close();advance(1000);dispatch.request();assert.equal(sent.length,count);

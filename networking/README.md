@@ -4,7 +4,7 @@ This MIT-licensed module has no Vice City engine dependency. Other games can imp
 
 - `RealtimeTransport`: unordered WebRTC snapshots without retransmission, bounded buffers, monotonic sequence rejection, matched RTT echoes and a rolling 20-sample latency/jitter report. Snapshot kinds can be configured per game.
 - `SnapshotSender`: one in-flight send and one newest replacement during backpressure. Use only for replaceable state, never transactions or damage events.
-- `FrameDispatch`: immediately forward an accepted change when the rate budget permits; coalesce bursts at up to 30 Hz by default. Close it when leaving a session.
+- `FrameDispatch`: immediately forward an accepted change when the rate budget permits; coalesce bursts at up to 60 Hz by default. Close it when leaving a session.
 
 ```js
 import {RealtimeTransport, FrameDispatch} from './networking/index.mjs';

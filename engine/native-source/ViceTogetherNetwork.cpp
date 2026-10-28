@@ -48,7 +48,9 @@ namespace {
 const unsigned MAGIC=0x31545656;
 struct Wire { unsigned magic,type,slot; float state[34]; };
 static_assert(sizeof(Wire)==148,"Wire layout changed");
-struct Snapshot { bool live; int count; DWORD times[8]; float states[8][34]; float jitter,delay; DWORD playback; };
+constexpr DWORD playerSnapshotIntervalMs=14;
+constexpr float minimumInterpolationDelayMs=25.0f;
+struct Snapshot { bool live; int count; DWORD times[8]; float states[8][34]; float jitter,meanInterval,delay; DWORD playback; };
 Snapshot history[7]={};
 SOCKET bridge=INVALID_SOCKET;
 sockaddr_in launcher={};
@@ -258,11 +260,10 @@ void ViceTogetherNetworkTick() {
         for(int i=10;i<30;i+=5)if(wire.state[i]<0 || wire.state[i]>1000 || wire.state[i+1]<0 || wire.state[i+1]>1000 || wire.state[i+2]<0 || wire.state[i+2]>1000 || wire.state[i+3]<0 || wire.state[i+3]>10 || wire.state[i+4]<0 || wire.state[i+4]>1.01f)valid=false;
         if((wire.state[30]!=0 && wire.state[30]!=1) || fabsf(wire.state[31])>=100 || fabsf(wire.state[32])>=4 || (wire.state[33]!=0 && wire.state[33]!=1))valid=false;
         if(!valid||std::fabs(wire.state[0])>=10000||std::fabs(wire.state[1])>=10000||std::fabs(wire.state[2])>=3000||(wire.state[9]!=0 && wire.state[9]!=1))continue;
-        // Keep just one 50 ms snapshot in the interpolation buffer. The old
-        // 100 ms floor made every remote player visibly trail even on a clean
-        // route. Increase the buffer only when packet arrival jitter calls for it.
-        if(!s.live){s.count=0;s.jitter=0;s.delay=40;s.playback=0;}
-        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-50.0f)*0.1f;const float targetDelay=std::min(160.0f,40.0f+s.jitter);s.delay=s.delay*0.9f+targetDelay*0.1f;}}
+        // Keep the smallest buffer that can bridge the observed update cadence;
+        // use a short floor on clean routes and add room only for measured jitter.
+        if(!s.live){s.count=0;s.jitter=0;s.meanInterval=float(playerSnapshotIntervalMs);s.delay=minimumInterpolationDelayMs;s.playback=0;}
+        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-s.meanInterval)*0.1f;s.meanInterval=s.meanInterval*0.9f+interval*0.1f;const float targetDelay=std::min(160.0f,std::max(minimumInterpolationDelayMs,s.meanInterval+s.jitter*2.0f));s.delay=s.delay*0.9f+targetDelay*0.1f;}}
         if(s.count==8) {
             std::memmove(s.times,s.times+1,7*sizeof(DWORD));
             std::memmove(s.states,s.states+1,7*sizeof(s.states[0]));s.count=7;
@@ -300,13 +301,13 @@ void ViceTogetherNetworkTick() {
         if(a[9]!=b[9]){VT_SetRemoteAim(slot,b+30,b+30,1);VT_SetRemoteAnimation(slot,b+10,b+10,1,0);}
         else {VT_SetRemoteAim(slot,a+30,b+30,t);VT_SetRemoteAnimation(slot,a+10,b+10,t,lower==upper?float(std::max(0,std::min(100,elapsed)))/1000.0f:0.0f);}
     }
-    if(now-lastSent>=50) {
+    if(now-lastSent>=playerSnapshotIntervalMs) {
         Wire local={};local.magic=MAGIC;local.type=1;
         if(VT_ReadLocal(local.state)){
             Wire seat={};seat.magic=MAGIC;seat.type=28;seat.state[0]=-1;seat.state[1]=-1;
             CPlayerPed* player=FindPlayerPed();if(player && player->bInVehicle && player->m_pMyVehicle){seat.state[0]=float(ViceTogetherWorldVehicleId(player->m_pMyVehicle));if(player->m_pMyVehicle->pDriver!=player)for(int i=0;i<8;i++)if(player->m_pMyVehicle->pPassengers[i]==player)seat.state[1]=float(i);}
             sendto(bridge,(const char*)&seat,sizeof(seat),0,(sockaddr*)&launcher,sizeof(launcher));
-            sendto(bridge,(const char*)&local,sizeof(local),0,(sockaddr*)&launcher,sizeof(launcher));lastSent=now-(now-lastSent)%50;
+            sendto(bridge,(const char*)&local,sizeof(local),0,(sockaddr*)&launcher,sizeof(launcher));lastSent=now-(now-lastSent)%playerSnapshotIntervalMs;
             Wire equipment={};equipment.magic=MAGIC;equipment.type=12;equipment.state[0]=float(VT_ReadWeapon());
             equipment.state[1]=float(VT_ReadWeaponVisible());
             equipment.state[2]=float(VT_ReadWanted());
