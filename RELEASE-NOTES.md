@@ -1,8 +1,8 @@
 # ViceTogether alpha.45 — tighten name-tag head spacing
 
-The hidden alpha.44 two-client run measured the name/health group 30 px above the projected head anchor in both views, outside the intended 24–28 px clearance. This update reduces the extra offset to 13 scaled pixels, keeping the name and health line aligned while lifting them just slightly.
+The alpha.44 two-client run measured the name/health group 30 px above the projected head anchor in both views. This update sets the extra offset to 13 scaled pixels, keeping the name and health line aligned while lifting them just slightly.
 
-The new offset is awaiting the paired native render check before release. Each player imports their own legally obtained Vice City installation; no game files are included.
+Validation: all 95 repository tests passed. A hidden 30-second paired native-game test passed on this PC: both clients averaged 143.9 FPS, timestamp-aligned player spacing error was 0.168 m and 0.155 m p95, head clearance measured 27 px p95 in both views, and name/health alignment stayed within 0.00003 px. This is same-PC testing, not public-internet connectivity testing. Each player imports their own legally obtained Vice City installation; no game files are included.
 
 ---
 
