@@ -1,3 +1,11 @@
+# ViceTogether alpha.44 — lift player labels slightly
+
+The floating name and health line now sit 4 scaled pixels higher over the player's head, staying aligned and centered without a background panel.
+
+Validation: all 95 repository tests passed. The prior hidden two-client render check passed at alpha.43; this small offset change has not yet been visually rechecked in a new paired game session. Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.43 — clearer player labels
 
 The floating player name and health line now sit 8 scaled pixels higher above the animated head. They remain centered together, without a background panel.

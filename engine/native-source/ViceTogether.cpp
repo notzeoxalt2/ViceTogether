@@ -157,7 +157,7 @@ constexpr float remoteTagScaleY=0.64f;
 float remoteTagLineHeight(){return SCREEN_SCALE_Y(20.0f*remoteTagScaleY);}
 float remoteTagNameGap(){return SCREEN_SCALE_Y(17.0f);}
 float remoteTagHealthGap(){return SCREEN_SCALE_Y(13.0f);}
-float remoteTagHeadClearance(){return SCREEN_SCALE_Y(12.0f);}
+float remoteTagHeadClearance(){return SCREEN_SCALE_Y(16.0f);}
 bool remoteTagProjection(CPed* ped,RwV3d* screen){
     if(!ped||!ped->m_rwObject||!ped->GetClump()||!screen)return false;
     CVector head=ped->GetNodePosition(PED_HEAD);head.z+=0.10f;
