@@ -530,12 +530,10 @@ void ViceTogetherGrantPassenger(unsigned id,int seat){
         if(player->GetNearestPassengerDoor(car,cockpitAccess) &&
            (cockpitAccess-player->GetPosition()).MagnitudeSqr() <= 16.0f){
             player->SetObjective(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car);
-            // The Maverick's passenger node has no ordinary front-right door
-            // readiness state. SetEnterCar leaves the objective active but
-            // never starts the align animation when that check fails; begin
-            // the stock animated entry sequence after the lobby reserves the
-            // seat and the ped reaches its access point.
-            player->SetEnterCar_AllClear(car,player->m_vehDoor,0);
+            // Helicopter access points are exposed as ready cockpit doors by
+            // the native patch, so this stock wrapper can reserve the right
+            // door flag and run the complete align/open/get-in task sequence.
+            player->SetEnterCar(car,player->m_vehDoor);
             if(getenv("VT_TEST_GUEST_DRIVE"))testSeatGrantStatus=13;
             return;
         }

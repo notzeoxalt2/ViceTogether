@@ -801,6 +801,29 @@ index 5da8e1cc..ce427d17 100644
  	CAnimBlendAssociation *anim = nil;
  	CPlayerInfo* playerInfo = ((CPlayerPed*)pDriver)->GetPlayerInfoForThisPlayerPed();
  	if (playerInfo && !playerInfo->m_bDriveByAllowed)
+diff --git a/src/peds/PedAI.cpp b/src/peds/PedAI.cpp
+index e204dad9..00000000 100644
+--- a/src/peds/PedAI.cpp
++++ b/src/peds/PedAI.cpp
+@@ -2615,8 +2615,15 @@ CPed::PedAnimDoorOpenCB(CAnimBlendAssociation* animAssoc, void* arg)
+ 		((CAutomobile*)veh)->Damage.SetDoorStatus(door, DOOR_STATUS_SWINGING);
+ 	}
+ 
+-	if (veh->m_vecMoveSpeed.Magnitude() > 0.2f ||
+-		veh->IsCar() && veh->GetVehicleAppearance() == VEHICLE_APPEARANCE_HELI && ((CAutomobile*)veh)->m_nWheelsOnGround == 0) {
++	bool helicopterAboveGround = false;
++	if (veh->IsCar() && veh->GetVehicleAppearance() == VEHICLE_APPEARANCE_HELI && ((CAutomobile*)veh)->m_nWheelsOnGround == 0) {
++		const CVector position = veh->GetPosition();
++		bool groundFound = false;
++		float groundZ = CWorld::FindGroundZFor3DCoord(position.x, position.y, position.z + 5.0f, &groundFound);
++		if (!groundFound)
++			groundZ = CWorld::FindGroundZFor3DCoord(position.x, position.y, position.z + 100.0f, &groundFound);
++		helicopterAboveGround = !groundFound || position.z - groundZ > 2.5f;
++	}
++	if (veh->m_vecMoveSpeed.Magnitude() > 0.2f || helicopterAboveGround) {
+ 		ped->QuitEnteringCar();
+ 		if (ped->m_vehDoor != CAR_DOOR_LF && ped->m_vehDoor != CAR_DOOR_LR)
+ 			ped->SetFall(1000, ANIM_STD_HIGHIMPACT_LEFT, false);
 diff --git a/src/vehicles/Heli.cpp b/src/vehicles/Heli.cpp
 index f51c8481..1b80a0df 100644
 --- a/src/vehicles/Heli.cpp

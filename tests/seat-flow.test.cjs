@@ -51,8 +51,12 @@ test('native heli cockpit exposes front access to the stock seat-entry task',()=
   assert.match(patch,/CHeli::IsDoorFullyOpen\(eDoors door\)/);
   const grant=world.slice(world.indexOf('void ViceTogetherGrantPassenger('),world.indexOf('void ViceTogetherCaptureDriver('));
   const helicopter=grant.slice(grant.indexOf('if(multiplayerHelicopter(car))'),grant.indexOf('// Do not WarpPedIntoCar'));
-  assert.match(helicopter,/player->SetObjective\(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car\);\s*\/\/ The Maverick's passenger node[\s\S]*?player->SetEnterCar_AllClear\(car,player->m_vehDoor,0\);/);
-  assert.doesNotMatch(helicopter,/player->SetEnterCar\(car,player->m_vehDoor\)/,'Maverick entry cannot wait on a missing standard-door readiness flag');
+  assert.match(helicopter,/player->SetObjective\(OBJECTIVE_ENTER_CAR_AS_PASSENGER,car\);[\s\S]*?player->SetEnterCar\(car,player->m_vehDoor\);/,
+    'Helicopter passenger entry must use the stock wrapper so the front-door reservation flag and callbacks run');
+  assert.doesNotMatch(helicopter,/SetEnterCar_AllClear\(car,player->m_vehDoor,0\)/,
+    'Direct AllClear bypasses the native passenger door reservation and can cancel the entry callback');
+  assert.match(patch,/helicopterAboveGround = !groundFound \|\| position\.z - groundZ > 2\.5f/,
+    'A parked helicopter with a missing skid-contact count should be allowed to board from the ground, while airborne entry remains blocked');
   assert.match(patch,/m_fRotorRotation \+= \(3\.14f\/6\.5f\) \* CTimer::GetTimeStep\(\) \* 0\.6f;/);
 });
 
