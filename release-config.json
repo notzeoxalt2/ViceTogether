@@ -10,5 +10,5 @@
     "wss://relay.novospes.com",
     "wss://relay.nostr.dev.br"
   ],
-  "releaseStatus": "Experimental alpha.49. Hidden two-client same-PC tests measured 0.146–0.166 m p95 on-foot spacing and 42 px head clearance for the name/health group; a 55-second shared-bike test measured 0.744 m p95 vehicle error. Public internet/NAT connectivity, every vehicle type, complete gameplay synchronization, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files."
+  "releaseStatus": "Experimental alpha.50. Hidden two-client same-PC tests with injected application-level round-trip delays of 0, 150, and 300 ms measured on-foot spacing p95 of 0.081/0.077 m, 0.268/0.182 m, and 0.377/0.355 m across both views. Name/health remained centered with 42 px head clearance. These are not public internet/NAT tests. Every vehicle type, complete gameplay synchronization, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files."
 }

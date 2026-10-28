@@ -1,3 +1,11 @@
+# ViceTogether alpha.50 — tighten remote spacing under delay
+
+Raised the player-frame forwarding cap to 90 Hz so it no longer coalesces native 14 ms movement updates. Added 10 ms to route-aware display prediction to cover the measured native playback buffer. The transparent name/health group stays centered above the animated head, with no background.
+
+Validation: all 99 repository tests passed. Hidden two-client native sessions ran at about 142–144 FPS on the same PC with simulated round-trip delays of 0, 150 and 300 ms. Timestamp-aligned position-error p95 was 0.081/0.077 m at 0 ms, 0.268/0.182 m at 150 ms, and 0.377/0.355 m at 300 ms. The health line remained 42 px above the head anchor and name/health alignment error stayed below 0.00003 px in both views. These are same-PC tests with injected application delay, not real internet/NAT tests. Every vehicle type, complete combat/world synchronization, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files; no original game assets are included.
+
+---
+
 # ViceTogether alpha.49 — tighten player spacing and lift labels
 
 Raised the transparent player name and health group an additional 6 scaled pixels above the rendered head, keeping the two centered and aligned. On-foot display correction now runs after the native world update so the final rendered player position is used consistently. Vehicle driver interpolation continues from the previous accepted target instead of restarting every snapshot.

@@ -168,7 +168,7 @@ export class PrivateLobby extends EventTarget {
       const forViewer = viewerId => frame.map(player => {
         const { sample, ...entry } = player;
         if (player.id === viewerId) return entry;
-        const routeMs = routeOneWayMs(player.id) + routeOneWayMs(viewerId) + 25;
+        const routeMs = routeOneWayMs(player.id) + routeOneWayMs(viewerId) + 35;
         return { ...entry, state: projectPlayerState(sample, now, routeMs) };
       });
       // Each recipient gets a position projected for its route. This only

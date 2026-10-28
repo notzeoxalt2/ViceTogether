@@ -560,25 +560,32 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       // remote movement errors. Combat has its own hit, damage and reaction gates.
       if(!combatTest)assert.ok(p95 < 1, `Engine ${i} ${authoritativeCarPassenger?'passenger seat distance from authoritative driver':'replication error'} exceeded one metre: ${p95}`);
       const sourcePositionAt=time=>{let upper=source.findIndex(point=>point.time>=time);if(upper<1||upper>=source.length)return null;const before=source[upper-1],after=source[upper],span=after.time-before.time;if(span<=0||span>100)return null;const amount=(time-before.time)/span;return before.state.slice(0,3).map((value,index)=>value+(after.state[index]-value)*amount);};
+      const sourceVelocityAt=time=>{let upper=source.findIndex(point=>point.time>=time);if(upper<1||upper>=source.length)return null;const before=source[upper-1],after=source[upper],span=after.time-before.time;if(span<=0||span>100)return null;return before.state.slice(0,3).map((value,index)=>(after.state[index]-value)*1000/span);};
+      const sourceVelocityAgreement=source.slice(1).map((after,index)=>{const before=source[index],span=after.time-before.time;if(span<=0||span>100)return null;const derivative=before.state.slice(0,3).map((value,k)=>(after.state[k]-value)*1000/span),reported=after.state.slice(4,7);if(!derivative.every(Number.isFinite)||!reported.every(Number.isFinite))return null;return {derivativeSpeed:Math.hypot(...derivative),reportedSpeed:Math.hypot(...reported),vectorError:Math.hypot(...derivative.map((value,k)=>value-reported[k]))};}).filter(Boolean);
       const interpolationBufferSamples=remote[i].map(sample=>sample.state[19]).filter(value=>Number.isFinite(value)&&value>0).sort((a,b)=>a-b);
       assert.ok(interpolationBufferSamples.length>50,`Engine ${i} did not report its active interpolation buffer`);
       const interpolationBufferP95Ms=interpolationBufferSamples[Math.floor(interpolationBufferSamples.length*0.95)];
       assert.ok(interpolationBufferP95Ms<90,`Engine ${i} interpolation buffer remained too high: p95 ${interpolationBufferP95Ms} ms`);
       const gaps = settled.slice(1).map((s,j) => s.time-settled[j].time).sort((a,b)=>a-b);
-      const presentPositionErrors=[];
+      const presentPositionErrors=[],presentAlongTrackErrors=[];
       if(!combatTest&&!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1')for(const sample of remote[i]){
         const bufferMs=sample.state[19];if(!Number.isFinite(bufferMs)||bufferMs<=0)continue;
         // The display state is deliberately projected across measured route
         // time plus the native interpolation buffer, so compare it to the
         // source's current position rather than the old delayed sample time.
         const current=sourcePositionAt(sample.time);
-        if(current)presentPositionErrors.push(Math.hypot(...current.map((value,index)=>value-sample.state[index])));
+        if(current){
+          presentPositionErrors.push(Math.hypot(...current.map((value,index)=>value-sample.state[index])));
+          const velocity=sourceVelocityAt(sample.time),speed=velocity?Math.hypot(...velocity):0;
+          if(speed>0.15){const along=sample.state.slice(0,3).reduce((sum,value,index)=>sum+(value-current[index])*velocity[index]/speed,0);presentAlongTrackErrors.push(along);}
+        }
       }
       presentPositionErrors.sort((a,b)=>a-b);
+      presentAlongTrackErrors.sort((a,b)=>a-b);
       if(!combatTest&&!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1'){
         assert.ok(presentPositionErrors.length>50,'Missing timestamp-aligned player spacing samples');
         const maxPresentPositionError=networkDelayPerDirectionMs>0?0.4:0.22;
-        assert.ok(presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]<maxPresentPositionError,`Present-position error exceeded ${Math.round(maxPresentPositionError*100)} cm at p95: ${presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]}`);
+        assert.ok(presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]<maxPresentPositionError,`Present-position error exceeded ${Math.round(maxPresentPositionError*100)} cm at p95: ${presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]}; signed along-track lead p50: ${presentAlongTrackErrors.length?presentAlongTrackErrors[Math.floor(presentAlongTrackErrors.length*0.5)]:'unavailable'} m`);
       }
       const gaitSamples=remote[i].filter(s=>s.state[14]>0.05 && s.state[12]>0);
       if(process.env.VT_TEST_CAR!=='1')assert.ok(gaitSamples.length>30,`Engine ${i} did not animate the actual remote ped`);
@@ -596,6 +603,11 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         maximumRenderPositionErrorMetres:Math.max(...renderErrors),pauseMenuObserved:remote[i].some(s=>s.state[9]===1),
         statePacketIntervalP95Ms:gaps[Math.floor(gaps.length*0.95)]??null,
         currentSourceSeparationP95Metres:presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]??null,
+        currentSourceSeparationLimitMetres:!combatTest&&!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1'?(networkDelayPerDirectionMs>0?0.4:0.22):null,
+        signedAlongTrackLeadP50Metres:presentAlongTrackErrors.length?presentAlongTrackErrors[Math.floor(presentAlongTrackErrors.length*0.5)]:null,
+        sourceReportedSpeedP50:sourceVelocityAgreement.length?sourceVelocityAgreement.map(sample=>sample.reportedSpeed).sort((a,b)=>a-b)[Math.floor(sourceVelocityAgreement.length*0.5)]:null,
+        sourcePositionDerivativeSpeedP50:sourceVelocityAgreement.length?sourceVelocityAgreement.map(sample=>sample.derivativeSpeed).sort((a,b)=>a-b)[Math.floor(sourceVelocityAgreement.length*0.5)]:null,
+        sourceVelocityVectorErrorP95:sourceVelocityAgreement.length?sourceVelocityAgreement.map(sample=>sample.vectorError).sort((a,b)=>a-b)[Math.floor(sourceVelocityAgreement.length*0.95)]:null,
         simulatedOneWayDelayMs:networkDelayPerDirectionMs,
         simulatedRoundTripMs:networkDelayPerDirectionMs*2,
         skeletonSamples:upright.length,minimumHeadToFootMetres:Math.min(...heights),maximumHeadToFootMetres:Math.max(...heights),

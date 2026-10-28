@@ -1,7 +1,7 @@
 // Forward the first accepted update immediately; coalesce bursts into the newest
-// player view at 60 Hz without imposing a fixed timer phase on every input.
+// player view at 90 Hz without imposing a fixed timer phase on every input.
 export class FrameDispatch {
-  constructor(send,{now=()=>performance.now(),timers=globalThis,interval=1000/60}={}) {
+  constructor(send,{now=()=>performance.now(),timers=globalThis,interval=1000/90}={}) {
     this.send=send;this.now=now;this.timers=timers;this.interval=interval;
     this.last=-Infinity;this.timer=null;this.closed=false;this.requestedAt=0;
     this.sent=0;this.lastWaitMs=0;this.maxWaitMs=0;
