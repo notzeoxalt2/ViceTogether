@@ -523,7 +523,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       // head positions. Keep this on-foot alignment assertion out of the shared
       // vehicle test; vehicle transform cadence is measured independently below.
       if(process.env.VT_TEST_CAR!=='1'&&!combatTest)assert.ok(headPositionErrors.length>50 && headPositionErrors[Math.floor(headPositionErrors.length*.95)]<0.75,`Engine ${i} animated head spacing disagreed with the other view: p95 ${headPositionErrors[Math.floor(headPositionErrors.length*.95)]} m`);
-      let tagAlignmentErrors=[],projectedTagCount=null;
+      let tagAlignmentErrors=[],headClearanceSamples=[],projectedTagCount=null;
       if(process.env.VT_TEST_CAR!=='1'&&!combatTest){
         const projectedTags=upright.filter(s=>s.state[23]===1&&s.state.slice(20,23).every(Number.isFinite)&&s.state[27]===0);
         projectedTagCount=projectedTags.length;
@@ -531,7 +531,8 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         assert.ok(projectedTags.every(s=>s.state[26]>0&&s.state[22]>s.state[21]&&s.state[22]-s.state[21]<25),`Engine ${i} name and health line did not stay tightly aligned`);
         tagAlignmentErrors=projectedTags.map(s=>Math.max(Math.abs(s.state[24]-s.state[25]),Math.abs(s.state[24]+s.state[26]*0.5-s.state[29]))).sort((a,b)=>a-b);
         assert.ok(tagAlignmentErrors.length>20&&tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)]<0.01,`Engine ${i} actual rendered name/health left edges diverged or their shared center missed the head`);
-        assert.ok(projectedTags.every(s=>s.state[28]-s.state[22]>24&&s.state[28]-s.state[22]<28),`Engine ${i} health line is not kept a small, consistent distance above the actual rendered head anchor`);
+        headClearanceSamples=projectedTags.map(s=>s.state[28]-s.state[22]).sort((a,b)=>a-b);
+        assert.ok(headClearanceSamples.every(v=>v>24&&v<28),`Engine ${i} health line is not kept a small, consistent distance above the actual rendered head anchor`);
       }
       const colored=upright.filter(s=>s.state[6]>0 && s.state[7]>0);
       assert.ok(colored.length>10 && colored.some(s=>s.state[8]>100), `Engine ${i} remote shirt recoloring was not applied during native rendering`);
@@ -594,6 +595,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         skeletonSamples:upright.length,minimumHeadToFootMetres:Math.min(...heights),maximumHeadToFootMetres:Math.max(...heights),
         animatedHeadSpacingErrorP95Metres:headPositionErrors[Math.floor(headPositionErrors.length*.95)],projectedNameTagSamples:projectedTagCount,
         nameHealthHeadAlignmentErrorP95Pixels:tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)]??null,
+        nameHealthHeadClearanceP95Pixels:headClearanceSamples[Math.floor(headClearanceSamples.length*.95)]??null,
         coloredRemoteDraws:Math.max(0,...upright.map(s=>s.state[7])),recoloredTexturePixels:Math.max(0,...upright.map(s=>s.state[8])),
         replicatedGunAimSamples:gunAimSamples.length,
         replicatedJumpSamples:jumpSamples.length,

@@ -10,5 +10,5 @@
     "wss://relay.novospes.com",
     "wss://relay.nostr.dev.br"
   ],
-  "releaseStatus": "Experimental alpha.42. Same-PC on-foot movement and grounded Maverick spawn/rejoin checks passed; public internet/NAT connectivity, flight behavior, full vehicle coverage, and fresh-Windows first-run are not yet verified."
+  "releaseStatus": "Experimental alpha.43. Same-PC on-foot movement and grounded Maverick spawn/rejoin checks passed; public internet/NAT connectivity, flight behavior, full vehicle coverage, and fresh-Windows first-run are not yet verified."
 }

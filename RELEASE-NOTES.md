@@ -1,3 +1,13 @@
+# ViceTogether alpha.43 — clearer player labels
+
+The floating player name and health line now sit 8 scaled pixels higher above the animated head. They remain centered together, without a background panel.
+
+The updated Windows native build passed a 30-second hidden two-client session. In both views, the name and health line stayed centered together (alignment error below 0.00002 px p95), with 26 px p95 clearance above the projected head anchor. Both clients averaged 143.9 FPS; timestamp-buffered movement error was 0.17 m p95. This verifies same-PC rendering and movement only; it does not establish perfect synchronization or public-internet connectivity.
+
+Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.42 — smoother movement and grounded Maverick spawns
 
 Player snapshots now run at roughly 60 Hz. Interpolation ignores isolated long scheduler stalls so one missed update does not leave both players with an unnecessarily large smoothing delay. Remote player names and health lines are centered together and raised slightly above the animated head.
