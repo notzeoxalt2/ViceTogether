@@ -1,3 +1,11 @@
+# ViceTogether alpha.51 — lift the player name tag slightly
+
+Moved the transparent name and health marker 4 scaled pixels higher above the remote player's head, keeping the name centered with its health line and leaving the background clear.
+
+Validation: all 99 repository tests passed. Two native clients on the same PC rendered at about 143.7 FPS each; measured head clearance was 46 px and name/health alignment error was below 0.00002 px. Internet/NAT connectivity and the wider vehicle/world synchronization remain separate, unverified work.
+
+---
+
 # ViceTogether alpha.50 — tighten remote spacing under delay
 
 Raised the player-frame forwarding cap to 90 Hz so it no longer coalesces native 14 ms movement updates. Added 10 ms to route-aware display prediction to cover the measured native playback buffer. The transparent name/health group stays centered above the animated head, with no background.
