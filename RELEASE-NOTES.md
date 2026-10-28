@@ -1,3 +1,11 @@
+# ViceTogether alpha.56 — lift player name tag slightly
+
+Moved the transparent name and health marker 6 additional screen-scaled pixels above the remote player's head. The name and health line keep the same horizontal alignment and spacing.
+
+Validation: all 105 repository tests passed. The native Windows release workflow rebuilds the modified render hook. This visual adjustment does not verify or claim complete multiplayer synchronization. Each player imports their own legally obtained Vice City files; no original game assets are included.
+
+---
+
 # ViceTogether alpha.55 — improve on-foot spacing under jitter
 
 Remote on-foot display prediction now blends the sender-timed position slope with Vice City's native ped velocity. The route lead uses the measured 25 ms native interpolation buffer; time already spent since a snapshot arrived is accounted for separately. This affects display only and leaves authoritative hit and seat validation unchanged. The transparent name/health tag remains raised and aligned above the remote player's head.
