@@ -1,8 +1,17 @@
-# ViceTogether alpha.42 — level-locked Maverick spawn
+# ViceTogether alpha.42 — smoother movement and grounded Maverick spawns
 
-Guest-requested Maverick helicopters now bypass road and flight-path altitude selection entirely. The host places them 1 m above the fresh requester elevation, 18 m ahead, so an unrelated airport/bridge node cannot put the helicopter on another floor. The paired native test now records an explicit vertical delta instead of relying on a missing field.
+Player snapshots now run at roughly 60 Hz. Interpolation ignores isolated long scheduler stalls so one missed update does not leave both players with an unnecessarily large smoothing delay. Remote player names and health lines are centered together and raised slightly above the animated head.
 
-Alpha.41’s hidden Windows game run showed the helicopter still at about 20.5 m above the guest, and exposed a test instrumentation bug that reported NaN instead of the measured difference. Alpha.42’s native two-client spawn, passenger/pilot, rotor, and same-session rejoin checks are pending. Do not publish until those checks pass. The low-latency snapshot channel must also reconfirm after rejoin; reliable movement remains the fallback.
+Guest-requested Mavericks spawn at a safe ground-level position away from the requester. The idle helicopter stays parked with its engine and rotors off. A guest who rejoins the running room can request a helicopter, and both game clients receive the same vehicle.
+
+Validation on the Windows CI build:
+
+- All 95 JavaScript tests passed, and the Windows installer and portable build completed in GitHub Actions.
+- Two hidden native game clients ran for 30 seconds in the same-PC walking test. Both averaged about 143.9 FPS; player state packets arrived at 14 ms p95, and timestamp-aligned remote movement error was 0.17 m p95. The projected name/health alignment error was below 0.00002 px.
+- The two-client helicopter check passed after an in-process guest rejoin. Both games rendered the requested Maverick 24 m from the guest and 1.0002 m above measured ground; its rotors and engine stayed off, drift was 0 m, and the fast snapshot channel was confirmed after rejoin.
+- A separate two-client passenger test observed Vice City's stock helicopter boarding animation and kept the host attached to the passenger seat for 1.27 seconds.
+
+These are same-PC tests, not public-internet or cross-NAT tests. The helicopter request test used the lobby spawn action because the native menu injection hook was unavailable in this build. Vehicle flight, all vehicle models, full combat, NPC AI, and a fresh Windows installation remain unverified. This is experimental multiplayer, not a claim of perfect 1:1 synchronization.
 
 Each player imports their own legally obtained Vice City installation; no game files are included.
 
