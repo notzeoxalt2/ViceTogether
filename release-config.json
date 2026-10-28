@@ -10,5 +10,5 @@
     "wss://relay.novospes.com",
     "wss://relay.nostr.dev.br"
   ],
-  "releaseStatus": "Experimental alpha.47. RTT-aware on-foot display prediction passed hidden two-client same-PC tests at 0, 150, and 300 ms simulated RTT. Public internet/NAT connectivity, full vehicle coverage, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files."
+  "releaseStatus": "Experimental alpha.49. Hidden two-client same-PC tests measured 0.146–0.166 m p95 on-foot spacing and 42 px head clearance for the name/health group; a 55-second shared-bike test measured 0.744 m p95 vehicle error. Public internet/NAT connectivity, every vehicle type, complete gameplay synchronization, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files."
 }

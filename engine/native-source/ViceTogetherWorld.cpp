@@ -442,7 +442,8 @@ void ViceTogetherWorldStatus(float* out) {
         out[27]=float(testGuestSpawnCalls);out[28]=float(testGuestSpawnStage);out[30]=testGuestSpawnVehicle?float(testGuestSpawnVehicle->GetModelIndex()):-1.0f;out[31]=testGuestSpawnVehicle?testGuestSpawnVehicle->GetPosition().z:-1.0f;out[32]=testGuestSpawnVehicle&&testGuestSpawnVehicle->m_rwObject?1.0f:0.0f;out[33]=testGuestSpawnVehicle?float(CPools::GetVehicleRef(testGuestSpawnVehicle)):-1.0f;
         if(testGuestSpawnVehicle){const CVector position=testGuestSpawnVehicle->GetPosition();bool groundFound=false;float groundZ=CWorld::FindGroundZFor3DCoord(position.x,position.y,position.z+5.0f,&groundFound);if(!groundFound)groundZ=CWorld::FindGroundZFor3DCoord(position.x,position.y,position.z+100.0f,&groundFound);out[29]=groundFound&&std::isfinite(groundZ)?groundZ:-10000.0f;}
     }
-    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;const int targetHeli=getenv("VT_TEST_VEHICLE")?atoi(getenv("VT_TEST_VEHICLE")):217;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(multiplayerHelicopter(car)&&car->GetModelIndex()==targetHeli){out[32]=networkHeliRotorAngle(car);out[33]=float(targetHeli);break;}}}
+    if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR")){CPlayerPed* player=FindPlayerPed();out[19]=float(testSeatGrantStatus);out[20]=player?float(player->GetPedState()):-1;out[21]=player?float(player->m_objective):-1;out[22]=player&&player->bInVehicle&&player->m_pMyVehicle?float(ViceTogetherWorldVehicleId(player->m_pMyVehicle)):-1;out[23]=float(testSeatGrantCalls);out[24]=float(testSeatGrantModel);out[25]=float(testSeatGrantSeat);out[26]=player&&player->m_carInObjective?float(player->m_carInObjective->GetModelIndex()):-1;out[27]=testHostExitSpeed;out[28]=testHostExitWithDriver?1.0f:0.0f;out[29]=host()&&testHostExitSpeed>=0?1.0f:0.0f;out[30]=float(testDriverMotionFrames);out[31]=float(testDriverMotionPackets);out[32]=0.0f;out[33]=0.0f;const int targetHeli=getenv("VT_TEST_VEHICLE")?atoi(getenv("VT_TEST_VEHICLE")):217;auto* pool=CPools::GetVehiclePool();for(int i=0;i<pool->GetSize();i++){CVehicle* car=pool->GetSlot(i);if(multiplayerHelicopter(car)&&car->GetModelIndex()==targetHeli){out[32]=networkHeliRotorAngle(car);out[33]=float(targetHeli);break;}}
+    }
 }
 void ViceTogetherWorldSeatDiagnostic(float* out) {
     if(!out)return;
@@ -569,8 +570,12 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     DriverMotion& motion=driverMotions[id];const uint32 now=CTimer::GetTimeInMilliseconds();
     const CVector position=car->GetPosition();const CMatrix& current=car->GetMatrix();const CVector basis[]={current.GetRight(),current.GetForward(),current.GetUp()};
     CWorld::Remove(car);
-    motion.from[0]=position.x;motion.from[1]=position.y;motion.from[2]=position.z;
-    for(int j=0;j<3;j++){motion.from[3+j*3]=basis[j].x;motion.from[4+j*3]=basis[j].y;motion.from[5+j*3]=basis[j].z;}
+    // Keep the interpolation chain advancing when snapshots arrive every
+    // frame. Restarting each blend from the rendered transform made t≈0 on
+    // every receive tick, so the replica could remain parked while its target
+    // moved tens of metres. Chain from the previous accepted target instead.
+    if(motion.initialized){for(int j=0;j<12;j++)motion.from[j]=motion.target[j];}
+    else {motion.from[0]=position.x;motion.from[1]=position.y;motion.from[2]=position.z;for(int j=0;j<3;j++){motion.from[3+j*3]=basis[j].x;motion.from[4+j*3]=basis[j].y;motion.from[5+j*3]=basis[j].z;}}
     for(int j=0;j<12;j++)motion.target[j]=d[2+j];
     const uint32 interval=motion.initialized?now-motion.received:16;
     float velocity[3]={};
@@ -583,7 +588,7 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     if(leadDistance>2.0f&&speed>0.001f)lead=2.0f/speed;
     for(int i=0;i<3;i++){motion.sample[i]=d[2+i];motion.velocity[i]=velocity[i];motion.target[i]=d[2+i]+velocity[i]*lead;}
     motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.initialized=true;motion.settled=false;
-    car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR"))testDriverMotionPackets++;
+    car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(host()?STATUS_ABANDONED:STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR"))testDriverMotionPackets++;
 }
 void ViceTogetherApplyDriverVisual(unsigned id,const float* v){
     if(!host()&&!guest())return;

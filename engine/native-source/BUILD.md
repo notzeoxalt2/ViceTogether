@@ -3,7 +3,7 @@
 Use a Windows x86 MSVC toolchain with Windows SDK libraries, CMake and Git. These tools are only for building from source, not for users installing the release.
 
 1. Clone https://github.com/mrxenginner/reVC and check out a26fff4af555a8a425ac9f17d1dd718d00d1f942 on miami. Initialize vendor/librw at 0ad67ee226ea51beb3f465cb8857195e4db16029.
-2. Run `git apply /path/to/native-engine.patch` inside the clone.
+2. Run `git apply /path/to/native-engine.patch` and then `git apply /path/to/multiplayer-bike-passenger-exit.patch` inside the clone.
 3. Copy ViceTogether.cpp, ViceTogether.h, ViceTogetherNetwork.cpp, ViceTogetherWorld.cpp and ViceTogetherWorld.h from this folder into src/core. Copy vice-together.ico into src/skel/win.
 4. Configure with CMake using Visual Studio 2022, Win32, LIBRW_PLATFORM=D3D9, REVC_AUDIO=MSS, MilesSDK_DIR pointing to vendor/milessdk, CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded, REVC_WITH_OPUS=OFF, LIBRW_TOOLS=OFF, LIBRW_INSTALL=OFF and REVC_INSTALL=OFF.
 5. Build Release. Copy the resulting reVC.exe into engine/native/reVC.exe in the launcher source. Retain ENGINE-LICENSE.md. Build the launcher with npm run dist.

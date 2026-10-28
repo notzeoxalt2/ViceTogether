@@ -157,7 +157,7 @@ constexpr float remoteTagScaleY=0.64f;
 float remoteTagLineHeight(){return SCREEN_SCALE_Y(20.0f*remoteTagScaleY);}
 float remoteTagNameGap(){return SCREEN_SCALE_Y(17.0f);}
 float remoteTagHealthGap(){return SCREEN_SCALE_Y(13.0f);}
-float remoteTagHeadClearance(){return SCREEN_SCALE_Y(22.0f);}
+float remoteTagHeadClearance(){return SCREEN_SCALE_Y(28.0f);}
 bool remoteTagProjection(CPed* ped,RwV3d* screen){
     if(!ped||!ped->m_rwObject||!ped->GetClump()||!screen)return false;
     CVector head=ped->GetNodePosition(PED_HEAD);head.z+=0.10f;
@@ -662,6 +662,7 @@ void ViceTogetherTick() {
     ViceTogetherWorldMenuTick();
     ViceTogetherNetworkTick();
     ViceTogetherWorldTick();
+    ViceTogetherNetworkPostWorldTick();
     if(getenv("VT_FOLLOW_PLAYER") || getenv("VT_MUTE")){DMAudio.SetEffectsMasterVolume(0);DMAudio.SetMusicMasterVolume(0);}
     CPlayerPed* player = FindPlayerPed();
     if (!player || !player->m_rwObject) return;

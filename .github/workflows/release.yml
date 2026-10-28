@@ -29,6 +29,9 @@ jobs:
           $patch = Join-Path $PWD 'engine/native-source/native-engine.patch'
           git -C $source apply --exclude=src/skel/win/win.rc $patch
           if ($LASTEXITCODE -ne 0) { throw 'Native engine patch did not apply.' }
+          $bikePassengerPatch = Join-Path $PWD 'engine/native-source/multiplayer-bike-passenger-exit.patch'
+          git -C $source apply $bikePassengerPatch
+          if ($LASTEXITCODE -ne 0) { throw 'Native bike passenger exit patch did not apply.' }
           Copy-Item engine/native-source/ViceTogether.cpp,engine/native-source/ViceTogether.h,engine/native-source/ViceTogetherNetwork.cpp,engine/native-source/ViceTogetherWorld.cpp,engine/native-source/ViceTogetherWorld.h -Destination native-engine-source/src/core -Force
           Copy-Item engine/native-source/vice-together.ico -Destination native-engine-source/src/skel/win/vice-together.ico -Force
           $resource = Join-Path $source 'src/skel/win/win.rc'

@@ -3,6 +3,7 @@
 void ViceTogetherTick();
 void ViceTogetherBeforeWorld();
 void ViceTogetherNetworkTick();
+void ViceTogetherNetworkPostWorldTick();
 class CPed;
 bool ViceTogetherIsRemote(const CPed* ped);
 CPed* ViceTogetherRemotePed(int slot);

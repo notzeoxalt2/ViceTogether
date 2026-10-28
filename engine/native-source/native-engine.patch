@@ -298,7 +298,7 @@ index 8a3b971d..4b4ee740 100644
  
  #include "main.h"
  #include "RpAnimBlend.h"
-@@ -2140,6 +2141,85 @@ CPed::FightStrike(CVector &touchedNodePos, bool fightWithWeapon)
+@@ -2140,6 +2141,81 @@ CPed::FightStrike(CVector &touchedNodePos, bool fightWithWeapon)
  		}
  	}
  
@@ -318,25 +318,22 @@ index 8a3b971d..4b4ee740 100644
 +		else
 +			maxDistanceToBeat = nearPed->GetBoundRadius() + radius;
 +		hisCol = ((CPedModelInfo*)CModelInfo::GetModelInfo(nearPed->GetModelIndex()))->AnimatePedColModelSkinnedWorld(nearPed->GetClump());
-+		if(!hisCol)
-+			continue;
 +		CVector nearPedCentre = nearPed->GetBoundCentre();
-+		if(sq(maxDistanceToBeat) <= (nearPedCentre - touchedNodePos).MagnitudeSqr())
-+			continue;
-+
 +		bool pedFound = false;
-+		for(int j = 0; j < hisCol->numSpheres; j++) {
-+			attackDistance = hisCol->spheres[j].center - touchedNodePos;
-+			if(sq(hisCol->spheres[j].radius + radius) > attackDistance.MagnitudeSqr()) {
-+				FightHitPed(nearPed, touchedNodePos, attackDistance, hisCol->spheres[j].piece);
-+				pedFound = true;
-+				break;
++		if(hisCol && sq(maxDistanceToBeat) > (nearPedCentre - touchedNodePos).MagnitudeSqr()) {
++			for(int j = 0; j < hisCol->numSpheres; j++) {
++				attackDistance = hisCol->spheres[j].center - touchedNodePos;
++				if(sq(hisCol->spheres[j].radius + radius) > attackDistance.MagnitudeSqr()) {
++					FightHitPed(nearPed, touchedNodePos, attackDistance, hisCol->spheres[j].piece);
++					pedFound = true;
++					break;
++				}
 +			}
 +		}
 +
 +		// Preserve the stock extended reach used by fist moves whose hand
 +		// animation passes just short of the target's animated collision hull.
-+		if(!pedFound && !fightWithWeapon) {
++		if(hisCol && !pedFound && !fightWithWeapon) {
 +			extendedTouchPoint = touchedNodePos - GetPosition();
 +			if(DotProduct(touchedNodePos - GetPosition(), nearPed->GetPosition() - GetPosition()) > 0.f) {
 +				if(m_curFightMove == FIGHTMOVE_GROUNDKICK)
@@ -356,10 +353,9 @@ index 8a3b971d..4b4ee740 100644
 +					}
 +			}
 +		}
-+		// Network proxies can arrive a few centimetres away from the skinned
-+		// collision pose between snapshots. If the stock strike is in its real
-+		// contact window, allow the same stock hit response when Tommy is close,
-+		// facing the proxy, and no world geometry blocks the short reach.
++		// Keep this bounded fallback outside the skinned-collision query so a
++		// missing model or a rejected broad phase cannot discard a native strike.
++		// Require close range, facing, and a clear line of sight.
 +		if(!fightWithWeapon && m_fightState != FIGHTSTATE_JUST_ATTACKED) {
 +			CVector targetCentre = nearPed->GetBoundCentre();
 +			CVector toTarget = nearPed->GetPosition() - GetPosition();
@@ -384,7 +380,7 @@ index 8a3b971d..4b4ee740 100644
  
  	if (m_fightState == FIGHTSTATE_NO_MOVE)
  		m_fightState = FIGHTSTATE_1;
-@@ -2650,6 +2730,9 @@ CPed::ClearInvestigateEvent(void)
+@@ -2650,6 +2726,9 @@ CPed::ClearInvestigateEvent(void)
  bool
  CPed::InflictDamage(CEntity *damagedBy, eWeaponType method, float damage, ePedPieceTypes pedPiece, uint8 direction)
  {
@@ -1035,7 +1031,7 @@ index cada1681..2a0c141b 100644
 diff --git a/src/core/PlayerInfo.cpp b/src/core/PlayerInfo.cpp
 --- a/src/core/PlayerInfo.cpp
 +++ b/src/core/PlayerInfo.cpp
-@@ -321,6 +321,10 @@ CPlayerInfo::Process(void)
+@@ -321,7 +321,11 @@ CPlayerInfo::Process(void)
  							if (veh->m_vehType == VEHICLE_TYPE_BIKE) {
  								canJumpOff = veh->CanPedJumpOffBike();
  							} else if (veh->pDriver == m_pPed) {

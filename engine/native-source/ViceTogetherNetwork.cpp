@@ -55,7 +55,7 @@ Snapshot history[7]={};
 SOCKET bridge=INVALID_SOCKET;
 sockaddr_in launcher={};
 bool attempted=false;
-DWORD lastSent=0,testStart=0;
+DWORD lastSent=0,testStart=0,lastWorld=0;
 struct DelayedShot{Wire wire;DWORD due;};std::vector<DelayedShot> delayedShots;
 DWORD clockMs() {
     static LARGE_INTEGER frequency={}; if(!frequency.QuadPart) QueryPerformanceFrequency(&frequency);
@@ -224,12 +224,12 @@ void ViceTogetherNetworkTick() {
     if(!attempted)init();if(bridge==INVALID_SOCKET)return;
     const DWORD now=clockMs();
     reportPerformance(now);
-    static DWORD lastWorld=0,lastDriver=0;
-    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);const char* testVehicle=getenv("VT_TEST_VEHICLE");if(getenv("VT_TEST_GUEST_DRIVE")&&testVehicle&&atoi(testVehicle)==217){float seatTask[34]={};ViceTogetherWorldSeatDiagnostic(seatTask);sendWorld(24,0,seatTask);}lastWorld=now;}
-    // Driver ownership is a small, replaceable state packet. Send it near
-    // 90 Hz so the other client gets frequent motion and wheel updates without
-    // waiting for the slower ambient-world transaction.
-    if(now-lastDriver>=11){ViceTogetherCaptureDriver(sendWorld);lastDriver=now-(now-lastDriver)%11;}
+    static DWORD lastDriver=0;
+    // Driver ownership is a small, replaceable state packet. Sample it at the
+    // game's 144 Hz target cadence so vehicle transforms, wheels, and occupants
+    // do not appear to advance in visible two-frame steps. SnapshotSender
+    // coalesces transient updates if a route cannot keep up.
+    if(now-lastDriver>=7){ViceTogetherCaptureDriver(sendWorld);lastDriver=now-(now-lastDriver)%7;}
     for(int count=0;count<512;count++) {
         Wire wire;sockaddr_in source={};int sourceSize=sizeof(source);
         const int size=recvfrom(bridge,(char*)&wire,sizeof(wire),0,(sockaddr*)&source,&sourceSize);
@@ -323,4 +323,12 @@ void ViceTogetherNetworkTick() {
             }
         }
     }
+}
+void ViceTogetherNetworkPostWorldTick() {
+    if(bridge==INVALID_SOCKET)return;
+    const DWORD now=clockMs();
+    // Capture after the native vehicle and world updates have applied the
+    // latest authorized driver snapshot. Capturing before the receive/apply
+    // phase re-broadcasts a stale bike/car transform to the whole lobby.
+    if(now-lastWorld>=100){ViceTogetherWorldCapture(sendWorld);float status[34]={};ViceTogetherWorldStatus(status);sendWorld(23,0,status);const char* testVehicle=getenv("VT_TEST_VEHICLE");if(getenv("VT_TEST_GUEST_DRIVE")&&testVehicle&&atoi(testVehicle)==217){float seatTask[34]={};ViceTogetherWorldSeatDiagnostic(seatTask);sendWorld(24,0,seatTask);}lastWorld=now;}
 }

@@ -1,0 +1,15 @@
+diff --git a/src/core/PlayerInfo.cpp b/src/core/PlayerInfo.cpp
+--- a/src/core/PlayerInfo.cpp
++++ b/src/core/PlayerInfo.cpp
+@@ -324,5 +324,10 @@ CPlayerInfo::Process(void)
+ 							bool canJumpOff = false;
+ 							if (veh->m_vehType == VEHICLE_TYPE_BIKE) {
+-								canJumpOff = veh->CanPedJumpOffBike();
++								if (getenv("VT_PORT") && veh->pDriver != m_pPed) {
++									// Multiplayer bike passengers use the stock car jump-out speed window.
++									canJumpOff = veh->CanPedJumpOutCar();
++								} else {
++									canJumpOff = veh->CanPedJumpOffBike();
++								}
+ 							} else if (veh->pDriver == m_pPed) {
+ 								canJumpOff = veh->CanPedJumpOutCar();

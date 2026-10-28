@@ -1,3 +1,11 @@
+# ViceTogether alpha.49 — tighten player spacing and lift labels
+
+Raised the transparent player name and health group an additional 6 scaled pixels above the rendered head, keeping the two centered and aligned. On-foot display correction now runs after the native world update so the final rendered player position is used consistently. Vehicle driver interpolation continues from the previous accepted target instead of restarting every snapshot.
+
+Validation: all 99 repository tests passed. A hidden 30-second two-client native session measured 143.86 FPS on both clients, timestamp-aligned player spacing error of 0.166 m and 0.146 m p95, and name/health alignment below 0.00003 px. The health line sat 42 px above the rendered head anchor in both views. A separate hidden 55-second shared-bike session measured 0.744 m vehicle position error p95, 7.24 ms driver-packet interval p95, 100% passenger visibility, and 143.86 FPS on both clients; wheel motion was present. These are same-PC tests. Public internet routes, every vehicle type, complete combat/world synchronization, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files; no original game assets are included.
+
+---
+
 # ViceTogether alpha.48 — lift player name tags slightly
 
 Moved the transparent player name and health group 6 scaled pixels higher above the rendered head. The name and health bar remain centered and aligned.
