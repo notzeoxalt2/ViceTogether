@@ -1,3 +1,11 @@
+# ViceTogether alpha.48 — lift player name tags slightly
+
+Moved the transparent player name and health group 6 scaled pixels higher above the rendered head. The name and health bar remain centered and aligned.
+
+Validation: all 99 repository tests passed. A hidden 15-second two-client native render test passed at about 143.9 FPS per client. The health line measured 36 px above the animated head anchor and the name/health alignment error was below 0.00002 px p95. This is a same-PC test, not an internet-route test.
+
+---
+
 # ViceTogether alpha.47 — reduce on-foot position lag
 
 Remote on-foot player positions now use a bounded, RTT-aware display prediction. Each recipient gets a snapshot projected for its measured route; only horizontal display coordinates change, so vehicle motion and authoritative hit/seat checks stay untouched. The transparent name/health group remains aligned and 30 scaled pixels above the rendered head.
