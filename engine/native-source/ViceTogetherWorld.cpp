@@ -594,7 +594,9 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     float speed=sqrtf(velocity[0]*velocity[0]+velocity[1]*velocity[1]+velocity[2]*velocity[2]);
     if(speed>70.0f){const float scale=70.0f/speed;for(float& component:velocity)component*=scale;speed=70.0f;}
     float lead=d[26];const float leadDistance=speed*lead;
-    if(leadDistance>2.0f&&speed>0.001f)lead=2.0f/speed;
+    // RTT-aware prediction must cover ordinary one-way travel time. A 2 m
+    // distance cap left a fast car roughly 100 ms behind on 300 ms RTT paths.
+    if(leadDistance>8.0f&&speed>0.001f)lead=8.0f/speed;
     for(int i=0;i<3;i++){motion.sample[i]=d[2+i];motion.velocity[i]=velocity[i];motion.target[i]=d[2+i]+velocity[i]*lead;}
     motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.senderTime=senderTime;motion.hasSenderTime=hasSenderTime;motion.initialized=true;motion.settled=false;
     car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(host()?STATUS_ABANDONED:STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR"))testDriverMotionPackets++;

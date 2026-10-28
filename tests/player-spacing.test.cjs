@@ -39,7 +39,13 @@ test('display prediction is route-aware per recipient and leaves authoritative s
   const harness=fs.readFileSync(require.resolve('../src/native-game-test.cjs'),'utf8');
   assert.match(harness,/VT_TEST_NETWORK_JITTER_MS/,'Two-client native verification must support repeatable variable one-way delay');
   assert.match(harness,/\['movement','players','driver'\]\.includes\(kind\)/,'Controlled network delay should cover vehicle snapshots as well as player movement');
+  assert.match(harness,/testCurrentDriverSentAt/,'Native car accuracy must compare host transforms against the guest snapshot send time, not its delayed receive time');
   assert.match(harness,/seq:\+\+entry\.sequence,data/,'The network test allocates snapshot ordering before injecting delay');
   assert.match(harness,/setTimeout\(\(\)=>\{if\(channel\.readyState==='open'\)\{try\{channel\.send\(packet\)/,'The network test injects delay after packet sequencing at the transport boundary');
   assert.match(harness,/simulatedJitterAmplitudePerDirectionMs/,'Native test reports the injected jitter alongside its measured spacing');
+});
+
+test('remote name and health tag sit clearly above the projected head',()=>{
+  const source=fs.readFileSync(require.resolve('../engine/native-source/ViceTogether.cpp'),'utf8');
+  assert.match(source,/remoteTagHeadClearance\(\)\{return SCREEN_SCALE_Y\(76\.0f\);\}/,'Keep a little more breathing room above the remote player head');
 });
