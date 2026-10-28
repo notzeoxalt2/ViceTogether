@@ -38,6 +38,7 @@ test('display prediction is route-aware per recipient and leaves authoritative s
   assert.match(prediction,/maxHorizonMs = 220/,'Prediction must stop after a bounded time horizon');
   const harness=fs.readFileSync(require.resolve('../src/native-game-test.cjs'),'utf8');
   assert.match(harness,/VT_TEST_NETWORK_JITTER_MS/,'Two-client native verification must support repeatable variable one-way delay');
+  assert.match(harness,/\['movement','players','driver'\]\.includes\(kind\)/,'Controlled network delay should cover vehicle snapshots as well as player movement');
   assert.match(harness,/seq:\+\+entry\.sequence,data/,'The network test allocates snapshot ordering before injecting delay');
   assert.match(harness,/setTimeout\(\(\)=>\{if\(channel\.readyState==='open'\)\{try\{channel\.send\(packet\)/,'The network test injects delay after packet sequencing at the transport boundary');
   assert.match(harness,/simulatedJitterAmplitudePerDirectionMs/,'Native test reports the injected jitter alongside its measured spacing');

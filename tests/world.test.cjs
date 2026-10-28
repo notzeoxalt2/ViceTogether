@@ -39,6 +39,12 @@ test('host vehicle snapshots are validated before the low-latency stream reaches
   const state=Array(34).fill(0);state[0]=130;state[1]=0;state[5]=1;state[9]=1;state[13]=1;state[17]=1000;state[19]=2;state[20]=1;
   const visual=Array(34).fill(0),snapshot={id:42,state,visual};
   assert.equal(validDriverSnapshot(snapshot),true);
+  const timestamped=[...state];timestamped[27]=65530;timestamped[28]=1;
+  assert.equal(validDriverSnapshot({...snapshot,state:timestamped}),true,'a wrapped sender clock remains a valid snapshot');
+  const invalidTimestamp=[...timestamped];invalidTimestamp[27]=65536;
+  assert.equal(validDriverSnapshot({...snapshot,state:invalidTimestamp}),false,'out-of-range sender timestamps are rejected');
+  const invalidTimestampFlag=[...timestamped];invalidTimestampFlag[28]=2;
+  assert.equal(validDriverSnapshot({...snapshot,state:invalidTimestampFlag}),false,'unknown sender timestamp formats are rejected');
   assert.equal(validDriverSnapshot({...snapshot,id:-1}),false);
   assert.equal(validDriverSnapshot({...snapshot,state:[...state.slice(0,20),0,...state.slice(21)]}),false,'A non-driver cannot publish a driver snapshot');
   assert.equal(validDriverSnapshot({...snapshot,state:[...state.slice(0,5),0.5,...state.slice(6)]}),false,'Malformed orientation is rejected');

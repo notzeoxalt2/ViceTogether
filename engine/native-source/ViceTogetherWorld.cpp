@@ -45,7 +45,7 @@
 namespace {
 struct EntityState { unsigned id,type; float data[34],visual[34]; bool hasVisual; };
 struct Replica { CEntity* entity; float previous[34],target[34],previousVisual[34],visual[34]; uint32 received; unsigned generation; bool hasVisual; };
-struct DriverMotion { float from[12],target[12],sample[3],velocity[3]; uint32 received,duration; bool initialized,settled; };
+struct DriverMotion { float from[12],target[12],sample[3],velocity[3]; uint32 received,duration,senderTime; bool initialized,settled,hasSenderTime; };
 struct PedShotSample {uint32 time;int model;CVector position;};
 std::map<unsigned,Replica> pedestrians,vehicles;
 std::map<unsigned,DriverMotion> driverMotions;
@@ -208,10 +208,14 @@ void applyDriverMotion(){
         CVehicle* car=ViceTogetherWorldFindVehicle(it->first);
         if(!car){it=driverMotions.erase(it);continue;}
         if(car->pDriver==FindPlayerPed()){it=driverMotions.erase(it);continue;}
-        if(motion.settled){++it;continue;}
-        const float t=std::min(1.0f,float(now-motion.received)/std::max(1u,motion.duration));
+        const uint32 elapsed=now-motion.received;
+        const float t=std::min(1.0f,float(elapsed)/std::max(1u,motion.duration));
+        // The latest transform is predicted to arrival time. Keep dead
+        // reckoning by its measured source velocity between packets, capped
+        // so a long network stall cannot drive the replica far off course.
+        const float extrapolation=float(std::min(elapsed,100u))*0.001f;
         const auto blend=[&](int i){return motion.from[i]+(motion.target[i]-motion.from[i])*t;};
-        car->SetPosition(blend(0),blend(1),blend(2));
+        car->SetPosition(blend(0)+motion.velocity[0]*extrapolation,blend(1)+motion.velocity[1]*extrapolation,blend(2)+motion.velocity[2]*extrapolation);
         CMatrix& matrix=car->GetMatrix();
         CVector right(blend(3),blend(4),blend(5)),forward(blend(6),blend(7),blend(8));
         right.Normalise();forward.Normalise();CVector up=CrossProduct(right,forward);up.Normalise();forward=CrossProduct(up,right);forward.Normalise();
@@ -551,7 +555,7 @@ void ViceTogetherCaptureDriver(VTWorldSender send){if(!host()&&!guest())return;C
     // Door angles remain cosmetic; the lobby validates them against the
     // sender's live seat claim before applying the native door animation.
     if(car->IsCar()){CAutomobile* a=(CAutomobile*)car;float doors[34]={};bool changed=false;static unsigned lastDoorId=~0u;static float lastDoorAngles[6]={};static uint32 lastDoorSent=0;const uint32 now=CTimer::GetTimeInMilliseconds();for(int j=0;j<6;j++){doors[j]=a->Doors[j].m_fAngle;if(lastDoorId!=unsigned(id)||fabsf(doors[j]-lastDoorAngles[j])>0.025f)changed=true;}if(changed||now-lastDoorSent>=250){send(62,unsigned(id),doors);lastDoorId=unsigned(id);for(int j=0;j<6;j++)lastDoorAngles[j]=doors[j];lastDoorSent=now;}}
-    if(!driver||!p->bInVehicle)return;float d[34]={},visual[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:multiplayerHelicopter(car)?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}const CVector turn=car->m_vecTurnSpeed;d[23]=turn.x;d[24]=turn.y;d[25]=turn.z;d[17]=car->m_fHealth;d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);captureVehicleVisual(car,visual);send(60,unsigned(id),visual);send(43,unsigned(id),d);}
+    if(!driver||!p->bInVehicle)return;float d[34]={},visual[34]={};d[0]=car->GetModelIndex();d[1]=car->IsBike()?1:car->IsBoat()?2:multiplayerHelicopter(car)?3:car->IsPlane()?4:0;const CVector pos=car->GetPosition();d[2]=pos.x;d[3]=pos.y;d[4]=pos.z;const CMatrix& m=car->GetMatrix();const CVector basis[]={m.GetRight(),m.GetForward(),m.GetUp(),car->GetMoveSpeed()};for(int j=0;j<4;j++){d[5+j*3]=basis[j].x;d[6+j*3]=basis[j].y;d[7+j*3]=basis[j].z;}const CVector turn=car->m_vecTurnSpeed;d[23]=turn.x;d[24]=turn.y;d[25]=turn.z;const uint32 driverTime=CTimer::GetTimeInMilliseconds();d[27]=float(driverTime&0xffffu);d[28]=1.0f;d[17]=car->m_fHealth;d[18]=car->m_fGasPedal;d[19]=float(car->GetStatus());d[20]=car->pDriver->IsPlayer()?1:0;d[21]=float(CPad::GetPad(0)->GetAccelerate());d[22]=float(CPad::GetPad(0)->DisablePlayerControls);captureVehicleVisual(car,visual);send(60,unsigned(id),visual);send(43,unsigned(id),d);}
 void ViceTogetherApplyDriver(unsigned id,const float* d){
     if(!host()&&!guest())return;
     CVehicle* car=ViceTogetherWorldFindVehicle(id);
@@ -562,24 +566,29 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     // a locally driven car or one driven by an unrelated occupant.
     if(host()&&car->pDriver&&(car->pDriver==FindPlayerPed()||!ViceTogetherIsRemote(car->pDriver)))return;
     if(guest()&&car->pDriver==FindPlayerPed())return;
-    for(int i=0;i<27;i++)if(!std::isfinite(d[i]))return;
+    for(int i=0;i<29;i++)if(!std::isfinite(d[i]))return;
     if(d[20]!=1||d[17]<0||d[17]>1000||d[19]<0||d[19]>5||floorf(d[19])!=d[19])return;
     if(d[26]<0||d[26]>0.18f)return;
+    if(d[27]<0||d[27]>65535||floorf(d[27])!=d[27]||(d[28]!=0&&d[28]!=1))return;
     if(fabsf(d[23])>5||fabsf(d[24])>5||fabsf(d[25])>5)return;
     if(car->GetStatus()==STATUS_WRECKED)return;
     DriverMotion& motion=driverMotions[id];const uint32 now=CTimer::GetTimeInMilliseconds();
     const CVector position=car->GetPosition();const CMatrix& current=car->GetMatrix();const CVector basis[]={current.GetRight(),current.GetForward(),current.GetUp()};
     CWorld::Remove(car);
-    // Keep the interpolation chain advancing when snapshots arrive every
-    // frame. Restarting each blend from the rendered transform made t≈0 on
-    // every receive tick, so the replica could remain parked while its target
-    // moved tens of metres. Chain from the previous accepted target instead.
-    if(motion.initialized){for(int j=0;j<12;j++)motion.from[j]=motion.target[j];}
-    else {motion.from[0]=position.x;motion.from[1]=position.y;motion.from[2]=position.z;for(int j=0;j<3;j++){motion.from[3+j*3]=basis[j].x;motion.from[4+j*3]=basis[j].y;motion.from[5+j*3]=basis[j].z;}}
+    // Start each correction at the current rendered transform. Bounded
+    // dead-reckoning above keeps the replica advancing while newer snapshots
+    // are in flight, so this no longer freezes when jitter coalesces packets.
+    motion.from[0]=position.x;motion.from[1]=position.y;motion.from[2]=position.z;
+    for(int j=0;j<3;j++){motion.from[3+j*3]=basis[j].x;motion.from[4+j*3]=basis[j].y;motion.from[5+j*3]=basis[j].z;}
     for(int j=0;j<12;j++)motion.target[j]=d[2+j];
     const uint32 interval=motion.initialized?now-motion.received:16;
+    const bool hasSenderTime=d[28]==1;
+    const uint32 senderTime=uint32(d[27]);
+    const uint32 senderInterval=motion.initialized&&hasSenderTime&&motion.hasSenderTime
+        ?uint16(uint16(senderTime)-uint16(motion.senderTime)):0;
+    const uint32 velocityInterval=senderInterval>=5&&senderInterval<=125?senderInterval:interval;
     float velocity[3]={};
-    if(motion.initialized&&interval>=5&&interval<=125){for(int i=0;i<3;i++)velocity[i]=(d[2+i]-motion.sample[i])*1000.0f/float(interval);}
+    if(motion.initialized&&velocityInterval>=5&&velocityInterval<=125){for(int i=0;i<3;i++)velocity[i]=(d[2+i]-motion.sample[i])*1000.0f/float(velocityInterval);}
     else if(motion.initialized){for(int i=0;i<3;i++)velocity[i]=motion.velocity[i];}
     else {for(int i=0;i<3;i++)velocity[i]=d[14+i]*50.0f;}
     float speed=sqrtf(velocity[0]*velocity[0]+velocity[1]*velocity[1]+velocity[2]*velocity[2]);
@@ -587,7 +596,7 @@ void ViceTogetherApplyDriver(unsigned id,const float* d){
     float lead=d[26];const float leadDistance=speed*lead;
     if(leadDistance>2.0f&&speed>0.001f)lead=2.0f/speed;
     for(int i=0;i<3;i++){motion.sample[i]=d[2+i];motion.velocity[i]=velocity[i];motion.target[i]=d[2+i]+velocity[i]*lead;}
-    motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.initialized=true;motion.settled=false;
+    motion.duration=std::max(8u,std::min(50u,interval));motion.received=now;motion.senderTime=senderTime;motion.hasSenderTime=hasSenderTime;motion.initialized=true;motion.settled=false;
     car->SetMoveSpeed(d[14],d[15],d[16]);car->m_vecTurnSpeed=CVector(d[23],d[24],d[25]);car->m_fHealth=std::min(car->m_fHealth,d[17]);car->m_fGasPedal=d[18];const bool remoteWreck=d[19]==STATUS_WRECKED||car->m_fHealth<=0;car->SetStatus(host()?STATUS_ABANDONED:STATUS_PHYSICS);car->bEngineOn=true;if(remoteWreck){if(!car->bRenderScorched){car->m_fHealth=std::max(1.0f,car->m_fHealth);car->BlowUpCar(nil);car->bRenderScorched=true;}car->SetStatus(STATUS_WRECKED);car->bEngineOn=false;car->m_fHealth=std::min(car->m_fHealth,d[17]);}if(car->IsBike())((CBike*)car)->bLeanMatrixClean=false;CWorld::Add(car);delegatedVehicles[id]=now;if(getenv("VT_TEST_GUEST_DRIVE")||getenv("VT_TEST_CAR"))testDriverMotionPackets++;
 }
 void ViceTogetherApplyDriverVisual(unsigned id,const float* v){

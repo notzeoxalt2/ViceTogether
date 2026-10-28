@@ -27,10 +27,10 @@ class SeatAuthority {
     if(axes.some(v=>Math.abs(Math.hypot(...v)-1)>0.05))return this.rejectVehicle('invalid-orientation');
     for(let a=0;a<3;a++)for(let b=a+1;b<3;b++)if(Math.abs(axes[a].reduce((sum,v,i)=>sum+v*axes[b][i],0))>0.05)return this.rejectVehicle('invalid-orientation');
     const last=this.motion?.get(id),recent=(this.vehicleTimestamps.get(id)||[]).filter(time=>now-time<1000);
-    // Driver snapshots target 120 Hz, so a fixed inter-packet gap can reject
+    // Driver snapshots target 144 Hz, so a fixed inter-packet gap can reject
     // valid updates when WebRTC delivers a brief burst. Bound the rolling
     // rate instead, so jitter does not throttle movement below the target.
-    if(recent.length>=120)return this.rejectVehicle('rate-limit');
+    if(recent.length>=144)return this.rejectVehicle('rate-limit');
     const elapsed=last?Math.min(1500,now-last.time):100,position=last?.position||car.slice(2,5);
     if(Math.hypot(...d.slice(2,5).map((v,k)=>v-position[k]))>4+elapsed*0.09)return this.rejectVehicle('movement-bound');
     const health=Math.min(car[17],d[17]),result=[...car],accepted=[...d];

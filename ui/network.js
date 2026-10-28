@@ -361,7 +361,7 @@ export class PrivateLobby extends EventTarget {
   sendSnapshot(kind, action, value, targets=[...this.players.keys()].filter(id=>id!==selfId)) {
     const room=this.room;if(!room)return;
     for(const id of targets){const key=kind+':'+id;let sender=this.snapshotSenders.get(key);
-      if(!sender){sender=new SnapshotSender({peer:()=>room.getPeers()[id],send:packet=>this.fast.send(id,kind,packet)?Promise.resolve():action.send(packet,{target:id}),minIntervalMs:kind==='driver'?1000/120:0});this.snapshotSenders.set(key,sender);}
+      if(!sender){sender=new SnapshotSender({peer:()=>room.getPeers()[id],send:packet=>this.fast.send(id,kind,packet)?Promise.resolve():action.send(packet,{target:id}),minIntervalMs:kind==='driver'?1000/144:0});this.snapshotSenders.set(key,sender);}
       sender.offer(value);
     }
   }
