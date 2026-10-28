@@ -20,6 +20,13 @@ test('prediction uses sender sample cadence when network delivery bunches snapsh
   assert.ok(Math.abs(projected[0]-1.11)<1e-8,'A sub-millisecond receive gap must not disable prediction when sender samples are 14 ms apart');
 });
 
+test('prediction blends the native ped velocity with sender-timed movement for stable spacing',()=>{
+  const sample={state:[0,0,8,0,0.08,0,0,1,100,0],time:110,previousState:[-0.06,0,8,0,0.08,0,0,1,100,0],previousTime:90};
+  const projected=projectPlayerState(sample,110,100);
+  assert.ok(Math.abs(projected[0]-0.35)<1e-9,'Average the 3 m/s position slope and 4 m/s native velocity over 100 ms');
+  assert.equal(projected[1],0);
+});
+
 test('prediction refuses seated, idle, stale, discontinuous and vertical-only states', () => {
   const current = player(0, 0);
   const previous = player(-0.06, 0);

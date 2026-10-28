@@ -1,3 +1,11 @@
+# ViceTogether alpha.55 — improve on-foot spacing under jitter
+
+Remote on-foot display prediction now blends the sender-timed position slope with Vice City's native ped velocity. The route lead uses the measured 25 ms native interpolation buffer; time already spent since a snapshot arrived is accounted for separately. This affects display only and leaves authoritative hit and seat validation unchanged. The transparent name/health tag remains raised and aligned above the remote player's head.
+
+Validation: all 105 repository tests passed. Two hidden native game clients in a real local WebRTC lobby measured current on-foot spacing p95 of 0.039/0.037 m with no injected delay, and 0.386/0.364 m with simulated 300 ms RTT and ±30 ms one-way jitter. Both games rendered at about 143.7 FPS. The name/health line remained 68 px above the rendered head with alignment error below 0.00002 px. These are same-PC controlled-delay results, not a cross-ISP test or a guarantee about public NAT routes. Full vehicle edge cases, NPC/combat behavior, and fresh Windows installation still require separate validation. Each player imports their own legally obtained Vice City files; no original game assets are included.
+
+---
+
 # ViceTogether alpha.54 — lift the player name tag a little more
 
 Moved the transparent name and health group 6 additional screen-scaled pixels above the remote player's head. The name and health bar stay centered and aligned, with no background.

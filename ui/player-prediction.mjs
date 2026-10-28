@@ -25,12 +25,26 @@ export function projectPlayerState(sample, now, routeLeadMs, {
 
   const dx = state[0] - previous[0];
   const dy = state[1] - previous[1];
-  const speed = Math.hypot(dx, dy) / intervalMs * 1000;
+  const positionVelocity = [dx / intervalMs * 1000, dy / intervalMs * 1000];
+  // reVC exposes ped velocity in its 50 Hz timestep units. Blend that
+  // instantaneous engine velocity with the sender-timed position slope: the
+  // former responds cleanly to turns/acceleration, while the latter damps
+  // frame-to-frame physics noise.
+  const engineVelocity = [state[4] * 50, state[5] * 50];
+  const engineSpeed = Math.hypot(...engineVelocity);
+  const positionSpeed = Math.hypot(...positionVelocity);
+  const useEngineVelocity = Number.isFinite(engineSpeed) && engineSpeed >= 0.15
+    && engineSpeed <= maxSpeedMetresPerSecond;
+  const velocity = useEngineVelocity
+    ? positionVelocity.map((component, index) => (component + engineVelocity[index]) * 0.5)
+    : positionVelocity;
+  const speed = Math.hypot(...velocity);
   // Do not extrapolate stationary noise or a discontinuity/teleport.
-  if (!Number.isFinite(speed) || speed < 0.15 || speed > maxSpeedMetresPerSecond) return copy;
+  if (!Number.isFinite(positionSpeed) || positionSpeed < 0.15
+    || !Number.isFinite(speed) || speed < 0.15 || speed > maxSpeedMetresPerSecond) return copy;
 
   const horizonMs = Math.max(0, Math.min(maxHorizonMs, ageMs + Math.max(0, routeLeadMs)));
-  copy[0] += dx / intervalMs * horizonMs;
-  copy[1] += dy / intervalMs * horizonMs;
+  copy[0] += velocity[0] * horizonMs / 1000;
+  copy[1] += velocity[1] * horizonMs / 1000;
   return copy;
 }

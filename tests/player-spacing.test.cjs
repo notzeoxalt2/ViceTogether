@@ -31,7 +31,7 @@ test('display prediction is route-aware per recipient and leaves authoritative s
   assert.match(network,/forViewer\(viewerId\)/,'Snapshots must be projected separately for recipients with different routes');
   assert.match(network,/const displaySequence=\+\+this\.displaySequence/,'Fresh projected display samples need their own monotonic sequence');
   assert.match(network,/displaySeq:displaySequence/,'Projected positions must refresh at the render-frame cadence even when source input has not advanced');
-  assert.match(network,/routeOneWayMs\(player\.id\) \+ routeOneWayMs\(viewerId\) \+ 35/,'Display prediction must cover the measured native playback buffer and dispatch interval');
+  assert.match(network,/routeOneWayMs\(player\.id\) \+ routeOneWayMs\(viewerId\) \+ 25/,'Display prediction should use the measured native interpolation buffer; frame-dispatch age is included in sample age');
   assert.match(network,/projectPlayerState\(sample, now, routeMs\)/);
   assert.match(network,/this\.sendSnapshot\('players', this\.world, forViewer\(viewerId\), \[viewerId\]\)/);
   assert.match(prediction,/state\[9\] !== 0/,'Do not predict a player body while attached to a vehicle');
