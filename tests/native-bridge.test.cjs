@@ -93,3 +93,11 @@ test('bridge preserves fresh idle snapshots but ignores duplicate and old networ
   assert.equal(packets.at(-1).readFloatLE(12),17,'pistol equipment reaches the native peer');
   assert.equal(cleanLabel('~~~'),'Player');
 });
+test('native bridge accepts refreshed projected frames for one source snapshot and rejects reordered display frames',()=>{
+ const engine=new NativeEngine('unused'),packets=[];engine.socket={send:b=>packets.push(b)};engine.endpoint=1234;
+ const state=[0,0,10,0,0,0,0,1,100,0];
+ const frame=(displaySeq,x)=>[{id:'friend',seq:42,displaySeq,state:[x,...state.slice(1)]}];
+ engine.frame(frame(100,0));engine.frame(frame(101,0.75));engine.frame(frame(99,-5));
+ const positions=packets.filter(b=>b.readUInt32LE(4)===2).map(b=>b.readFloatLE(12));
+ assert.deepEqual(positions,[0,0.75],'a newer display projection must pass even when the source snapshot sequence is unchanged');
+});

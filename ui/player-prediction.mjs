@@ -15,7 +15,10 @@ export function projectPlayerState(sample, now, routeLeadMs, {
   const ageMs = now - sample.time;
   if (ageMs < 0 || ageMs > maxAgeMs) return copy;
   const previous = sample.previousState;
-  const intervalMs = sample.time - sample.previousTime;
+  const sourceIntervalMs = sample.sourceTime - sample.previousSourceTime;
+  const receiveIntervalMs = sample.time - sample.previousTime;
+  const intervalMs = Number.isFinite(sourceIntervalMs) && sourceIntervalMs >= 8 && sourceIntervalMs <= 250
+    ? sourceIntervalMs : receiveIntervalMs;
   if (!Array.isArray(previous) || previous.length < 10 || !previous.every(Number.isFinite)
     || previous[9] !== 0 || previous[7] <= 0
     || !Number.isFinite(intervalMs) || intervalMs < 8 || intervalMs > 250) return copy;

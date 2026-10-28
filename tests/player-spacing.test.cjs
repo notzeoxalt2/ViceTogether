@@ -2,6 +2,13 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 
 test('player transforms use a high-rate stream and jitter-adaptive interpolation buffer',()=>{
   const native=fs.readFileSync(require.resolve('../engine/native-source/ViceTogetherNetwork.cpp'),'utf8');
+  const historyCapacity=Number(native.match(/constexpr int playerSnapshotHistoryCapacity=(\d+)/)?.[1]);
+  const snapshotInterval=Number(native.match(/constexpr DWORD playerSnapshotIntervalMs=(\d+)/)?.[1]);
+  assert.ok(historyCapacity>0&&snapshotInterval>0,'Native snapshot cadence and bounded history capacity must be declared');
+  assert.ok((historyCapacity-1)*snapshotInterval>160,'The native history must span the full adaptive interpolation-delay range');
+  assert.match(native,/times\[playerSnapshotHistoryCapacity\]; float states\[playerSnapshotHistoryCapacity\]/,'Snapshot time and pose histories must use the same bounded capacity');
+  assert.match(native,/if\(s\.count==playerSnapshotHistoryCapacity\)/,'The oldest state must be evicted only when the bounded history is full');
+  assert.match(native,/if\(vx\*vx\+vy\*vy>0\.0004f\)\{x\+=vx\*ahead;y\+=vy\*ahead;\}/,'Brief snapshot gaps should continue moving horizontal gait instead of freezing it');
   const transport=fs.readFileSync(require.resolve('../networking/realtime-transport.mjs'),'utf8');
   const dispatch=fs.readFileSync(require.resolve('../networking/frame-dispatch.mjs'),'utf8');
   assert.match(native,/constexpr DWORD playerSnapshotIntervalMs=14/,'Native player states are sampled at about 71 Hz');
@@ -18,11 +25,20 @@ test('display prediction is route-aware per recipient and leaves authoritative s
   const network=fs.readFileSync(require.resolve('../ui/network.js'),'utf8');
   const prediction=fs.readFileSync(require.resolve('../ui/player-prediction.mjs'),'utf8');
   assert.match(network,/previousState: previous\?\.state, previousTime: previous\?\.time/);
+  assert.match(network,/sourceTime:performance\.now\(\)/,'Movement packets preserve sender sample cadence across jitter bursts');
+  assert.match(network,/previousSourceTime:previous\?\.sourceTime/,'The receiver retains sender timing for display-only velocity estimates');
   assert.match(network,/this\.fast\?\.latency\(id\)\?\.rttMs/,'Prediction should use the measured peer route when available');
   assert.match(network,/forViewer\(viewerId\)/,'Snapshots must be projected separately for recipients with different routes');
+  assert.match(network,/const displaySequence=\+\+this\.displaySequence/,'Fresh projected display samples need their own monotonic sequence');
+  assert.match(network,/displaySeq:displaySequence/,'Projected positions must refresh at the render-frame cadence even when source input has not advanced');
   assert.match(network,/routeOneWayMs\(player\.id\) \+ routeOneWayMs\(viewerId\) \+ 35/,'Display prediction must cover the measured native playback buffer and dispatch interval');
   assert.match(network,/projectPlayerState\(sample, now, routeMs\)/);
   assert.match(network,/this\.sendSnapshot\('players', this\.world, forViewer\(viewerId\), \[viewerId\]\)/);
   assert.match(prediction,/state\[9\] !== 0/,'Do not predict a player body while attached to a vehicle');
   assert.match(prediction,/maxHorizonMs = 220/,'Prediction must stop after a bounded time horizon');
+  const harness=fs.readFileSync(require.resolve('../src/native-game-test.cjs'),'utf8');
+  assert.match(harness,/VT_TEST_NETWORK_JITTER_MS/,'Two-client native verification must support repeatable variable one-way delay');
+  assert.match(harness,/seq:\+\+entry\.sequence,data/,'The network test allocates snapshot ordering before injecting delay');
+  assert.match(harness,/setTimeout\(\(\)=>\{if\(channel\.readyState==='open'\)\{try\{channel\.send\(packet\)/,'The network test injects delay after packet sequencing at the transport boundary');
+  assert.match(harness,/simulatedJitterAmplitudePerDirectionMs/,'Native test reports the injected jitter alongside its measured spacing');
 });

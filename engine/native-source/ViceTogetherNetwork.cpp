@@ -50,7 +50,11 @@ struct Wire { unsigned magic,type,slot; float state[34]; };
 static_assert(sizeof(Wire)==148,"Wire layout changed");
 constexpr DWORD playerSnapshotIntervalMs=14;
 constexpr float minimumInterpolationDelayMs=25.0f;
-struct Snapshot { bool live; int count; DWORD times[8]; float states[8][34]; float jitter,meanInterval,delay; DWORD playback; };
+// Keep more history than the maximum 160 ms jitter target. Eight entries only
+// retained about 100 ms at the normal 14 ms snapshot cadence, so a buffer that
+// adapted to heavier jitter could still run out of samples and visibly stall.
+constexpr int playerSnapshotHistoryCapacity=16;
+struct Snapshot { bool live; int count; DWORD times[playerSnapshotHistoryCapacity]; float states[playerSnapshotHistoryCapacity][34]; float jitter,meanInterval,delay; DWORD playback; };
 Snapshot history[7]={};
 SOCKET bridge=INVALID_SOCKET;
 sockaddr_in launcher={};
@@ -264,9 +268,9 @@ void ViceTogetherNetworkTick() {
         // use a short floor on clean routes and add room only for measured jitter.
         if(!s.live){s.count=0;s.jitter=0;s.meanInterval=float(playerSnapshotIntervalMs);s.delay=minimumInterpolationDelayMs;s.playback=0;}
         if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000&&interval<=std::max(100.0f,s.meanInterval*4.0f)){const float jitterSample=std::min(fabsf(interval-s.meanInterval),s.meanInterval*2.0f);s.jitter=s.jitter*0.9f+jitterSample*0.1f;s.meanInterval=s.meanInterval*0.9f+interval*0.1f;const float targetDelay=std::min(160.0f,std::max(minimumInterpolationDelayMs,s.meanInterval+s.jitter*2.0f));s.delay=s.delay*0.9f+targetDelay*0.1f;}}
-        if(s.count==8) {
-            std::memmove(s.times,s.times+1,7*sizeof(DWORD));
-            std::memmove(s.states,s.states+1,7*sizeof(s.states[0]));s.count=7;
+        if(s.count==playerSnapshotHistoryCapacity) {
+            std::memmove(s.times,s.times+1,(playerSnapshotHistoryCapacity-1)*sizeof(DWORD));
+            std::memmove(s.states,s.states+1,(playerSnapshotHistoryCapacity-1)*sizeof(s.states[0]));s.count=playerSnapshotHistoryCapacity-1;
         }
         std::memcpy(s.states[s.count],wire.state,sizeof(wire.state));s.times[s.count++]=now;s.live=true;
     }
@@ -293,7 +297,7 @@ void ViceTogetherNetworkTick() {
                 const float* prev=s.states[lower-1];
                 const float vx=(b[0]-prev[0])/dt,vy=(b[1]-prev[1])/dt,vz=(b[2]-prev[2])/dt;
                 // Do not project old vertical motion into floating after a jump.
-                if(vx*vx+vy*vy+vz*vz<0.0004f){x+=vx*ahead;y+=vy*ahead;}
+                if(vx*vx+vy*vy>0.0004f){x+=vx*ahead;y+=vy*ahead;}
             }
         }
         VT_SetRemote(slot,x,y,z,heading,int(t<0.5f?a[7]:b[7]));

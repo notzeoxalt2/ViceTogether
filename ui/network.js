@@ -26,7 +26,7 @@ const cleanName = name => String(name || 'Player').replace(/[\u0000-\u001f\u007f
 
 export class PrivateLobby extends EventTarget {
   constructor() { super(); this.reset(); }
-  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.vehicleSequence=0;this.vehicleReceiveSequences=new Map();this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map();this.wantedLevels=new Map(); this.combat=new SessionCombat();this.npcMeleeAuthority=new NpcMeleeAuthority();this.npcMeleeSequence=0;this.hitSequence=0;this.hitResultSequences=new Map(); this.generation = (this.generation || 0) + 1; }
+  reset() { this.players = new Map(); this.hostId = null; this.sequence = 0; this.displaySequence=0; this.vehicleSequence=0;this.vehicleReceiveSequences=new Map();this.lastSequence = -1; this.pings = {}; this.pending = new Set(); this.states = new Map();this.wantedLevels=new Map(); this.combat=new SessionCombat();this.npcMeleeAuthority=new NpcMeleeAuthority();this.npcMeleeSequence=0;this.hitSequence=0;this.hitResultSequences=new Map(); this.generation = (this.generation || 0) + 1; }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   setReady(ready) {
     this.ready = ready === true;
@@ -139,10 +139,11 @@ export class PrivateLobby extends EventTarget {
     };
     this.movement.onReceive = ({ byteLength }) => byteLength < 1024;
     this.world.onReceive = ({ byteLength }) => byteLength < 16384;
-    this.movement.onMessage = (state, { peerId,realtime }) => {
+    this.movement.onMessage = (data, { peerId,realtime }) => {
       if(!realtime&&this.fast.seen(peerId,'movement'))return;
-      if (!this.isHost || !this.players.has(peerId) || !validState(state)) return;
-      this.acceptState(peerId, state);
+      const snapshot=Array.isArray(data)?{state:data}:data;
+      if (!this.isHost || !this.players.has(peerId) || !validState(snapshot?.state)) return;
+      this.acceptState(peerId, snapshot.state, snapshot);
     };
     this.world.onMessage = (frame, { peerId,realtime }) => {
       if(!realtime&&this.fast.seen(peerId,'players'))return;
@@ -158,6 +159,7 @@ export class PrivateLobby extends EventTarget {
       if (!this.isHost || !this.room) return;
       const now = performance.now();
       const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, sample: s, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true,wanted:this.wantedLevels.get(id)||0, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
+      const displaySequence=++this.displaySequence;
       const routeOneWayMs = id => {
         if (id === selfId) return 0;
         const measured = this.fast?.latency(id)?.rttMs;
@@ -169,7 +171,7 @@ export class PrivateLobby extends EventTarget {
         const { sample, ...entry } = player;
         if (player.id === viewerId) return entry;
         const routeMs = routeOneWayMs(player.id) + routeOneWayMs(viewerId) + 35;
-        return { ...entry, state: projectPlayerState(sample, now, routeMs) };
+        return { ...entry, displaySeq:displaySequence, state: projectPlayerState(sample, now, routeMs) };
       });
       // Each recipient gets a position projected for its route. This only
       // changes the display snapshot: authoritative lobby state remains raw.
@@ -291,15 +293,19 @@ export class PrivateLobby extends EventTarget {
     this.emit('change', { selfId, hostId: this.hostId, isHost: this.isHost, connected: !!this.hostId,connection:this.connectionPhase(), players: [...this.players.values()].map(p => ({ ...p, self: p.id === selfId, ping: p.id === selfId ? 0 : this.fast?.latency(p.id).rttMs ?? this.pings[p.id] ?? null })) });
   }
   connectionPhase(){return lobbyConnection({connected:!!this.hostId,host:this.isHost,elapsedMs:performance.now()-(this.connectionStartedAt||performance.now()),diagnostics:this.networkDiagnostics?.snapshot()});}
-  acceptState(id, state) {
+  acceptState(id, state, senderSample={}) {
     const now = performance.now(), previous = this.states.get(id);
     if(!this.seats.validOccupant(id,state))return;
+    // Keep the sender clock only to estimate display velocity when delivery is
+    // bursty. The host's receive clock above remains authoritative for game
+    // validation; this peer timestamp never controls accepted game state.
+    const sourceTime=Number.isFinite(senderSample.sourceTime)&&senderSample.sourceTime>=0&&senderSample.sourceTime<Number.MAX_SAFE_INTEGER?senderSample.sourceTime:null;
     if (previous && now - previous.time < 2000) {
       const elapsed = Math.max(0.05, (now - previous.time) / 1000);
       if (Math.hypot(state[0] - previous.state[0], state[1] - previous.state[1]) > (state[9]===1?85:18) * elapsed + 3) return;
     }
     const approved=this.combat.update(id,state,now);
-    this.states.set(id, { state:approved.state, time: now, previousState: previous?.state, previousTime: previous?.time, seq: (previous?.seq || 0) + 1 });
+    this.states.set(id, { state:approved.state, time: now, previousState: previous?.state, previousTime: previous?.time, sourceTime, previousSourceTime:previous?.sourceTime, seq: (previous?.seq || 0) + 1 });
     this.frameDispatch?.request();
   }
   acceptHit(id,event) {
@@ -348,8 +354,9 @@ export class PrivateLobby extends EventTarget {
   }
   sendState(state) {
     if (!this.room || !validState(state)) return;
-    if (this.isHost) this.acceptState(selfId, state);
-    else if (this.hostId) this.sendSnapshot('movement',this.movement,state,[this.hostId]);
+    const sourceSample={state,sourceTime:performance.now()};
+    if (this.isHost) this.acceptState(selfId, state, sourceSample);
+    else if (this.hostId) this.sendSnapshot('movement',this.movement,sourceSample,[this.hostId]);
   }
   sendSnapshot(kind, action, value, targets=[...this.players.keys()].filter(id=>id!==selfId)) {
     const room=this.room;if(!room)return;

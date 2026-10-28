@@ -14,6 +14,12 @@ test('display prediction advances only horizontal on-foot movement by a bounded 
   assert.deepEqual(state, player(0, 0), 'Projection must not mutate authoritative lobby state');
 });
 
+test('prediction uses sender sample cadence when network delivery bunches snapshots together',()=>{
+  const sample={state:player(0,0),time:151,previousState:player(-0.084,0),previousTime:150.2,sourceTime:114,previousSourceTime:100};
+  const projected=projectPlayerState(sample,151,185);
+  assert.ok(Math.abs(projected[0]-1.11)<1e-8,'A sub-millisecond receive gap must not disable prediction when sender samples are 14 ms apart');
+});
+
 test('prediction refuses seated, idle, stale, discontinuous and vertical-only states', () => {
   const current = player(0, 0);
   const previous = player(-0.06, 0);

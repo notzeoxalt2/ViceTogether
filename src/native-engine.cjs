@@ -158,8 +158,10 @@ class NativeEngine extends EventEmitter {
         if (slot === undefined) continue; this.slots.set(p.id, slot);
       }
       const previous = this.received.get(p.id);
-      if (Number.isSafeInteger(p.seq) && previous && p.seq <= previous.seq) continue;
-      if (!Number.isSafeInteger(p.seq) && previous && p.state.every((v, i) => v === previous.state[i])) continue;
+      const displaySeq=Number.isSafeInteger(p.displaySeq)?p.displaySeq:p.seq;
+      const previousDisplaySeq=Number.isSafeInteger(previous?.displaySeq)?previous.displaySeq:previous?.seq;
+      if (Number.isSafeInteger(displaySeq) && previous && Number.isSafeInteger(previousDisplaySeq) && displaySeq <= previousDisplaySeq) continue;
+      if (!Number.isSafeInteger(displaySeq) && previous && p.state.every((v, i) => v === previous.state[i])) continue;
       const slot = this.slots.get(p.id), label = cleanLabel(p.name), color=Number.isInteger(p.color)?Math.abs(p.color)%8:1;
       if (previous?.label !== label || previous?.color !== color) {
         const b = packet(5, slot); b.fill(0, 12); b.write(label, 12, 24, 'ascii');
@@ -172,7 +174,7 @@ class NativeEngine extends EventEmitter {
       const weaponVisible=typeof p.weaponVisible==='boolean'?p.weaponVisible:weapon!==0 && p.state[9]===0;
       const wanted=Number.isInteger(p.wanted)&&p.wanted>=0&&p.wanted<=6?p.wanted:0;
       if(previous?.weapon!==weapon || previous?.weaponVisible!==weaponVisible || previous?.wanted!==wanted)this.send(13,slot,[weapon,weaponVisible?1:0,wanted]);
-      this.received.set(p.id, { seq: p.seq, state: p.state.slice(), label, color,weapon,weaponVisible,wanted });
+      this.received.set(p.id, { seq: p.seq, displaySeq, state: p.state.slice(), label, color,weapon,weaponVisible,wanted });
     }
   }
   playerHit(event) {

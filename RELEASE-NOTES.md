@@ -1,3 +1,11 @@
+# ViceTogether alpha.52 — keep remote movement smooth through jitter
+
+Remote on-foot snapshots now keep moving smoothly when packets arrive in bursts: velocity uses the sender's sample cadence for display prediction, while game-state validation stays on the host's receive clock. Projected display frames have their own ordering so fresh corrections are not discarded as duplicates. The native interpolation buffer now retains enough history for its full 160 ms adaptive delay, and horizontal gait continues through brief gaps without projecting vertical jump motion.
+
+Validation: all 101 repository tests passed. Two native game clients on this PC rendered at about 142–144 FPS with injected 0, 150 and 300 ms round-trip delays. At 300 ms RTT with deterministic ±20 ms one-way jitter, two repeat runs measured current player-separation p95 of 0.38/0.38 m and 0.39/0.39 m. These are same-PC WebRTC tests with controlled packet delay, not tests over separate ISPs, public NAT routes or relay fallback. Vehicle handling/seating, full combat and NPC/police synchronization, and clean Windows installation still need separate testing; this release does not claim complete multiplayer synchronization.
+
+---
+
 # ViceTogether alpha.51 — lift the player name tag slightly
 
 Moved the transparent name and health marker 4 scaled pixels higher above the remote player's head, keeping the name centered with its health line and leaving the background clear.
