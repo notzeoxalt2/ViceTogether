@@ -805,7 +805,7 @@ diff --git a/src/peds/PedAI.cpp b/src/peds/PedAI.cpp
 index e204dad9..00000000 100644
 --- a/src/peds/PedAI.cpp
 +++ b/src/peds/PedAI.cpp
-@@ -2615,8 +2615,15 @@ CPed::PedAnimDoorOpenCB(CAnimBlendAssociation* animAssoc, void* arg)
+@@ -2615,8 +2615,16 @@ CPed::PedAnimDoorOpenCB(CAnimBlendAssociation* animAssoc, void* arg)
  		((CAutomobile*)veh)->Damage.SetDoorStatus(door, DOOR_STATUS_SWINGING);
  	}
  
