@@ -1,3 +1,11 @@
+# ViceTogether alpha.54 — lift the player name tag a little more
+
+Moved the transparent name and health group 6 additional screen-scaled pixels above the remote player's head. The name and health bar stay centered and aligned, with no background.
+
+Validation: all 104 repository tests passed when run serially. Two hidden native clients on this PC rendered at about 143.7 and 143.9 FPS; the health line measured 68 px above the animated head and name/health alignment error stayed below 0.00002 px. With no injected network delay, current on-foot spacing p95 measured 0.075 m and 0.089 m. This is a small visual adjustment, not a claim of complete multiplayer synchronization. Public internet/NAT routes, vehicle edge cases, full NPC/combat synchronization, and clean Windows first-run still need separate verification. Each player imports their own legally obtained Vice City files; no original game assets are included.
+
+---
+
 # ViceTogether alpha.53 — tighten player spacing and vehicle updates
 
 Moved the transparent name and health marker 16 screen-scaled pixels higher above the remote player's head, keeping the name and health line aligned. Reduced the guest vehicle display lead on low-latency routes and paced guest driver snapshots at up to 120 Hz, coalescing bursts so outdated vehicle positions are dropped. Seat requests now retry with one stable request ID until acknowledged, preventing a lost request or grant from leaving a player waiting indefinitely. The helicopter test now safely waits for late-arriving vehicle replicas.
