@@ -13,3 +13,15 @@ test('player transforms use a high-rate stream and jitter-adaptive interpolation
   assert.match(transport,/movement:90/,'Movement channel must allow the higher-rate native snapshots without rate limiting');
   assert.match(dispatch,/interval=1000\/60/,'The authoritative player frame must be forwarded at 60 Hz');
 });
+
+test('display prediction is route-aware per recipient and leaves authoritative state intact',()=>{
+  const network=fs.readFileSync(require.resolve('../ui/network.js'),'utf8');
+  const prediction=fs.readFileSync(require.resolve('../ui/player-prediction.mjs'),'utf8');
+  assert.match(network,/previousState: previous\?\.state, previousTime: previous\?\.time/);
+  assert.match(network,/this\.fast\?\.latency\(id\)\?\.rttMs/,'Prediction should use the measured peer route when available');
+  assert.match(network,/forViewer\(viewerId\)/,'Snapshots must be projected separately for recipients with different routes');
+  assert.match(network,/projectPlayerState\(sample, now, routeMs\)/);
+  assert.match(network,/this\.sendSnapshot\('players', this\.world, forViewer\(viewerId\), \[viewerId\]\)/);
+  assert.match(prediction,/state\[9\] !== 0/,'Do not predict a player body while attached to a vehicle');
+  assert.match(prediction,/maxHorizonMs = 220/,'Prediction must stop after a bounded time horizon');
+});

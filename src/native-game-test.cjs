@@ -25,10 +25,12 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
   const testId=`${process.pid}-${Date.now().toString(36)}`;
   const engines = [new NativeEngine(executable), new NativeEngine(executable)];
   const windows = [a, b];
+  const networkDelayPerDirectionMs=Math.max(0,Math.min(250,Number(process.env.VT_TEST_NETWORK_DELAY_MS)||0));
   for(let i=0;i<windows.length;i++){try{await windows[i].webContents.executeJavaScript("window.testVehicleSpawnApprovals=[];window.testAmbientReceived=0;testLobby.addEventListener('vehicle-spawn-approved',event=>{const request=event.detail,sample=testLobby.states.get(request.requester);window.testVehicleSpawnApprovals.push({...request,requesterState:sample?.state?.slice(0,10)??null,requesterStateTime:sample?.time??null})});testLobby.addEventListener('ambient',()=>window.testAmbientReceived++)");await progress(`lobby-instrumented-window-${i}`);}catch(error){await fs.writeFile(path.join(out,'native-game-test-setup-error.json'),JSON.stringify({window:i,error:error.stack},null,2));throw error;}}
   await windows[0].webContents.executeJavaScript("window.testSeatAcceptance=[];const originalAcceptSeat=testLobby.acceptSeat.bind(testLobby);testLobby.acceptSeat=function(id,request){const carId=Number.isSafeInteger(request?.id)?request.id:Number.isSafeInteger(request?.car?.id)?request.car.id:-1,player=this.states.get(id),car=this.seats.cars.get(carId),claimBefore=this.seats.claims.get(id)||null;const result=originalAcceptSeat(id,request);if(window.testSeatAcceptance.length<500)window.testSeatAcceptance.push({time:performance.now(),driver:request?.driver===true,release:request?.release===true,carId,playerTime:player?.time??null,playerState:player?.state?.slice(0,10)??null,vehicle:car?{model:car[0],position:car.slice(2,5),health:car[17],capacity:car[22],wrecked:this.seats.wrecks.has(carId)}:null,claimBefore,claimAfter:this.seats.claims.get(id)||null});return result};void 0");
   try{await windows[0].webContents.executeJavaScript("window.testAmbientSent=0;const originalSendWorld=testLobby.sendWorld.bind(testLobby);testLobby.sendWorld=frame=>{window.testAmbientSent++;return originalSendWorld(frame)};void 0");await progress('lobby-instrumented');}catch(error){await fs.writeFile(path.join(out,'native-game-test-setup-error.json'),JSON.stringify({window:0,stage:'world-send-instrumentation',error:error.stack},null,2));throw error;}
   for(const window of windows)await window.webContents.executeJavaScript("window.testNpcMeleeEvents=[];window.testAcceptedDriverStates=[];window.testReceivedDriverStates=[];window.testAcceptedVehicleDoors=[];window.testNativeDriverStates=[];window.testNativeVehicleDoors=[];window.testDriverFlow={fastSendCalls:0,fastSendFailures:0,reliableSendCalls:0,fastInbound:0,reliableInbound:0,duplicateSequences:0};const originalFastSend=testLobby.fast.send.bind(testLobby.fast);testLobby.fast.send=(peer,kind,value)=>{if(kind==='driver')window.testDriverFlow.fastSendCalls++;const sent=originalFastSend(peer,kind,value);if(kind==='driver'&&!sent)window.testDriverFlow.fastSendFailures++;return sent};const originalReliableSend=testLobby.vehicleInput.send.bind(testLobby.vehicleInput);testLobby.vehicleInput.send=(...args)=>{window.testDriverFlow.reliableSendCalls++;return originalReliableSend(...args)};const originalVehicleMessage=testLobby.vehicleInput.onMessage;const receivedSequences=new Map();testLobby.vehicleInput.onMessage=(update,meta)=>{if(meta?.realtime)window.testDriverFlow.fastInbound++;else window.testDriverFlow.reliableInbound++;if(Number.isSafeInteger(update?.seq)){const previous=receivedSequences.get(meta?.peerId)||0;if(update.seq<=previous)window.testDriverFlow.duplicateSequences++;else receivedSequences.set(meta?.peerId,update.seq)}return originalVehicleMessage(update,meta)};testLobby.addEventListener('npc-melee',event=>window.testNpcMeleeEvents.push(event.detail));testLobby.addEventListener('vehicle-doors',event=>{window.testAcceptedVehicleDoors.push({time:Date.now(),...event.detail});window.testNativeVehicleDoors.push(event.detail);if(window.testAcceptedVehicleDoors.length>2000)window.testAcceptedVehicleDoors.shift()});testLobby.addEventListener('driver-state',event=>{const sample={time:Date.now(),arrival:performance.now(),...event.detail};window.testAcceptedDriverStates.push(sample);window.testReceivedDriverStates.push(sample);window.testNativeDriverStates.push(event.detail);if(window.testAcceptedDriverStates.length>2000)window.testAcceptedDriverStates.shift();if(window.testReceivedDriverStates.length>2000)window.testReceivedDriverStates.shift()})");
+  if(networkDelayPerDirectionMs>0)for(const window of windows)await window.webContents.executeJavaScript(`(()=>{const send=testLobby.fast.send.bind(testLobby.fast),latency=testLobby.fast.latency.bind(testLobby.fast);testLobby.fast.send=(peer,kind,value)=>{if(kind==='movement'||kind==='players'){setTimeout(()=>send(peer,kind,value),${networkDelayPerDirectionMs});return true;}return send(peer,kind,value)};testLobby.fast.latency=peer=>({...latency(peer),rttMs:${networkDelayPerDirectionMs*2},latestRttMs:${networkDelayPerDirectionMs*2},p50Ms:${networkDelayPerDirectionMs*2},p95Ms:${networkDelayPerDirectionMs*2},jitterMs:0});return true})()`);
   for(const window of windows)await window.webContents.executeJavaScript("window.testLocalDriverCalls=0;window.testLocalDriverAccepted=0;window.testLocalDriverRejected=0;window.testLocalDriverEvents=0;window.testLocalDriverFallbacks=0;window.testOriginalSendVehicle=testLobby.sendVehicle.bind(testLobby);testLobby.sendVehicle=function(update){window.testLocalDriverCalls++;const queued=window.testOriginalSendVehicle(update);if(queued)window.testLocalDriverAccepted++;else window.testLocalDriverRejected++;return queued};if(window.desktop?.on)window.desktop.on('local-driver-state',()=>{window.testLocalDriverEvents++});void 0");
   for(const window of windows)await window.webContents.executeJavaScript("window.testPlayerHitEvents=[];testLobby.addEventListener('player-hit',event=>{window.testPlayerHitEvents.push(event.detail);if(window.testPlayerHitEvents.length>128)window.testPlayerHitEvents.shift()});void 0");
   const durationSeconds = Math.max(10, Math.min(180, Number(process.env.VT_TEST_DURATION) || (process.env.VT_TEST_GUEST_DRIVE==='1'?55:30)));
@@ -557,24 +559,26 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       // and may respawn a defeated player; those discontinuities are not normal
       // remote movement errors. Combat has its own hit, damage and reaction gates.
       if(!combatTest)assert.ok(p95 < 1, `Engine ${i} ${authoritativeCarPassenger?'passenger seat distance from authoritative driver':'replication error'} exceeded one metre: ${p95}`);
+      const sourcePositionAt=time=>{let upper=source.findIndex(point=>point.time>=time);if(upper<1||upper>=source.length)return null;const before=source[upper-1],after=source[upper],span=after.time-before.time;if(span<=0||span>100)return null;const amount=(time-before.time)/span;return before.state.slice(0,3).map((value,index)=>value+(after.state[index]-value)*amount);};
       const interpolationBufferSamples=remote[i].map(sample=>sample.state[19]).filter(value=>Number.isFinite(value)&&value>0).sort((a,b)=>a-b);
       assert.ok(interpolationBufferSamples.length>50,`Engine ${i} did not report its active interpolation buffer`);
       const interpolationBufferP95Ms=interpolationBufferSamples[Math.floor(interpolationBufferSamples.length*0.95)];
       assert.ok(interpolationBufferP95Ms<90,`Engine ${i} interpolation buffer remained too high: p95 ${interpolationBufferP95Ms} ms`);
       const gaps = settled.slice(1).map((s,j) => s.time-settled[j].time).sort((a,b)=>a-b);
-      const bufferedPathErrors=[];
+      const presentPositionErrors=[];
       if(!combatTest&&!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1')for(const sample of remote[i]){
         const bufferMs=sample.state[19];if(!Number.isFinite(bufferMs)||bufferMs<=0)continue;
-        const targetTime=sample.time-bufferMs;let upper=source.findIndex(point=>point.time>=targetTime);
-        if(upper<=0)continue;const before=source[upper-1],after=source[upper],span=after.time-before.time;
-        if(span<=0||span>100)continue;const amount=(targetTime-before.time)/span;
-        if(amount<0||amount>1)continue;const expected=before.state.slice(0,3).map((value,index)=>value+(after.state[index]-value)*amount);
-        bufferedPathErrors.push(Math.hypot(...expected.map((value,index)=>value-sample.state[index])));
+        // The display state is deliberately projected across measured route
+        // time plus the native interpolation buffer, so compare it to the
+        // source's current position rather than the old delayed sample time.
+        const current=sourcePositionAt(sample.time);
+        if(current)presentPositionErrors.push(Math.hypot(...current.map((value,index)=>value-sample.state[index])));
       }
-      bufferedPathErrors.sort((a,b)=>a-b);
+      presentPositionErrors.sort((a,b)=>a-b);
       if(!combatTest&&!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1'){
-        assert.ok(bufferedPathErrors.length>50,'Missing timestamp-aligned player spacing samples');
-        assert.ok(bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]<0.22,`Buffer-aligned player spacing error exceeded 22 cm at p95: ${bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]}`);
+        assert.ok(presentPositionErrors.length>50,'Missing timestamp-aligned player spacing samples');
+        const maxPresentPositionError=networkDelayPerDirectionMs>0?0.4:0.22;
+        assert.ok(presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]<maxPresentPositionError,`Present-position error exceeded ${Math.round(maxPresentPositionError*100)} cm at p95: ${presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]}`);
       }
       const gaitSamples=remote[i].filter(s=>s.state[14]>0.05 && s.state[12]>0);
       if(process.env.VT_TEST_CAR!=='1')assert.ok(gaitSamples.length>30,`Engine ${i} did not animate the actual remote ped`);
@@ -591,7 +595,9 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         remoteGaitSamples: gaitSamples.length, remoteGaitPhaseChanges: gaitPhaseChanges,
         maximumRenderPositionErrorMetres:Math.max(...renderErrors),pauseMenuObserved:remote[i].some(s=>s.state[9]===1),
         statePacketIntervalP95Ms:gaps[Math.floor(gaps.length*0.95)]??null,
-        bufferAlignedPositionErrorP95Metres:bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]??null,
+        currentSourceSeparationP95Metres:presentPositionErrors[Math.floor(presentPositionErrors.length*0.95)]??null,
+        simulatedOneWayDelayMs:networkDelayPerDirectionMs,
+        simulatedRoundTripMs:networkDelayPerDirectionMs*2,
         skeletonSamples:upright.length,minimumHeadToFootMetres:Math.min(...heights),maximumHeadToFootMetres:Math.max(...heights),
         animatedHeadSpacingErrorP95Metres:headPositionErrors[Math.floor(headPositionErrors.length*.95)],projectedNameTagSamples:projectedTagCount,
         nameHealthHeadAlignmentErrorP95Pixels:tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)]??null,

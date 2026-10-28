@@ -17,6 +17,7 @@ import { validWeapon } from '../engine/weapons.cjs';
 import { GlassAuthority,validGlass } from '../engine/glass.cjs';
 import { VEHICLE_MODELS, acceptVehicleSpawn } from '../engine/vehicle-spawn.cjs';
 import { SHARED_CHEATS, acceptSharedCheatToggle } from '../engine/shared-cheats.cjs';
+import { projectPlayerState } from './player-prediction.mjs';
 const encoder = new TextEncoder();
 const b64 = bytes => btoa(String.fromCharCode(...new Uint8Array(bytes))).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 const unb64 = text => Uint8Array.from(atob(text.replaceAll('-', '+').replaceAll('_', '/')), c => c.charCodeAt(0));
@@ -156,9 +157,27 @@ export class PrivateLobby extends EventTarget {
     this.frameDispatch = new FrameDispatch(() => {
       if (!this.isHost || !this.room) return;
       const now = performance.now();
-      const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true,wanted:this.wantedLevels.get(id)||0, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
-      this.sendSnapshot('players',this.world,frame);
-      this.emit('frame', frame.map(p => ({ ...p, self: p.id === selfId })));
+      const frame = [...this.states.entries()].filter(([id, s]) => this.players.has(id) && now - s.time < 2000).map(([id, s]) => ({ id, sample: s, state: s.state, seq: s.seq,vehicle:s.state[9]===1?this.seats.claims.get(id):null,weapon:this.combat.equipment.get(id)||0,weaponVisible:this.weaponVisibility.get(id)===true,wanted:this.wantedLevels.get(id)||0, name: this.players.get(id).name, color: ([...this.players.keys()].indexOf(id)+1)%8 }));
+      const routeOneWayMs = id => {
+        if (id === selfId) return 0;
+        const measured = this.fast?.latency(id)?.rttMs;
+        const fallback = this.pings?.[id];
+        const rtt = Number.isFinite(measured) ? measured : Number.isFinite(fallback) ? fallback : 0;
+        return Math.max(0, Math.min(300, rtt)) / 2;
+      };
+      const forViewer = viewerId => frame.map(player => {
+        const { sample, ...entry } = player;
+        if (player.id === viewerId) return entry;
+        const routeMs = routeOneWayMs(player.id) + routeOneWayMs(viewerId) + 25;
+        return { ...entry, state: projectPlayerState(sample, now, routeMs) };
+      });
+      // Each recipient gets a position projected for its route. This only
+      // changes the display snapshot: authoritative lobby state remains raw.
+      this.emit('frame', forViewer(selfId).map(p => ({ ...p, self: p.id === selfId })));
+      for (const viewerId of this.players.keys()) {
+        if (viewerId === selfId) continue;
+        this.sendSnapshot('players', this.world, forViewer(viewerId), [viewerId]);
+      }
     });
     // Heartbeat also expires disconnected/stale actors when no fresh input arrives.
     this.gameTimer=setInterval(()=>this.frameDispatch.request(),250);
@@ -280,7 +299,7 @@ export class PrivateLobby extends EventTarget {
       if (Math.hypot(state[0] - previous.state[0], state[1] - previous.state[1]) > (state[9]===1?85:18) * elapsed + 3) return;
     }
     const approved=this.combat.update(id,state,now);
-    this.states.set(id, { state:approved.state, time: now, seq: (previous?.seq || 0) + 1 });
+    this.states.set(id, { state:approved.state, time: now, previousState: previous?.state, previousTime: previous?.time, seq: (previous?.seq || 0) + 1 });
     this.frameDispatch?.request();
   }
   acceptHit(id,event) {

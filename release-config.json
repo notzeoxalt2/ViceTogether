@@ -10,5 +10,5 @@
     "wss://relay.novospes.com",
     "wss://relay.nostr.dev.br"
   ],
-  "releaseStatus": "Experimental alpha.43. Same-PC on-foot movement and grounded Maverick spawn/rejoin checks passed; public internet/NAT connectivity, flight behavior, full vehicle coverage, and fresh-Windows first-run are not yet verified."
+  "releaseStatus": "Experimental alpha.47. RTT-aware on-foot display prediction passed hidden two-client same-PC tests at 0, 150, and 300 ms simulated RTT. Public internet/NAT connectivity, full vehicle coverage, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files."
 }

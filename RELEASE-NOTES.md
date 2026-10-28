@@ -1,3 +1,11 @@
+# ViceTogether alpha.47 — reduce on-foot position lag
+
+Remote on-foot player positions now use a bounded, RTT-aware display prediction. Each recipient gets a snapshot projected for its measured route; only horizontal display coordinates change, so vehicle motion and authoritative hit/seat checks stay untouched. The transparent name/health group remains aligned and 30 scaled pixels above the rendered head.
+
+Validation: all 98 repository tests passed. Two hidden native game instances ran at about 143.8 FPS with frame-time p95 near 7.1 ms. Same-PC present-position gap p95 measured 0.145 m and 0.134 m with no injected delay, 0.345 m and 0.260 m at 150 ms simulated RTT, and 0.399 m and 0.378 m at 300 ms simulated RTT. These are controlled same-PC delay simulations, not tests across separate ISPs or NATs. Public internet connectivity, full vehicle coverage, and fresh-Windows first-run remain unverified. Each player imports their own legally obtained Vice City files; no original game assets are included.
+
+---
+
 # ViceTogether alpha.46 — lift the floating name tag
 
 Raised the floating name and health group by 3 pixels above the animated head anchor. The name and health remain centered together and have no background panel.
