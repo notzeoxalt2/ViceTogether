@@ -539,7 +539,7 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         tagAlignmentErrors=projectedTags.map(s=>Math.max(Math.abs(s.state[24]-s.state[25]),Math.abs(s.state[24]+s.state[26]*0.5-s.state[29]))).sort((a,b)=>a-b);
         assert.ok(tagAlignmentErrors.length>20&&tagAlignmentErrors[Math.floor(tagAlignmentErrors.length*.95)]<0.01,`Engine ${i} actual rendered name/health left edges diverged or their shared center missed the head`);
         headClearanceSamples=projectedTags.map(s=>s.state[28]-s.state[22]).sort((a,b)=>a-b);
-        assert.ok(headClearanceSamples.every(v=>v>65&&v<71),`Engine ${i} health line is not kept a small, consistent distance above the actual rendered head anchor`);
+        assert.ok(headClearanceSamples.every(v=>v>87&&v<93),`Engine ${i} health line is not kept at the new higher, consistent distance above the actual rendered head anchor: min ${headClearanceSamples[0]}, p95 ${headClearanceSamples[Math.floor(headClearanceSamples.length*.95)]}, max ${headClearanceSamples.at(-1)}`);
       }
       const colored=upright.filter(s=>s.state[6]>0 && s.state[7]>0);
       assert.ok(colored.length>10 && colored.some(s=>s.state[8]>100), `Engine ${i} remote shirt recoloring was not applied during native rendering`);
