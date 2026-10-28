@@ -2,7 +2,7 @@
 
 Raised the floating name and health group by 3 pixels above the animated head anchor. The name and health remain centered together and have no background panel.
 
-Validation: all 95 repository tests passed. A hidden paired native-game render check is pending before publishing the auto-update. Each player imports their own legally obtained Vice City installation; no game files are included.
+Validation: all 95 repository tests passed. A hidden 30-second two-client native-game render check passed: both clients averaged 143.7 FPS; name/health alignment error stayed below 0.00003 px p95; the health line sat 30 px above the rendered head anchor in both views; timestamp-aligned player spacing error was 0.161 m and 0.165 m p95. This is same-PC testing, not a public-internet connectivity test. Each player imports their own legally obtained Vice City installation; no game files are included.
 
 ---
 
