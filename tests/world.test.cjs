@@ -18,6 +18,24 @@ test('native world capture and packet intake are restricted to police pedestrian
   assert.match(source,/p->m_nPedType!=PEDTYPE_COP/);
   assert.match(source,/type==21 && state\[1\]!=float\(PEDTYPE_COP\)/);
 });
+test('native world capture prioritizes every vehicle occupied by a session player',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../engine/native-source/ViceTogetherWorld.cpp'),'utf8');
+  const priority=source.indexOf('Never let the nearby-vehicle budget drop a car another player is using.');
+  const boundedSelection=source.indexOf('for(size_t zone=0;zone<carsByCenter.size() && selectedCars.size()<32;zone++)');
+  assert.ok(priority>=0&&boundedSelection>priority,'Player-occupied vehicles must be selected before the capped ambient-car quota');
+  const capture=source.slice(priority,boundedSelection);
+  assert.match(capture,/isSessionPlayer\(car->pDriver\)/,'A player-driven car is always included');
+  assert.match(capture,/isSessionPlayer\(car->pPassengers\[seat\]\)/,'A car occupied only by a player passenger is always included');
+});
+test('host wrecks still apply to a guest driven car without overriding its live transform',()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../engine/native-source/ViceTogetherWorld.cpp'),'utf8');
+  const start=source.indexOf('const bool fastDrivenVehicle=');
+  const end=source.indexOf('if(!r.entity)',start);
+  const localDriver=source.slice(start,end);
+  assert.match(localDriver,/const bool authoritativeWreck=/,'Host world state must be checked even while direct driver packets are fresh');
+  assert.match(localDriver,/localCar->BlowUpCar\(nil\)/,'A host wreck is replayed through the native explosion path on the guest');
+  assert.match(localDriver,/driverMotions\.erase\(entry\.first\)/,'A wrecked vehicle must stop stale client-side driver interpolation');
+});
 test('unsupported civilian replicas are dropped without discarding supported world entities',()=>{
   const civilian=Array(34).fill(0);civilian[0]=7;civilian[1]=4;civilian[8]=civilian[9]=-1;
   const police=Array(34).fill(0);police[0]=7;police[1]=POLICE_PED_TYPE;police[8]=police[9]=-1;

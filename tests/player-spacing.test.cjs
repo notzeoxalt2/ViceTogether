@@ -47,5 +47,5 @@ test('display prediction is route-aware per recipient and leaves authoritative s
 
 test('remote name and health tag sit clearly above the projected head',()=>{
   const source=fs.readFileSync(require.resolve('../engine/native-source/ViceTogether.cpp'),'utf8');
-  assert.match(source,/remoteTagHeadClearance\(\)\{return SCREEN_SCALE_Y\(76\.0f\);\}/,'Keep a little more breathing room above the remote player head');
+  assert.match(source,/remoteTagHeadClearance\(\)\{return SCREEN_SCALE_Y\(82\.0f\);\}/,'Keep a little more breathing room above the remote player head');
 });

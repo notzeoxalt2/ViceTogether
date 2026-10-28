@@ -788,6 +788,18 @@ void ViceTogetherWorldCapture(VTWorldSender send) {
     for(auto& zone:carsByCenter)std::sort(zone.begin(),zone.end(),[](const auto& a,const auto& b){return a.first<b.first;});
     std::sort(nearbyCars.begin(),nearbyCars.end(),[](const auto& a,const auto& b){return a.first<b.first;});
     std::vector<CVehicle*> selectedCars;
+    // Never let the nearby-vehicle budget drop a car another player is using.
+    // SeatAuthority treats complete world frames as authoritative; omitting an
+    // occupied car even once releases its driver claim and can leave the other
+    // client with a missing vehicle or a detached passenger after rejoin.
+    const auto isSessionPlayer=[](CPed* ped){return ped && (ped==FindPlayerPed() || ViceTogetherIsRemote(ped));};
+    for(int i=0;i<cars->GetSize() && selectedCars.size()<32;i++){
+        CVehicle* car=cars->GetSlot(i);
+        if(!car || !car->m_rwObject || (!car->IsCar() && !car->IsBike() && !car->IsBoat() && !multiplayerHelicopter(car) && !car->IsPlane()))continue;
+        bool occupied=isSessionPlayer(car->pDriver);
+        for(int seat=0;seat<8 && !occupied;seat++)occupied=isSessionPlayer(car->pPassengers[seat]);
+        if(occupied)selectedCars.push_back(car);
+    }
     for(size_t zone=0;zone<carsByCenter.size() && selectedCars.size()<32;zone++){
         const size_t quota=32/carsByCenter.size()+(zone<32%carsByCenter.size()?1:0);size_t added=0;
         for(const auto& entry:carsByCenter[zone]){if(std::find(selectedCars.begin(),selectedCars.end(),entry.second)!=selectedCars.end())continue;selectedCars.push_back(entry.second);if(++added>=quota || selectedCars.size()>=32)break;}
@@ -858,7 +870,21 @@ void ViceTogetherWorldTick() {
         Replica& r=entry.second;float* d=r.target;const int model=int(d[0]);
         const auto directMotion=driverMotions.find(entry.first);
         const bool fastDrivenVehicle=map==&vehicles&&guest()&&directMotion!=driverMotions.end()&&CTimer::GetTimeInMilliseconds()-directMotion->second.received<250;
-        if(map==&vehicles && r.entity && ((CVehicle*)r.entity)->pDriver==FindPlayerPed() && FindPlayerPed()->bInVehicle){((CVehicle*)r.entity)->m_fHealth=d[17];if(d[17]>0 && (!r.hasVisual || unsigned(r.visual[31])!=STATUS_WRECKED))continue;}
+        if(map==&vehicles && r.entity && ((CVehicle*)r.entity)->pDriver==FindPlayerPed() && FindPlayerPed()->bInVehicle){
+            CVehicle* localCar=(CVehicle*)r.entity;
+            const bool authoritativeWreck=localCar->GetStatus()==STATUS_WRECKED || localCar->m_fHealth<=0 || d[17]<=0 || (r.hasVisual && unsigned(r.visual[31])==STATUS_WRECKED);
+            if(authoritativeWreck){
+                if(!localCar->bRenderScorched){localCar->m_fHealth=std::max(1.0f,r.previous[17]);localCar->BlowUpCar(nil);localCar->bRenderScorched=true;}
+                localCar->SetStatus(STATUS_WRECKED);localCar->bEngineOn=false;localCar->m_fHealth=std::min(localCar->m_fHealth,d[17]);
+                driverMotions.erase(entry.first);delegatedVehicles.erase(entry.first);
+                localCar->GetMatrix().UpdateRW();localCar->UpdateRwFrame();
+                continue;
+            }
+            localCar->m_fHealth=std::min(localCar->m_fHealth,d[17]);
+            // Keep the guest's own transform while driving, but still honor
+            // authoritative health and wreck transitions from the host.
+            continue;
+        }
         if(!r.entity){CStreaming::RequestModel(model,STREAMFLAGS_DONT_REMOVE);if(!CStreaming::HasModelLoaded(model))continue;
             if(map==&pedestrians){CPed* p=new CPed((ePedType)std::max(0,std::min(21,int(d[1]))));p->SetModelIndex(model);p->CharCreatedBy=MISSION_CHAR;p->bRespondsToThreats=false;r.entity=p;}
             else {r.entity=createMultiplayerVehicle(model);if(!r.entity)continue;}
