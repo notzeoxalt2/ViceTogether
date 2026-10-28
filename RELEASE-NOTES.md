@@ -1,8 +1,8 @@
-# ViceTogether alpha.56 — lift player name tag slightly
+# ViceTogether alpha.57 — clearer player tags and smoother delayed car replication
 
-Moved the transparent name and health marker 6 additional screen-scaled pixels above the remote player's head. The name and health line keep the same horizontal alignment and spacing.
+Raised the transparent player name and health group another 12 screen-scaled pixels above the remote player's head, keeping the name and health line aligned. Increased the distance limit for RTT-aware car position prediction so ordinary high-latency routes do not leave a fast car visibly behind its driver.
 
-Validation: all 105 repository tests passed. The native Windows release workflow rebuilds the modified render hook. This visual adjustment does not verify or claim complete multiplayer synchronization. Each player imports their own legally obtained Vice City files; no original game assets are included.
+Validation: all 106 repository tests passed. Two hidden native game clients ran for 55 seconds with simulated 300 ms RTT and ±30 ms one-way jitter. Source-time-aligned car position error was 0.48 m p95 across 278 comparisons, and each game rendered at about 143.7 FPS. Door animation replication was exercised. This is a same-PC controlled-delay result, not a public-internet guarantee; broader vehicle, NPC, combat, NAT, and fresh-Windows cases remain separate work. Each player imports their own legally obtained Vice City files; no original game assets are included.
 
 ---
 
