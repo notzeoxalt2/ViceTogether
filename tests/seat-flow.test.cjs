@@ -90,6 +90,10 @@ test('hidden two-game guest-driving test actually runs and checks native exit tr
   assert.match(network,/sendWorld\(24,0,seatTask\)/,'Model 217 seat diagnostics must use the existing loopback bridge');
   assert.match(native,/type===24&&state\.every\(Number\.isFinite\).*seat-task-diagnostic/,'The native harness must retain the seat-task samples');
   assert.match(harness,/nativeSeatTaskSamples:seatTaskDiagnostics\[0\]\.slice\(-80\)/,'Helicopter failures must save native samples for diagnosis');
+  assert.match(harness,/VT_TEST_HELI_PASSENGER_ONLY==='1'[\s\S]*?stockBoardingAnimationObserved[\s\S]*?heli-passenger-entry\.json[\s\S]*?return result/,
+    'Helicopter seat entry can be tested independently from the longer, collision-sensitive flight route');
+  assert.match(harness,/sourceSkeleton\[0\]\.filter\(sample=>sample\.time>=heliSeatRequestAt&&sample\.state\[6\]===1&&passengerSeatSamples\.some\(seat=>Math\.abs\(seat\.time-sample\.time\)<=100\)\)/,
+    'Passenger entry verification must correlate the actual local in-vehicle flag with the seat claim instead of an unused vehicle-ID slot');
 });
 
 test('multiplayer car passengers use the stock jump-out animation and speed gate',()=>{

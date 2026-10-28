@@ -167,6 +167,19 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
       const heliBoardingSamples=sourceSkeleton[0].filter(sample=>!candidate.preexisting&&sample.time>=heliSeatRequestAt&&sample.state[4]===58&&sample.state[6]===0&&sample.state[12]>=0&&sample.state[14]>.05);
       assert.ok(candidate.preexisting||heliBoardingSamples.length>0,'Helicopter passenger entered without an observed native align/enter animation');
       heliHostPassengerSetup={vehicleId:candidate.id,distanceMetres:candidate.distance??null,seat:passengerSeat,stockBoardingAnimationObserved:heliBoardingSamples.length>0,boardingAnimationSamples:heliBoardingSamples.length,trigger:'hidden test harness uses the same host lobby seat request as G near a vehicle'};
+      if(process.env.VT_TEST_HELI_PASSENGER_ONLY==='1'){
+        assert.ok(local[0].length>30&&local[1].length>30,'Both native game clients must be live before the helicopter passenger check');
+        await delay(1200);
+        const passengerSeatSamples=localSeats[0].filter(sample=>sample.id===candidate.id&&sample.seat===passengerSeat);
+        // VT_ReadLocalSkeleton has no vehicle-ID field; index 29 is unused in
+        // local samples. Match its native in-vehicle flag to the seat packet
+        // for this exact vehicle instead of comparing against an unpopulated slot.
+        const hostInVehicleSamples=sourceSkeleton[0].filter(sample=>sample.time>=heliSeatRequestAt&&sample.state[6]===1&&passengerSeatSamples.some(seat=>Math.abs(seat.time-sample.time)<=100)).length;
+        const result={success:true,scenario:'Two hidden native clients, host passenger completes the stock helicopter entry animation and remains attached to the reserved seat',vehicleId:candidate.id,seat:passengerSeat,distanceMetres:candidate.distance??null,stockBoardingAnimationObserved:heliBoardingSamples.length>0,boardingAnimationSamples:heliBoardingSamples.length,passengerSeatSamples:passengerSeatSamples.length,passengerSeatSpanMs:passengerSeatSamples.length>1?passengerSeatSamples.at(-1).time-passengerSeatSamples[0].time:0,hostInVehicleSamples,localClientFrames:local.map(samples=>samples.length),samePC:true,internetTested:false};
+        assert.ok(result.passengerSeatSamples>=10&&result.passengerSeatSpanMs>=700&&result.hostInVehicleSamples>=10,'The host did not remain attached to the helicopter passenger seat for at least 700 ms after the stock boarding animation');
+        await fs.writeFile(path.join(out,'heli-passenger-entry.json'),JSON.stringify(result,null,2));
+        return result;
+      }
     }
     if(process.env.VT_TEST_GUEST_FAR_WORLD==='1') {
       const deadline=Date.now()+25000;
