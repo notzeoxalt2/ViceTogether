@@ -568,6 +568,10 @@ async function runNativeGameTest({ a, b, executable, out,registerLauncher }) {
         bufferedPathErrors.push(Math.hypot(...expected.map((value,index)=>value-sample.state[index])));
       }
       bufferedPathErrors.sort((a,b)=>a-b);
+      if(!authoritativeCarPassenger&&process.env.VT_TEST_CAR!=='1'){
+        assert.ok(bufferedPathErrors.length>50,'Missing timestamp-aligned player spacing samples');
+        assert.ok(bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]<0.22,`Buffer-aligned player spacing error exceeded 22 cm at p95: ${bufferedPathErrors[Math.floor(bufferedPathErrors.length*0.95)]}`);
+      }
       const gaitSamples=remote[i].filter(s=>s.state[14]>0.05 && s.state[12]>0);
       if(process.env.VT_TEST_CAR!=='1')assert.ok(gaitSamples.length>30,`Engine ${i} did not animate the actual remote ped`);
       const gaitPhaseChanges=gaitSamples.slice(1).filter((s,j)=>Math.abs(s.state[12]-gaitSamples[j].state[12])>0.005).length;

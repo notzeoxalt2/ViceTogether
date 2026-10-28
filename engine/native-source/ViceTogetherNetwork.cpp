@@ -263,7 +263,7 @@ void ViceTogetherNetworkTick() {
         // Keep the smallest buffer that can bridge the observed update cadence;
         // use a short floor on clean routes and add room only for measured jitter.
         if(!s.live){s.count=0;s.jitter=0;s.meanInterval=float(playerSnapshotIntervalMs);s.delay=minimumInterpolationDelayMs;s.playback=0;}
-        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000){s.jitter=s.jitter*0.9f+fabsf(interval-s.meanInterval)*0.1f;s.meanInterval=s.meanInterval*0.9f+interval*0.1f;const float targetDelay=std::min(160.0f,std::max(minimumInterpolationDelayMs,s.meanInterval+s.jitter*2.0f));s.delay=s.delay*0.9f+targetDelay*0.1f;}}
+        if(s.count){const float interval=float(now-s.times[s.count-1]);if(interval<1000&&interval<=std::max(100.0f,s.meanInterval*4.0f)){const float jitterSample=std::min(fabsf(interval-s.meanInterval),s.meanInterval*2.0f);s.jitter=s.jitter*0.9f+jitterSample*0.1f;s.meanInterval=s.meanInterval*0.9f+interval*0.1f;const float targetDelay=std::min(160.0f,std::max(minimumInterpolationDelayMs,s.meanInterval+s.jitter*2.0f));s.delay=s.delay*0.9f+targetDelay*0.1f;}}
         if(s.count==8) {
             std::memmove(s.times,s.times+1,7*sizeof(DWORD));
             std::memmove(s.states,s.states+1,7*sizeof(s.states[0]));s.count=7;
