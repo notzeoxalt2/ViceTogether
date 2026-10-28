@@ -58,7 +58,7 @@ test('floating player names and health lines use a shared left edge captured by 
  assert.match(cpp,/struct RemoteTagLayout \{float centerX,nameY,healthY,headY;\}/);
  assert.match(cpp,/float remoteTagNameGap\(\)\{return SCREEN_SCALE_Y\(17\.0f\);\}/);
  assert.match(cpp,/float remoteTagHealthGap\(\)\{return SCREEN_SCALE_Y\(13\.0f\);\}/);
- assert.match(cpp,/float remoteTagHeadClearance\(\)\{return SCREEN_SCALE_Y\(13\.0f\);\}/);
+ assert.match(cpp,/float remoteTagHeadClearance\(\)\{return SCREEN_SCALE_Y\(16\.0f\);\}/);
  assert.match(cpp,/const float clearance=remoteTagHeadClearance\(\);/);
  assert.match(cpp,/remoteTagNameGap\(\)-clearance,head\.y-SCREEN_SCALE_Y\(1\.0f\)-remoteTagHealthGap\(\)-clearance/);
  assert.match(cpp,/struct RemoteTagObservation/);

@@ -1,3 +1,11 @@
+# ViceTogether alpha.46 — lift the floating name tag
+
+Raised the floating name and health group by 3 pixels above the animated head anchor. The name and health remain centered together and have no background panel.
+
+Validation: all 95 repository tests passed. A hidden paired native-game render check is pending before publishing the auto-update. Each player imports their own legally obtained Vice City installation; no game files are included.
+
+---
+
 # ViceTogether alpha.45 — tighten name-tag head spacing
 
 The alpha.44 two-client run measured the name/health group 30 px above the projected head anchor in both views. This update sets the extra offset to 13 scaled pixels, keeping the name and health line aligned while lifting them just slightly.
